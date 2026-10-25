@@ -38,6 +38,7 @@ import {
 } from '../types';
 import { valorLinea } from '../engine/engine';
 import { generarAnalisis, estadoAnalisis, ClaveAnalisis, PresentacionMonetaria } from '../engine/analisis';
+import { conciliarArranque } from '../engine/flujos';
 import { diagnosticar } from '../model/controles';
 import { fmtK, fmtCUP, fmtPct, fmtAnios, fmtUsd, fechaLarga, mesAnio, esValorPendiente, esReferenciaHipotesis } from '../format';
 import {
@@ -312,6 +313,46 @@ export function construirDocumentoPlanex(
               ancha: true,
             },
           },
+          ...(() => {
+            // Ampliaciones DERIVADAS del modelo (DOC-002-R1 §3): el año de la
+            // capacidad, el CAPEX y la depreciación provienen del MISMO dato
+            // estructurado; la narrativa no fija años por su cuenta.
+            const filasAmp = p.recursos.flatMap((r) =>
+              r.expansiones.map((e) => {
+                const activo = m.depreciacion.find((a) => a.id === `${r.id}-amp-${e.id}`);
+                return { r, e, activo };
+              })
+            );
+            if (!filasAmp.length) return [] as ElementoDoc[];
+            const activoB = p.tecnico.escenarioCapacidad === 'B_ampliacion';
+            return [
+              {
+                tipo: 'tabla' as const,
+                tabla: {
+                  titulo: `Ampliaciones programadas según la tabla de recursos (derivadas del modelo: el año de la capacidad, el CAPEX y la depreciación provienen del mismo dato estructurado${activoB ? '' : '; con el escenario A activo NO se aplican'})`,
+                  encabezados: ['Recurso', 'Incremento', 'Año de entrada (capacidad)', 'CAPEX del año', 'Depreciación desde el año de entrada', 'Vida útil / VNL al cierre'],
+                  filas: filasAmp.map(({ r, e, activo }) => [
+                    r.nombre,
+                    `+${e.cantidad} uds.`,
+                    String(e.anio),
+                    K(m.indicadores.capexAmpliaciones[e.anio] ?? 0),
+                    activo
+                      ? `${K(activo.depreciacion[activo.anioDisponible] ?? 0)} ${ctx.unidadCorta}/año desde el año ${activo.anioDisponible}`
+                      : activoB
+                        ? '—'
+                        : 'No aplica (escenario A)',
+                    activo ? `${String(activo.vidaUtilAnios)} años (VNL al cierre: ${K(activo.vnl)})` : String(e.vidaUtilAnios),
+                  ]),
+                  ancha: true,
+                },
+              },
+              {
+                tipo: 'parrafo' as const,
+                pequeno: true,
+                texto: `El año de entrada de cada ampliación es el dato estructurado registrado en la tabla de recursos (${filasAmp.map(({ e }) => `año ${e.anio}`).join(', ')}); el CAPEX, la depreciación y las tablas de capacidad y flujos usan ese mismo año. Toda mención narrativa a una fecha de ampliación debe corresponderse con este registro.`,
+              },
+            ] as ElementoDoc[];
+          })(),
         ] as ElementoDoc[])
       : []),
     ...(p.servicios.length
@@ -570,7 +611,7 @@ export function construirDocumentoPlanex(
     elementos471.push({
       tipo: 'parrafo',
       texto:
-        'Reglas expresas del módulo: la base distribuible absorbe primero las pérdidas acumuladas (saldo acumulable previo) y la reserva se constituye UNA sola vez sobre esa base, por lo que nunca se reserva dos veces la misma utilidad; los dividendos propuestos (utilidad distribuible × porcentaje de reparto) solo son PAGABLES hasta la caja acumulada disponible (FCFE antes de repartos, desde el año 0: política conservadora que exige recuperar en caja los aportes antes de repartir), y el reparto entre socios usa la PARTICIPACIÓN en el capital, que es distinta del porcentaje de reparto. Los dividendos de la parte cubana que figuran en 4.11 salen de este mismo módulo.',
+        'Reglas expresas del módulo (base matemática exacta): base_t = MAX(0, UDI_t + saldoAcumulable_(t−1)), donde el saldo acumulable previo son los resultados de EJERCICIOS ANTERIORES no distribuidos — utilidades retenidas netas de pérdidas, de reservas ya constituidas y de dividendos ya pagados (el saldo del año 0 arranca con la pérdida de montaje, si existe) —, de modo que la base NO es solo la utilidad del año: la reserva (pct_reserva_legal × base) se constituye UNA sola vez sobre esa base y nunca se reserva dos veces la misma utilidad; distribuible = base − reserva; propuestos = distribuible × pct_reparto; pagables = MIN(propuestos, MAX(0, caja acumulada)), donde la caja acumulada es el FCFE antes de repartos DESDE EL AÑO 0 (política conservadora que exige recuperar en caja los aportes antes de repartir); el reparto entre socios usa la PARTICIPACIÓN en el capital, que es distinta del porcentaje de reparto; saldoAcumulable_t = saldoAcumulable_(t−1) + UDI_t − reserva_t − pagables_t. La política de reservas y repartos — incluida la decisión de constituir la reserva sobre la base acumulada y no sobre la utilidad aislada del ejercicio — es un SUPUESTO EDITABLE PENDIENTE DE VALIDACIÓN JURÍDICA: la exigencia legal de constituir reservas y su base exacta deben confirmarse con la normativa societaria aplicable y con el propietario del plan antes de cualquier uso oficial. Los dividendos de la parte cubana que figuran en 4.11 salen de este mismo módulo.',
       pequeno: true,
     });
   }
@@ -782,23 +823,33 @@ export function construirDocumentoPlanex(
     },
   ];
   {
-    // Conciliación del desembolso inicial (§4.2): inversión + gastos del año 0
-    // frente a las fuentes declaradas, con el mismo significado de año 0/1.
-    const udi0 = m.valores['utilidad_despues_impuestos_k']?.[0];
-    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
+    // Conciliación del desembolso inicial (DOC-002-R1 §2): partidas de salida
+    // de caja EXPLÍCITAS del año 0, no el resultado contable después de
+    // impuestos. El capital de trabajo ya está dentro de la inversión total.
+    const arranque = conciliarArranque(m);
     elementosDiag.push({
       tipo: 'tabla',
       tabla: {
         titulo: `Conciliación del desembolso inicial (${ctx.unidadLarga}; años 0 y 1 con el mismo significado en aportaciones, fuentes y flujos)`,
         encabezados: ['Concepto', `Monto (${ctx.unidadCorta})`],
         filas: [
-          ['Inversión total (incluye capital de trabajo)', K(m.indicadores.inversionTotalKUSD)],
-          ['Gastos de la fase de montaje del año 0 (gasto del período, no capitalizable)', K(gastoAnio0)],
-          ['Necesidad total de arranque', K(m.indicadores.inversionTotalKUSD + gastoAnio0)],
-          ['Financiación disponible declarada (aportaciones + otras fuentes + crédito)', K(val('financiacion_disponible_k', 0))],
-          ['Brecha de financiación del arranque', K(val('financiacion_disponible_k', 0) - m.indicadores.inversionTotalKUSD - gastoAnio0)],
+          ['Inversión total (incluye el capital de trabajo: no se duplica)', K(arranque.inversionTotal)],
+          ['Nómina de montaje del año 0 (regla «costo_laboral_k»: gasto del período, no capitalizable)', K(arranque.nominaMontaje)],
+          ['Interés PAGADO del año 0 según el calendario de deuda (lo capitalizado no es salida de caja)', K(arranque.interesPagado)],
+          ['Impuesto sobre utilidades del año 0 (si es positivo)', K(arranque.impuestoPagado)],
+          ['Menos: ingresos explícitos del año 0', K(-arranque.ingresosAnio0)],
+          ['Salidas netas de caja del año 0 explícitamente identificadas', K(arranque.gastoCajaAnio0)],
+          ['Necesidad total de arranque (inversión total + salidas netas del año 0)', K(arranque.necesidadTotal)],
+          ['Financiación disponible declarada (aportaciones + otras fuentes + crédito)', K(arranque.financiacionDisponible)],
+          ['Brecha de financiación del arranque', K(arranque.brecha)],
         ],
       },
+    });
+    elementosDiag.push({
+      tipo: 'parrafo',
+      pequeno: true,
+      texto:
+        'La brecha del arranque se cuantifica desde partidas de salida de caja del año 0 explícitamente identificadas como no capitalizables y no incluidas en la inversión total (nómina de montaje, interés pagado e impuesto del año 0, menos los ingresos explícitos del año 0); NO se deduce del resultado contable después de impuestos del año 0, que puede contener pérdidas no monetarias (depreciación), intereses devengados capitalizados (no pagados) u otros efectos que no representan caja.',
     });
   }
   if (hallazgos.length) {
@@ -885,7 +936,7 @@ export function construirDocumentoPlanex(
       tipo: 'parrafo',
       texto: `Redondeo: los cálculos usan precisión interna completa y el redondeo es solo de presentación (${ctx.unidadLarga} con un decimal); pequeñas diferencias con la suma visual de cifras redondeadas se explican por este motivo de forma uniforme.`,
     },
-    { tipo: 'parrafo', texto: notaConversion(ctx, tasa) },
+    { tipo: 'parrafo', texto: notaConversion(ctx, tasa, p.general.fecha) },
     {
       tipo: 'parrafo',
       texto:
@@ -924,7 +975,7 @@ export function construirDocumentoPlanex(
       esDemo,
       moneda,
       unidadTabla: ctx.unidadTabla,
-      notaMoneda: notaConversion(ctx, tasa),
+      notaMoneda: notaConversion(ctx, tasa, p.general.fecha),
     },
     portada: {
       titulo: 'PLAN DE NEGOCIOS',

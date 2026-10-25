@@ -48,7 +48,7 @@ import { fmtK, fmtPct } from '../format';
 import { calcularDepreciacion } from './depreciacion';
 import { calcularDeuda } from './deuda';
 import { capacidadAnio, ampliacionesActivas } from './capacidad';
-import { calcularRecuperacion, acumular } from './flujos';
+import { calcularRecuperacion, acumular, conciliarArranque } from './flujos';
 
 const CAMPOS_SERVICIO: Record<string, (s: PlanexProject['servicios'][number]) => Valor> = {
   precio_base: (s) => s.precioBase,
@@ -1106,25 +1106,30 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       });
     }
   }
-  // Conciliación del desembolso inicial (misión DOC-002 §4.2): los gastos de
-  // la fase de montaje (año 0) son salidas de caja NO incluidas en la
-  // inversión total; si las fuentes declaradas no los cubren, existe una
-  // brecha de financiación del año 0 que el plan debe resolver o declarar.
+  // Conciliación del desembolso inicial (misión DOC-002-R1 §2): la brecha del
+  // año 0 se obtiene de PARTIDAS DE SALIDA DE CAJA EXPLÍCITAS (nómina de
+  // montaje, interés PAGADO e impuesto del año 0, menos ingresos explícitos
+  // del año 0), no del resultado contable después de impuestos. El capital de
+  // trabajo ya está dentro de la inversión total y nunca se duplica.
   {
-    const udi0 = valores['utilidad_despues_impuestos_k']?.[0];
-    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
-    const finDisp0 = valores['financiacion_disponible_k']?.[0];
-    const invTotal0 = valores['inversion_total_k']?.[0];
-    if (gastoAnio0 > 0.005 && Number.isFinite(finDisp0) && Number.isFinite(invTotal0)) {
-      const brecha = (finDisp0 as number) - (invTotal0 as number) - gastoAnio0;
-      if (brecha < -0.05) {
-        issues.push({
-          tipo: 'inconsistencia',
-          codigo: 'FINANCIACION_ANO0',
-          mensaje: `Los gastos de la fase de montaje del año 0 (${fmtK(gastoAnio0)} kUSD: nómina de montaje y otros costos no capitalizables) NO están incluidos en la inversión total y quedan SIN cobertura: las fuentes declaradas cubren la inversión total, pero la necesidad total del arranque (inversión + gastos del año 0) excede la financiación disponible en ${fmtK(Math.abs(brecha))} kUSD. Financie esa brecha (mayor capital de trabajo o aporte adicional) o declárela expresamente como supuesto pendiente.`,
-          seccion: 'financiero',
-        });
-      }
+    const arranque = conciliarArranque({ valores, deuda: deuda.filas });
+    const gastoAnio0 = arranque.gastoCajaAnio0;
+    if (
+      (arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) &&
+      arranque.brecha < -0.05
+    ) {
+      const partes = [
+        arranque.nominaMontaje > 0.005 ? `nómina de montaje ${fmtK(arranque.nominaMontaje)}` : '',
+        arranque.interesPagado > 0.005 ? `interés pagado ${fmtK(arranque.interesPagado)}` : '',
+        arranque.impuestoPagado > 0.005 ? `impuesto del año ${fmtK(arranque.impuestoPagado)}` : '',
+      ].filter(Boolean);
+      const menos = arranque.ingresosAnio0 > 0.005 ? `, menos ingresos explícitos del año 0 por ${fmtK(arranque.ingresosAnio0)}` : '';
+      issues.push({
+        tipo: 'inconsistencia',
+        codigo: 'FINANCIACION_ANO0',
+        mensaje: `Los gastos de la fase de montaje del año 0 — salidas de caja explícitas no capitalizables y NO incluidas en la inversión total (${partes.join(' + ')}${menos}: total ${fmtK(gastoAnio0)} kUSD) — quedan SIN cobertura: las fuentes declaradas cubren la inversión total (${fmtK(arranque.inversionTotal)} kUSD), pero la necesidad total del arranque (inversión + salidas de caja netas del año 0 = ${fmtK(arranque.necesidadTotal)} kUSD) excede la financiación disponible (${fmtK(arranque.financiacionDisponible)} kUSD) en ${fmtK(Math.abs(arranque.brecha))} kUSD. Financie esa brecha (mayor capital de trabajo o aporte adicional) o declárela expresamente como supuesto pendiente. El gasto NO se deduce del resultado contable después de impuestos del año 0.`,
+        seccion: 'financiero',
+      });
     }
   }
   // Recuperación y horizonte (indicador del proyecto)

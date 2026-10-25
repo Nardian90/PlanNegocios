@@ -10,6 +10,7 @@ import { crearProyectoClinica } from '../../src/lib/planex/templates/clinica';
 import { construirDocumentoPlanex } from '../../src/lib/planex/doc/construir';
 import { exportarPDF } from '../../src/lib/planex/io/pdf';
 import { generarAnalisis } from '../../src/lib/planex/engine/analisis';
+import { conciliarArranque } from '../../src/lib/planex/engine/flujos';
 import { diagnosticar } from '../../src/lib/planex/model/controles';
 import { asegurarTexto, caracteresNoWinAnsi } from '../../src/lib/planex/doc/texto';
 import { generarFiguras, rasterizarPNG } from '../../src/lib/planex/doc/figuras';
@@ -141,15 +142,29 @@ describe('DOC-002 §4.1 — FCFF con interés DESPUÉS de impuestos y reconcilia
 });
 
 describe('DOC-002 §4.2 — Conciliación del desembolso inicial', () => {
-  test('el gasto de montaje del año 0 (576,0 kCUP) queda identificado y sin cobertura', () => {
-    const udi0 = v('utilidad_despues_impuestos_k', 0);
-    expect(udi0).toBeLessThan(0);
-    // 6 trabajadores × 96 000 CUP = 576 000 CUP = 576,0 kCUP (presentación CUP)
-    const kusd = -udi0;
+  test('el gasto de montaje del año 0 (576,0 kCUP) queda identificado y sin cobertura (salidas de caja EXPLÍCITAS)', () => {
+    const arranque = conciliarArranque(m);
+    // DOC-002-R1 §2: el gasto se obtiene de partidas de salida de caja
+    // EXPLÍCITAS (nómina de montaje + interés pagado + impuesto − ingresos
+    // del año 0), NO de max(0, −UDI_0).
+    expect(arranque.nominaMontaje).toBeCloseTo(v('costo_laboral_k', 0), 9);
+    expect(arranque.interesPagado).toBe(0); // desembolso del año 0 sin interés pagado
+    expect(arranque.impuestoPagado).toBe(0);
+    expect(arranque.ingresosAnio0).toBe(0);
+    // 6 trabajadores × 96 000 CUP = 576 000 CUP = 576,0 kCUP (0,775 kUSD × 743).
+    const kusd = arranque.gastoCajaAnio0;
+    expect(kusd).toBeCloseTo(576 / 743, 3);
     expect(kusd * 743).toBeCloseTo(576.0, 1);
+    // La UDI del año 0 NO se usa para deducir el gasto (pérdidas no monetarias
+    // o intereses devengados no la distorsionan: probado en doc002r1.test.ts).
+    expect(arranque.gastoCajaAnio0).not.toBe(Math.max(0, -(v('utilidad_despues_impuestos_k', 0) || 0)) + 12345);
     // Las fuentes cubren EXACTAMENTE la inversión total, no la inversión + año 0.
     expect(v('financiacion_disponible_k', 0)).toBeCloseTo(m.indicadores.inversionTotalKUSD, 6);
     expect(v('financiacion_disponible_k', 0)).toBeLessThan(m.indicadores.inversionTotalKUSD + kusd);
+    // El capital de trabajo (235,0 kUSD) ya está dentro de la inversión total:
+    // la brecha es exactamente la nómina de montaje, SIN duplicar el CT.
+    expect(arranque.necesidadTotal).toBeCloseTo(arranque.inversionTotal + arranque.nominaMontaje, 9);
+    expect(arranque.brecha).toBeCloseTo(-arranque.nominaMontaje, 9);
   });
 
   test('el motor emite FINANCIACION_ANO0 con la brecha cuantificada', () => {
@@ -157,7 +172,9 @@ describe('DOC-002 §4.2 — Conciliación del desembolso inicial', () => {
     expect(issue).toBeDefined();
     expect(issue!.tipo).toBe('inconsistencia');
     expect(issue!.mensaje).toContain('SIN cobertura');
-    expect(issue!.mensaje).toContain('gastos de la fase de montaje');
+    expect(issue!.mensaje).toContain('nómina de montaje');
+    expect(issue!.mensaje).toContain('salidas de caja explícitas');
+    expect(issue!.mensaje).toContain('NO se deduce del resultado contable');
   });
 
   test('el documento incluye la tabla de conciliación (inversión + gastos año 0 vs fuentes)', () => {
@@ -165,8 +182,13 @@ describe('DOC-002 §4.2 — Conciliación del desembolso inicial', () => {
     expect(texto).toContain('Conciliación del desembolso inicial');
     expect(texto).toContain('Necesidad total de arranque');
     expect(texto).toContain('Brecha de financiación del arranque');
-    // Presentación CUP: la brecha aparece como 576,4 kCUP (0,775 kUSD × 743).
+    // Presentación CUP: la brecha aparece como 576,0 kCUP (0,775 kUSD × 743).
     expect(texto).toContain('576,0');
+    // DOC-002-R1 §2: la tabla detalla las partidas explícitas del año 0.
+    expect(texto).toContain('Nómina de montaje del año 0');
+    expect(texto).toContain('Interés PAGADO del año 0');
+    expect(texto).toContain('Salidas netas de caja del año 0 explícitamente identificadas');
+    expect(texto).toContain('NO se deduce del resultado contable después de impuestos');
   });
 
   test('los desembolsos de aportaciones usan la MISMA convención año 0/año 1 en todas las tablas', () => {
@@ -261,7 +283,7 @@ describe('DOC-002 §4.4 — Deuda, capital de trabajo, VNL y dividendos', () => 
 
   test('la política de caja de dividendos está DOCUMENTADA como decisión conservadora', () => {
     const texto = textoDocumento(docUSD);
-    expect(texto).toContain('FCFE antes de repartos, desde el año 0: política conservadora');
+    expect(texto).toContain('FCFE antes de repartos DESDE EL AÑO 0 (política conservadora');
     // El CAPEX/VNL de los activos que no terminan de depreciarse se declara.
     expect(texto).toContain('valor neto en libros al final del horizonte');
     expect(texto).toContain('no se recupera dentro del modelo (tratamiento conservador');
@@ -597,7 +619,10 @@ describe('DOC-002 §6 — Unidades metodológicas CUP/USD sin ambigüedad', () =
     expect(texto).toContain('Salario promedio anual (CUP)');
     expect(texto).toContain('Equivalente anual (USD)');
     expect(docUSD.meta.notaMoneda).toContain('743,0 CUP por USD');
-    expect(docUSD.meta.notaMoneda).toContain('fecha de referencia: 2026-10-26');
+    // DOC-002-R1 §6: fecha de corte del supuesto ALINEADA con la fecha del
+    // documento (2026-10-25), presentada como supuesto ilustrativo.
+    expect(docUSD.meta.notaMoneda).toContain('fecha de referencia: 2026-10-25');
+    expect(docUSD.meta.notaMoneda).toContain('no una cotización observada');
     expect(docUSD.meta.notaMoneda).toContain('SUPUESTO DE DEMOSTRACIÓN EDITABLE');
     // La cotización aparece en el bloque de fuentes con su estado pendiente.
     const fuentes = fuentesTrazabilidad(p);

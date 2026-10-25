@@ -32,6 +32,8 @@
 
 import { PlanexProject, ComputedModel, EstadoAnalisis, ETIQUETAS_APORTACION, ETIQUETAS_CATEGORIA_INV } from '../types';
 import { fmtK, fmtPct, fmtNum, fmtAnios } from '../format';
+import { conciliarArranque } from './flujos';
+import { computeProject } from './engine';
 
 export const CLAVES_ANALISIS = [
   'resumen_ejecutivo',
@@ -292,17 +294,23 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel, pres:
       `Calendario de desembolsos de aportaciones (misma convención de años 0/1/2 que las tablas de financiación y flujos): ${porAnio.map((v, i) => `año ${i} (${i === 0 ? 'montaje/arranque — financia la inversión total del año 0' : 'operación'}): ${pres.k(v)} ${pres.corto}`).join('; ')}.`
     );
   }
-  // Conciliación del desembolso inicial (DOC-002 §4.2): los gastos de montaje
-  // del año 0 son salidas de caja adicionales a la inversión total.
+  // Conciliación del desembolso inicial (DOC-002-R1 §2): salidas de caja
+  // EXPLÍCITAS del año 0 (no el resultado contable después de impuestos).
   {
-    const udi0 = m.valores['utilidad_despues_impuestos_k']?.[0];
-    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
-    if (gastoAnio0 > 0.005) {
-      const finT = m.valores['financiacion_disponible_k']?.[0] ?? 0;
-      const necesidad = inv + gastoAnio0;
-      const brecha = finT - necesidad;
+    const arranque = conciliarArranque(m);
+    const gastoAnio0 = arranque.gastoCajaAnio0;
+    if (arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) {
+      const finT = arranque.financiacionDisponible;
+      const necesidad = arranque.necesidadTotal;
+      const brecha = arranque.brecha;
+      const partes = [
+        arranque.nominaMontaje > 0.005 ? `nómina de montaje ${pres.k(arranque.nominaMontaje)}` : '',
+        arranque.interesPagado > 0.005 ? `interés pagado del año 0 ${pres.k(arranque.interesPagado)}` : '',
+        arranque.impuestoPagado > 0.005 ? `impuesto del año 0 ${pres.k(arranque.impuestoPagado)}` : '',
+      ].filter(Boolean);
+      const menos = arranque.ingresosAnio0 > 0.005 ? `, menos ingresos explícitos del año 0 por ${pres.k(arranque.ingresosAnio0)}` : '';
       frases.push(
-        `Conciliación del desembolso inicial: la inversión total (${pres.k(inv)} ${pres.corto}) más los gastos de la fase de montaje del año 0 (${pres.k(gastoAnio0)} ${pres.corto}: nómina de montaje y otros costos no capitalizables, registrados como gasto del período y NO incluidos en la inversión total) exigen una necesidad total de arranque de ${pres.k(necesidad)} ${pres.corto}; las fuentes declaradas suman ${pres.k(finT)} ${pres.corto}${brecha < -0.05 ? `, de modo que queda una BRECHA de ${pres.k(Math.abs(brecha))} ${pres.corto} que debe financiarse (mayor capital de trabajo o aporte adicional) o declararse expresamente como supuesto pendiente` : ' y cubren la necesidad total del arranque'}. Los desembolsos del año 0 y del año 1 conservan el mismo significado en todas las tablas.`
+        `Conciliación del desembolso inicial: la inversión total (${pres.k(inv)} ${pres.corto}) más las salidas de caja del año 0 explícitamente identificadas (${partes.join(' + ')}${menos}: total ${pres.k(Math.max(0, gastoAnio0))} ${pres.corto}; gastos de la fase de montaje del año 0 registrados como gasto del período, no capitalizables y NO incluidos en la inversión total — el capital de trabajo ya está dentro de la inversión total y no se duplica) exigen una necesidad total de arranque de ${pres.k(necesidad)} ${pres.corto}; las fuentes declaradas suman ${pres.k(finT)} ${pres.corto}${brecha < -0.05 ? `, de modo que queda una BRECHA de ${pres.k(Math.abs(brecha))} ${pres.corto} que debe financiarse (mayor capital de trabajo o aporte adicional) o declararse expresamente como supuesto pendiente` : ' y cubren la necesidad total del arranque'}. El gasto del año 0 se cuantifica desde partidas de salida de caja explícitas, no desde el resultado contable después de impuestos. Los desembolsos del año 0 y del año 1 conservan el mismo significado en todas las tablas.`
       );
     }
   }
@@ -350,7 +358,37 @@ function analisisIngresosCostos(p: PlanexProject, m: ComputedModel, pres: Presen
   if (udi1 > 0 && caja < 0) {
     frases.push('ATENCIÓN: el plan muestra utilidad contable positiva pero la caja acumulada de los socios sigue negativa en el horizonte; rentabilidad contable y liquidez NO son equivalentes: revise el calendario de cobros, el capital de trabajo y el servicio de la deuda.');
   }
-  return { texto: lista(frases), huella: huellaDe({ ing1, ingN, uai1, uaiN, imp1, cv1, cl1, dep1, fijo1, tasa, caja }) };
+
+  // Hipótesis de inflación de costos fijos y sensibilidad de resultados
+  // (DOC-002-R1 §4): 0 % se declara como HIPÓTESIS DE GASTOS NOMINALES
+  // CONSTANTES sujeta a prueba contractual (no «conservadora» por defecto);
+  // con un valor positivo se presenta la sensibilidad frente al caso 0 %.
+  const PARTIDAS_FIJAS = ['canon_k', 'servicios_publicos_k', 'otros_gastos_k', 'aranceles_k', 'otros_impuestos_k', 'royalties_k'];
+  const infFijos = parametro(p, 'inflacion_costos_fijos');
+  if (infFijos > 1e-9) {
+    const p0 = JSON.parse(JSON.stringify(p)) as PlanexProject;
+    const param0 = p0.parametros.find((x) => x.id === 'inflacion_costos_fijos');
+    if (param0) param0.valor = 0;
+    try {
+      const m0 = computeProject(p0);
+      const sumaPartidas = (modelo: ComputedModel, t: number) => PARTIDAS_FIJAS.reduce((s, id) => s + (modelo.valores[id]?.[t] ?? 0), 0);
+      const sumaUdi = (modelo: ComputedModel) => modelo.years.reduce((s, t) => s + (modelo.indicadores.utilidadNeta[t] ?? 0), 0);
+      const dFijosN = sumaPartidas(m, N) - sumaPartidas(m0, N);
+      const dUdi = sumaUdi(m) - sumaUdi(m0);
+      frases.push(
+        `Sensibilidad de la indexación de costos fijos (${fmtPct(infFijos)} anual): frente a la hipótesis de gastos nominales constantes (0 %), la indexación añade ${pres.k(dFijosN)} ${pres.corto} de costos fijos en el año ${N} y modifica la utilidad después de impuestos acumulada del horizonte en ${pres.k(dUdi)} ${pres.corto} (variación total, con su efecto tributario). Partidas afectadas por el parámetro: canon, servicios públicos, otros gastos fijos, aranceles, otros impuestos y royalties (el costo variable unitario sigue su propio parámetro de inflación). La elección del ${fmtPct(infFijos)} debe sostenerse en la prueba contractual de cada partida.`
+      );
+    } catch {
+      frases.push(
+        `Los costos fijos se indexan al ${fmtPct(infFijos)} anual (parámetro «inflacion_costos_fijos»): partidas afectadas — canon, servicios públicos, otros gastos fijos, aranceles, otros impuestos y royalties. La indexación debe sostenerse en la prueba contractual de cada partida.`
+      );
+    }
+  } else {
+    frases.push(
+      `Los costos fijos (canon, servicios públicos, otros gastos fijos, aranceles, otros impuestos y royalties) permanecen a valores nominales constantes durante el horizonte por la HIPÓTESIS del parámetro «inflacion_costos_fijos» = 0 %: es una hipótesis de GASTOS NOMINALES CONSTANTES sujeta a PRUEBA CONTRACTUAL — solo es válida si los contratos reales fijan importes nominales por todo el período — y no se califica automáticamente de conservadora: si los contratos efectivamente se indexan, mantener 0 % SUBESTIMA los costos y SOBREESTIMA el resultado. Al cambiar el parámetro a un valor positivo, el informe presentará la sensibilidad de resultados frente a la indexación.`
+    );
+  }
+  return { texto: lista(frases), huella: huellaDe({ ing1, ingN, uai1, uaiN, imp1, cv1, cl1, dep1, fijo1, tasa, caja, infFijos }) };
 }
 
 function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {

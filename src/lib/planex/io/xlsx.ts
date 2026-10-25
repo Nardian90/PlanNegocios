@@ -856,7 +856,7 @@ export async function exportarXLSX(proyecto: PlanexProject, modelo: ComputedMode
   // ============================================================== FlujosCaja
   const hFlujo = new Hoja();
   hFlujo.texto(1, 1, 'Flujos de caja, recuperación y partidas del motor (4.7 / misión §4)', ST.titulo);
-  hFlujo.texto(2, 1, 'FCFF = UDI + intereses devengados + depreciación − CAPEX de ampliaciones + recuperación del capital de trabajo (año 0: −inversión total). FCFE = FCFF − interés pagado + desembolso − amortización. Recuperación por interpolación lineal del acumulado.', ST.nota);
+  hFlujo.texto(2, 1, 'FCFF = UDI + (interés devengado − escudo fiscal) + depreciación − CAPEX de ampliaciones + recuperación del capital de trabajo (año 0: −inversión total). FCFE = FCFF − interés pagado + escudo fiscal + desembolso − amortización. Recuperación por interpolación lineal del acumulado. El escudo se deriva de la regla de impuestos activa (regla plana: interés × tasa).', ST.nota);
   hFlujo.texto(3, 1, 'Concepto', ST.encabezado);
   years.forEach((t) => hFlujo.set(3, 2 + t, { v: t, z: '0', s: ST.encabezado }));
   const filaUDI = filaReglaAnio('utilidad_despues_impuestos_k');

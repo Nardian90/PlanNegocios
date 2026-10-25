@@ -120,11 +120,22 @@ export function monedaPresentacionDe(p: PlanexProject): MonedaPresentacion {
   return p.ajustes.monedaPresentacion === 'CUP' ? 'CUP' : 'USD';
 }
 
-/** Nota documental de conversión (misión §5.2.10): tasa, fecha y fuente. */
-export function notaConversion(ctx: ContextoMoneda, tasa: DatosTasa): string {
-  const fecha = tasa.fecha ? ` (fecha de referencia: ${tasa.fecha})` : '';
+/** Nota documental de conversión (misión §5.2.10): tasa, fecha y fuente.
+ *  (DOC-002-R1 §6): con un supuesto de demostración, la fecha se presenta
+ *  como CORTE DEL SUPUESTO, no como cotización observada; una fecha posterior
+ *  a la del documento se marca como PREVISTA (el diagnóstico la emite como
+ *  hallazgo TASA_FECHA_FUTURA). */
+export function notaConversion(ctx: ContextoMoneda, tasa: DatosTasa, fechaDocumento?: string): string {
+  const fechaDoc = (fechaDocumento ?? '').trim();
+  const esISO = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const posterior = esISO(fechaDoc) && esISO(tasa.fecha) && tasa.fecha > fechaDoc;
+  const fecha = tasa.fecha
+    ? ` (fecha de referencia: ${tasa.fecha}${tasa.demo ? ' — fecha de corte del supuesto ilustrativo, no una cotización observada' : ''}${posterior ? ', PREVISTA: es posterior a la fecha del documento' : ''})`
+    : '';
   const origen = tasa.fuente || 'fuente no documentada';
-  const sup = tasa.demo ? ' SUPUESTO DE DEMOSTRACIÓN EDITABLE: validar antes de un uso oficial.' : '';
+  const sup = tasa.demo
+    ? ' SUPUESTO DE DEMOSTRACIÓN EDITABLE, PENDIENTE DE VALIDACIÓN OFICIAL: manténgalo como supuesto ilustrativo mientras no exista una fuente oficial verificable; antes de un uso oficial debe sustituirse por la tasa vigente con su fecha y fuente documentadas.'
+    : '';
   return (
     `Moneda de presentación del documento: ${ctx.simbolo}. ` +
     `Conversión aplicada una sola vez desde la moneda de origen de cada importe con el tipo de cambio parametrizado de ` +

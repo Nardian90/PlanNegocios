@@ -368,7 +368,9 @@ describe('UX-002 — Tasa 743 CUP/USD e impuesto 35 % por defecto', () => {
     const tasa = parametrosPorDefecto({ creditoKUSD: 0, capitalTrabajoKUSD: 0 }).find((p) => p.id === 'tipo_cambio')!;
     expect(tasa.valor).toBe(743);
     expect(tasa.unidad).toBe('CUP/USD');
-    expect(tasa.fechaRef).toBe('2026-10-26');
+    // DOC-002-R1 §6: la fecha de corte del supuesto se realineó a 2026-10-25
+    // (igual a la fecha del documento de ejemplo; nunca posterior a ella).
+    expect(tasa.fechaRef).toBe('2026-10-25');
     expect(String(tasa.descripcion)).toContain('PENDIENTE DE VALIDACIÓN OFICIAL');
     expect(String(tasa.fuente)).toContain('743 CUP/USD');
   });
