@@ -422,11 +422,11 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'srv_cantidad_real_mensual',
       'Cantidad realizable mensual (limitada por capacidad)',
-      'Demanda prevista limitada por la capacidad disponible del escenario activo (recursos compartidos y tope técnico del propio servicio). Ningún servicio genera ingresos por encima de su capacidad de prestación.',
+      'Demanda prevista limitada por la capacidad realmente disponible del escenario activo: incluye el tope técnico del propio servicio Y la asignación pro-rata de los recursos compartidos (cuando varios servicios comparten gabinetes, equipos o profesionales, la demanda agregada no puede superar el pool de tiempo disponible). Ningún servicio genera ingresos por encima de su capacidad de prestación.',
       'servicio',
       'Servicios',
       'servicios/mes',
-      'MIN(srv_cantidad_mensual_proy, mtr_capacidad_mensual)'
+      'mtr_cantidad_real_mensual'
     ),
     r(
       'srv_cantidad_anual',

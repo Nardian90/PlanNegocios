@@ -55,11 +55,19 @@ describe('MISIÓN §16.2 — Depreciación por activo', () => {
       tipoCambio: 400,
     });
     const a = activos[0];
+    // Antes de la disponibilidad no hay depreciación (el plan viejo cargaba
+    // el año 0 de montaje: corregido).
     expect(a.depreciacion[0]).toBe(0);
     expect(a.depreciacion[1]).toBe(0);
     expect(a.depreciacion[2]).toBe(0);
+    // Vida útil 5 años DESDE la disponibilidad: deprecia los años 3 a 7.
     expect(a.depreciacion[3]).toBeCloseTo(20, 6);
-    expect(a.depreciacion[7]).toBe(0);
+    expect(a.depreciacion[7]).toBeCloseTo(20, 6);
+    // Totalmente depreciado al agotar la vida: años 8+ sin depreciación.
+    expect(a.depreciacion[8]).toBe(0);
+    expect(a.depreciacion[9]).toBe(0);
+    expect(a.acumulada).toBeCloseTo(100, 6);
+    expect(a.vnl).toBeCloseTo(0, 6);
   });
 
   test('valor residual: la base depreciable descuenta el residual y el VNL lo conserva', () => {

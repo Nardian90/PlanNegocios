@@ -38,8 +38,9 @@ describe('MISIÓN §4.3/§16.3 — Cálculo de la recuperación (interpolación)
   });
 
   test('flujos no convencionales (varios cambios de signo): indeterminado con advertencia', () => {
-    // −100, +120, −50, +80: el acumulado cruza dos veces el cero.
-    const acum = acumular({ 0: -100, 1: 20, 2: -30, 3: 50 }, [0, 1, 2, 3]);
+    // Flujos −100, +120, −50, +80 → acumulado −100, +20, −30, +50: cruza el
+    // cero varias veces y el período de recuperación queda indeterminado.
+    const acum = acumular({ 0: -100, 1: 120, 2: -50, 3: 80 }, [0, 1, 2, 3]);
     const r = calcularRecuperacion('proyecto', acum, [0, 1, 2, 3]);
     expect(r.indeterminado).toBe(true);
     expect(r.motivo).toContain('más de una vez');
@@ -157,11 +158,27 @@ describe('MISIÓN §16.3 — FCFE con deuda: caja de dividendos y servicio', () 
     }
   });
 
-  test('con servicio de deuda suficiente, ningún dividendo queda restringido por caja', () => {
+  test('pagables = MIN(propuestos, max(0, caja)): la liquidez modelada decide el reparto', () => {
     const p = crearProyectoClinica();
     const m = computeProject(p);
+    // La caja acumulada (FCFE desde el inicio, ANTES de repartos) es negativa
+    // mientras la empresa no ha recuperado su desembolso inicial: allí los
+    // dividendos propuestos quedan recortados a cero; cuando la caja es
+    // suficiente el reparte es íntegro. La identidad MIN se cumple SIEMPRE.
+    for (const d of m.dividendos) {
+      expect(d.pagables).toBeCloseTo(Math.min(d.propuestos, Math.max(0, d.cajaAcumulada)), 6);
+      expect(d.pagables).toBeLessThanOrEqual(d.propuestos + 1e-9);
+      expect(d.pagables).toBeLessThanOrEqual(Math.max(0, d.cajaAcumulada) + 1e-9);
+    }
     const restringidos = m.dividendos.filter((d) => d.propuestos > d.pagables + 0.005);
-    expect(restringidos.length).toBe(0); // la plantilla demostrativa es liquida
+    // La plantilla demostrativa SÍ restringe dividendos durante la fase en
+    // que la caja acumulada aún no cubre lo propuesto (misión §8: no toda
+    // utilidad propuesta es pagable; la liquidez modelada decide).
+    expect(restringidos.length).toBeGreaterThan(0);
+    expect(m.issues.some((i) => i.codigo === 'DIVIDENDOS_RESTRINGIDOS')).toBe(true);
+    // Toda restricción cumple propuestos > max(0, caja) (la identidad MIN ya
+    // lo garantiza; se explicita como documentación del criterio).
+    for (const d of restringidos) expect(d.propuestos).toBeGreaterThan(Math.max(0, d.cajaAcumulada));
   });
 
   test('caja ajustada: los propuestos se recortan a los pagables (restricción por liquidez)', () => {

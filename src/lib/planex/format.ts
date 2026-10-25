@@ -1,40 +1,65 @@
 // ============================================================================
 // Formato numérico y documental (español; kUSD con un decimal per metodología)
+//
+// NOTA: el ICU de este entorno NO inserta el separador de miles es-ES
+// («2265,0» en vez de «2.265,0»), por lo que el agrupado se aplica de forma
+// manual y determinista. La Gaceta (GOC-2026-O57) publica los importes en
+// miles con un decimal y agrupación de miles con punto (p. ej. «1.480,0»).
 // ============================================================================
 
-const nf1 = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const nf0 = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-const nf2 = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Agrupa la parte entera con puntos de miles (es-ES manual y determinista). */
+function grupoEs(n: number): string {
+  const abs = Math.abs(n);
+  const entero = Math.floor(abs).toString();
+  let salida = '';
+  for (let i = 0; i < entero.length; i++) {
+    const digito = entero[entero.length - 1 - i];
+    if (i > 0 && i % 3 === 0) salida += '.';
+    salida += digito;
+  }
+  return (n < 0 ? '-' : '') + salida.split('').reverse().join('');
+}
+
+/** Formato es-ES con un número dado de decimales y agrupación manual de miles. */
+function esES(n: number, decimales: number): string {
+  if (!Number.isFinite(n)) return '—';
+  const f = Math.pow(10, decimales);
+  const redondeado = Math.round(Math.abs(n) * f) / f;
+  const parte = redondeado.toFixed(decimales);
+  const [ent, dec] = parte.split('.');
+  const entero = grupoEs(Number(ent));
+  const coma = decimales > 0 ? `,${dec}` : '';
+  return `${n < 0 ? '-' : ''}${entero}${coma}`;
+}
 
 export function fmtK(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return nf1.format(n);
+  return esES(n, 1);
 }
 
 export function fmtNum(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return nf0.format(n);
+  return esES(n, 0);
 }
 
 export function fmtCUP(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return `${nf0.format(n)} CUP`;
+  return `${esES(n, 0)} CUP`;
 }
 
 export function fmtPct(n: number | null | undefined, decimales = 1): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  const f = decimales === 2 ? nf2 : nf1;
-  return `${f.format(n * 100)} %`;
+  return `${esES(n * 100, decimales)} %`;
 }
 
 export function fmtUsd(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return `${nf2.format(n)} USD`;
+  return `${esES(n, 2)} USD`;
 }
 
 export function fmtAnios(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
-  return `${nf1.format(n)} años`;
+  return `${esES(n, 1)} años`;
 }
 
 export function fechaLarga(iso: string | undefined | null): string {

@@ -143,7 +143,7 @@ describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => 
     );
     // Dividendos de la parte cubana = pagables × 40 % (módulo de dividendos).
     const d1 = modelo.dividendos.find((x) => x.anio === 1)!;
-    expect(d1.pagables).toBeLessThanOrEqual(d1.cajaAcumulada + 1e-9);
+    expect(d1.pagables).toBeLessThanOrEqual(Math.max(0, d1.cajaAcumulada) + 1e-9);
     expect(div).toBeCloseTo(d1.pagables * 0.4, 2);
   });
 

@@ -44,6 +44,7 @@ import {
 import { parsear, Nodo, extraerVariables, extraerLags } from './parser';
 import { evalNodo, EvalContexto, Valor } from './evaluator';
 import { FormulaError } from './tokenizer';
+import { fmtK } from '../format';
 import { calcularDepreciacion } from './depreciacion';
 import { calcularDeuda } from './deuda';
 import { capacidadAnio, ampliacionesActivas } from './capacidad';
@@ -377,8 +378,12 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
 
   const fcfeAcumDe = (t: number, pos: number): number => {
     if (t in fcfeAcumCache) return fcfeAcumCache[t];
+    // Caja acumulada para dividendos: FCFE ANTES de repartos, DESDE EL AÑO 0
+    // (misión §16.3: coincide con indicadores.fcfeAcumulado — el acumulado
+    // completo incluye la fase de inversión; no puede repartirse caja que
+    // la empresa aún no ha generado).
     let s = 0;
-    for (let k = 1; k <= t; k++) s += fcfeDe(k, pos);
+    for (let k = 0; k <= t; k++) s += fcfeDe(k, pos);
     fcfeAcumCache[t] = s;
     return s;
   };
@@ -401,7 +406,9 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
           reserva: 0,
           distribuible: 0,
           propuestos: 0,
-          cajaAcumulada: 0,
+          // La caja del año 0 también es el FCFE acumulado del año 0
+          // (misión §16.3: identidad caja = fcfeAcumulado para TODOS los años).
+          cajaAcumulada: fcfeAcumDe(k, pos),
           pagables: 0,
           socioNacional: 0,
           socioExtranjero: 0,
@@ -1030,7 +1037,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'error',
         codigo: 'FINANCIACION_INSUFICIENTE',
-        mensaje: `Financiación insuficiente: faltan ${Math.abs(dif).toFixed(1)} kUSD para cubrir la inversión total. Aumente las aportaciones, otras fuentes o el crédito.`,
+        mensaje: `Financiación insuficiente: faltan ${fmtK(Math.abs(dif))} kUSD para cubrir la inversión total. Aumente las aportaciones, otras fuentes o el crédito.`,
         seccion: 'financiero',
       });
     } else if (dif > 0.05) {

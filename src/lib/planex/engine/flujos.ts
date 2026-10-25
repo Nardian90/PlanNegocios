@@ -76,8 +76,8 @@ export function calcularRecuperacion(
         anioCruce: years[i],
         indeterminado,
         motivo: indeterminado
-          ? `${motivoBase} Interpolación lineal: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior). ATENCIÓN: el acumulado cambia de signo más de una vez (flujos no convencionales, p. ej. inversiones adicionales): el período de recuperación debe interpretarse con cautela.`
-          : `${motivoBase} Interpolación lineal: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior).`,
+          ? `${motivoBase} Se aplica interpolación lineal intranual: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior). ATENCIÓN: el acumulado cambia de signo más de una vez (flujos no convencionales, p. ej. inversiones adicionales): el período de recuperación debe interpretarse con cautela.`
+          : `${motivoBase} Se aplica interpolación lineal intranual: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior).`,
       };
     }
   }
@@ -89,7 +89,7 @@ export function calcularRecuperacion(
     indeterminado: cruces > 1,
     motivo: cruces > 1
       ? `${motivoBase} No se recupera dentro del horizonte y el acumulado cambia de signo más de una vez: interpretación limitada.`
-      : `${motivoBase} La inversión no se recupera dentro del horizonte de análisis.`,
+      : `${motivoBase} No se recupera dentro del horizonte de análisis.`,
   };
 }
 

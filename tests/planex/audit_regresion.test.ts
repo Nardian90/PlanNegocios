@@ -86,6 +86,17 @@ function proyectoConEntradasOriginales(): PlanexProject {
   // otros 10, crédito 300, CT 235, crecimiento 5/3/4 %, admin 5 %, mant 3 %).
   p.parametros = parametrosPorDefecto({ creditoKUSD: 300, capitalTrabajoKUSD: 235 });
   p.reglas = reglasPorDefecto();
+  // Crédito original del plan: 300 kUSD al 8 %, desembolsado en el año 0,
+  // gracia de principal 1 año, capital constante (ancla §16.1: interés del
+  // año 1 = 24 kUSD; sin este calendario no hay gasto financiero que deducir
+  // de la UAI y las cifras del documento original no concilian).
+  p.financiero.deuda = {
+    habilitada: true,
+    anioDesembolso: 0,
+    tipoGracia: 'principal',
+    metodo: 'capital_constante',
+    fuente: 'Entrada original (ancla §16.1): supuesto ficticio de crédito externo.',
+  };
   return p;
 }
 
@@ -139,11 +150,18 @@ describe('MISIÓN §16.1 — Regresión sobre las cifras visibles originales', (
   });
 
   test('con la regla simplificada demostrativa del 35 %: impuesto año 1 = 129,22 kUSD', () => {
-    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(129.22, 2);
+    // El ancla del documento es la cifra PUBLICADA (129,22, redondeada del
+    // 35 % × 369,185 = 129,21475 exacto). El motor calcula con precisión
+    // completa: se verifica a UN decimal del ancla redondeada (129,2) y se
+    // documenta el valor exacto.
+    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(129.22, 1);
+    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(369.185 * 0.35, 4);
   });
 
   test('utilidad después de impuestos del año 1 bajo esas mismas premisas: 239,98 kUSD', () => {
-    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(239.98, 2);
+    // Ancla publicada: 239,98 (el exacto es 369,185 × 0,65 = 239,97025).
+    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(239.98, 1);
+    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(369.185 * 0.65, 4);
   });
 
   test('los resultados CORREGIDOS difieren donde el modelo viejo era defectuoso (documentación del cambio)', () => {
@@ -161,7 +179,9 @@ describe('MISIÓN §16.1 — Regresión sobre las cifras visibles originales', (
     expect(rec!).toBeLessThan(5);
     // El flujo del año 1 bajo la metodología FCFF (incluye intereses añadidos
     // por ser flujo del financiador, excluye amortización por no ser gasto).
-    expect(m.indicadores.fcff[1]).toBeCloseTo(239.98 + 24 + 117.125, 2);
+    // Ancla publicada: 239,98 + 24 + 117,125 = 381,105 (exacto 381,09525).
+    expect(m.indicadores.fcff[1]).toBeCloseTo(239.98 + 24 + 117.125, 1);
+    expect(m.indicadores.fcff[1]).toBeCloseTo(369.185 * 0.65 + 24 + 117.125, 4);
   });
 });
 

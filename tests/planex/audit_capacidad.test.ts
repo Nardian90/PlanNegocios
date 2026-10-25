@@ -42,15 +42,17 @@ describe('MISIÓN §16.4 — Capacidad derivada de recursos', () => {
   test('cambiar la CANTIDAD prevista actualiza demanda, utilización y (si supera) lo realizable', () => {
     const p = clonar(crearProyectoClinica());
     const m1 = computeProject(p);
-    p.servicios[0].cantidadBaseMensual = 1500; // demanda muy superior a 1 824/mes
+    p.servicios[0].cantidadBaseMensual = 2500; // demanda muy superior a 1 824/mes
     const m2 = computeProject(p);
     // La demanda crece pero la producción queda LIMITADA por el recurso.
-    expect(m2.capacidadServicios['sv-1'][1].demandaMensual).toBeCloseTo(1500, 0);
-    expect(m2.capacidadServicios['sv-1'][1].cantidadRealMensual).toBeLessThan(1500);
+    expect(m2.capacidadServicios['sv-1'][1].demandaMensual).toBeCloseTo(2500, 0);
+    expect(m2.capacidadServicios['sv-1'][1].cantidadRealMensual).toBeLessThan(2500);
     expect(m2.servicios.find((s) => s.id === 'sv-1')!.capacidadesExcedidas.length).toBeGreaterThan(0);
     // La utilización supera el 100 % de la capacidad instalada.
     expect(m2.capacidadServicios['sv-1'][1].utilizacion).toBeGreaterThan(1);
     expect(m2.issues.some((i) => i.codigo === 'CAPACIDAD')).toBe(true);
+    // Y los INGRESOS también quedan limitados (cascada, misión §16.4).
+    expect(val(m2, 'ingresos_servicios_k', 1)).toBeLessThan(val(m1, 'ingresos_servicios_k', 1));
   });
 
   test('cambiar la CAPACIDAD MENSUAL del propio servicio (tope directo) limita la producción', () => {

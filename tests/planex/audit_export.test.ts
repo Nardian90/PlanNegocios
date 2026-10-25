@@ -75,11 +75,12 @@ describe('MISIÓN §16.7 — PDF: composición, índice y coherencia', () => {
   test('los TOTALES del PDF provienen del modelo: mismas cifras formateadas', async () => {
     const { datos } = exportarPDF(p, m);
     const texto = await textoPDF(datos);
-    // Cifras clave del modelo activo (formato español con coma decimal).
-    expect(texto).toContain(fmtK(m.indicadores.inversionTotalKUSD).replace('.', ',').replace(',', ','));
+    // Cifras clave del modelo activo (formato es-ES con coma decimal y miles
+    // agrupados con punto: la misma salida de fmtK en toda la aplicación).
+    expect(texto).toContain(fmtK(m.indicadores.inversionTotalKUSD));
     expect(texto).toContain('1.480,0'); // inversión total (formato es-ES)
     expect(texto).toContain('1.180,0'); // aportaciones
-    // Recuperaciones ducales con un decimal (no la cifra vieja de 4,0).
+    // Recuperaciones duales con un decimal (no la cifra vieja de 4,0).
     expect(texto).toContain('3,5 años'); // FCFF
     expect(texto).toContain('3,3 años'); // FCFE
     expect(texto).not.toContain('cuatro años');
@@ -147,7 +148,7 @@ describe('MISIÓN §16.7 — XLSX: fórmulas reales, referencias y recálculo co
         if (typeof celda === 'object' && celda?.f) todas.push(celda.f);
       }
     }
-    const refs = todas.filter((f) => f.includes('!'));
+    const refs = todas.filter((f) => f.includes('!')).map((f) => f.replace(/^=/, ''));
     expect(refs.length).toBeGreaterThan(200); // referencias entre hojas
     // Cada hoja referenciada existe realmente en el libro (sin referencias rotas).
     const nombresRef = new Set(refs.map((f) => f.match(/([A-Za-záéíóúÁÉÍÓÚñÑ]+)!/)?.[1]).filter(Boolean) as string[]);
@@ -272,7 +273,7 @@ describe('MISIÓN §14.4/§16.7 — JSON: reconstrucción completa del proyecto'
     expect(m2.depreciacion.length).toBe(m.depreciacion.length);
   });
 
-  test('el JSON respeta el guardado compartido (sección 'conclusiones' incluye los análisis editados)', () => {
+  test("el JSON respeta el guardado compartido (sección 'conclusiones' incluye los análisis editados)", () => {
     const q = clonar(p);
     q.analisis['conclusiones'] = {
       texto: 'Conclusiones ajustadas por la dirección.',
@@ -289,7 +290,7 @@ describe('MISIÓN §14.4/§16.7 — JSON: reconstrucción completa del proyecto'
   test('los análisis del documento y las exportaciones usan el MISMO estado del modelo', () => {
     const a = generarAnalisis(p, m);
     // El análisis de beneficios menciona EXACTAMENTE el acumulado del motor.
-    expect(a.beneficios_pais.texto).toContain(fmtK(m.indicadores.beneficiosPaisAcumulados).replace('.', ','));
+    expect(a.beneficios_pais.texto).toContain(fmtK(m.indicadores.beneficiosPaisAcumulados));
     // El análisis del flujo menciona la recuperación FCFF del motor.
     const rec = m.indicadores.recuperacionProyecto.anios!;
     expect(a.flujo_recuperacion.texto).toContain(rec.toFixed(1).replace('.', ','));

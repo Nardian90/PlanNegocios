@@ -22,6 +22,7 @@
 
 import { PlanexProject, ComputedModel } from '../types';
 import { generarAnalisis, CLAVES_ANALISIS } from '../engine/analisis';
+import { fmtK, fmtAnios } from '../format';
 
 export type NivelHallazgo = 'error_bloqueante' | 'advertencia_importante' | 'informacion_pendiente' | 'observacion_calidad';
 
@@ -293,7 +294,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
         : advertencias.some((a) => ['FINANCIACION_EXCESO', 'CT_RECUPERACION'].includes(a.codigo))
           ? 'aceptable'
           : 'ok',
-      `Inversión ${conCero(inv).toFixed(1)} kUSD vs financiación disponible ${conCero(finDisp).toFixed(1)} kUSD; recuperación del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : recPa.toFixed(1) + ' años'}; socios ${recSa === null ? 'no recuperado en el horizonte' : recSa.toFixed(1) + ' años'}.`
+      `Inversión ${fmtK(conCero(inv))} kUSD vs financiación disponible ${fmtK(conCero(finDisp))} kUSD; recuperación del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : fmtAnios(recPa)}; socios ${recSa === null ? 'no recuperado en el horizonte' : fmtAnios(recSa)}.`
     ),
     dim(
       'consistencia_operativa',

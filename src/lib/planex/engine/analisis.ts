@@ -168,7 +168,7 @@ function analisisCapacidad(p: PlanexProject, m: ComputedModel): { texto: string;
   const excedidos = m.servicios.filter((s) => s.capacidadesExcedidas.length > 0);
   if (excedidos.length) {
     frases.push(
-      `La demanda prevista NO puede atenderse íntegramente en ${excedidos.length} línea(s): ${excedidos.map((s) => {
+      `La demanda prevista no puede atenderse íntegramente en ${excedidos.length} línea(s): ${excedidos.map((s) => {
         const t = s.capacidadesExcedidas[0];
         const c = m.capacidadServicios[s.id]?.[t];
         const perdida = c ? (1 - c.cantidadRealMensual / Math.max(1e-9, c.demandaMensual)) : 0;
@@ -226,10 +226,15 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel): { te
     );
   }
   frases.push(
-    `Las fuentes disponibles suman ${fmtK(aport + otras + credito)} miles de USD (aportaciones ${fmtK(aport)}, otras fuentes ${fmtK(otras)}, crédito ${fmtK(credito)}). La necesidad de financiación (inversión menos aportaciones y otras fuentes) es ${fmtK(nec)} kUSD${credito > 0 ? `, cubierta por el crédito previsto; el servicio de esa deuda (intereses y amortizaciones) se analiza en el calendario correspondiente` : ' y no se ha previsto crédito para cubrirla'}.`
+    `Las fuentes disponibles suman ${fmtK(aport + otras + credito)} miles de USD (aportaciones ${fmtK(aport)}, otras fuentes ${fmtK(otras)}, crédito ${fmtK(credito)}). La necesidad de financiación (inversión menos aportaciones y otras fuentes) es ${fmtK(nec)} kUSD${
+      credito > 0
+        ? nec > credito
+          ? `, cubierta solo en ${fmtPct(pct(credito, nec))} por el crédito previsto: el faltante se cuantifica en la diferencia de financiación`
+          : ', cubierta por el crédito previsto; el servicio de esa deuda (intereses y amortizaciones) se analiza en el calendario correspondiente'
+        : ' y no se ha previsto crédito para cubrirla'}.`
   );
   if (dif < -0.05) {
-    frases.push(`Diferencia de financiación: faltan ${fmtK(Math.abs(dif))} kUSD. El plan no es financiable bajo las premisas actuales: corríjalo antes de cualquier presentación.`);
+    frases.push(`Existe una insuficiencia de financiación de ${fmtK(Math.abs(dif))} kUSD frente a la inversión total: el plan no es financiable bajo las premisas actuales (diferencia de financiación: faltan ${fmtK(Math.abs(dif))} kUSD). Aumente aportaciones, gestione crédito adicional o reduzca el alcance de la inversión antes de cualquier presentación.`);
   } else if (dif > 0.05) {
     frases.push(`Diferencia de financiación: sobran ${fmtK(dif)} kUSD sin asignar a inversión; justifique su uso o ajuste las fuentes.`);
   } else {
@@ -272,6 +277,18 @@ function analisisIngresosCostos(p: PlanexProject, m: ComputedModel): { texto: st
         ? `La utilidad antes de impuestos DESCIENDE de ${fmtK(uai1)} (año 1) a ${fmtK(uaiN)} (año ${N}): revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante o cargas financieras).`
         : `La utilidad antes de impuestos permanece en ${fmtK(uai1)} miles de USD entre el año 1 y el año ${N}: verifique si el modelo refleja la dinámica prevista del negocio.`,
   ];
+  const uaiSerie: number[] = [];
+  for (let t = 1; t <= N; t++) uaiSerie.push(m.valores['utilidad_antes_impuestos_k']?.[t] ?? 0);
+  const caidas: number[] = [];
+  for (let t = 2; t <= N; t++) {
+    if (uaiSerie[t - 1] < uaiSerie[t - 2] - 1e-9) caidas.push(t);
+  }
+  if (caidas.length) {
+    const t0 = caidas[0];
+    frases.push(
+      `La utilidad antes de impuestos DESCIENDE en el año ${t0} (de ${fmtK(uaiSerie[t0 - 2])} a ${fmtK(uaiSerie[t0 - 1])} kUSD)${caidas.length > 1 ? ` y vuelve a caer en ${caidas.length - 1} año(s) más` : ''}: revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante, cargas financieras o nuevas depreciaciones de ampliaciones) antes de proyectar crecimiento sobre esa trayectoria.`
+    );
+  }
   const caja = m.indicadores.fcfeAcumulado[N] ?? 0;
   if (udi1 > 0 && caja < 0) {
     frases.push('ATENCIÓN: el plan muestra utilidad contable positiva pero la caja acumulada de los socios sigue negativa en el horizonte; rentabilidad contable y liquidez NO son equivalentes: revise el calendario de cobros, el capital de trabajo y el servicio de la deuda.');
@@ -372,7 +389,7 @@ function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel): { texto:
       `El modelo libera el ${fmtPct(pctCT)} del capital de trabajo (${fmtK(pctCT * parametro(p, 'capital_trabajo_k'))} kUSD) en el último año: esa recuperación es un supuesto parametrizado que debe justificarse.`
     );
   } else {
-    frases.push('El capital de trabajo inicial no se recupera en el modelo (tratamiento conservador, parámetro de recuperación en 0 %).');
+    frases.push('El capital de trabajo inicial no se recupera dentro del modelo (tratamiento conservador, parámetro de recuperación en 0 %).');
   }
   if (m.indicadores.recuperacionProyecto.anios !== null && N < Math.ceil(m.indicadores.recuperacionProyecto.anios + 1)) {
     frases.push('ATENCIÓN: el horizonte es menor que la recuperación más un año; la metodología exige ampliar el horizonte antes de presentar el plan.');

@@ -29,7 +29,7 @@ import { PlanexProject, ComputedModel, Regla, ADVERTENCIA_DATOS_FICTICIOS } from
 import { parsear } from '../engine/parser';
 import { traducir, NoTraducible, letraCol, COL_SERVICIO, COL_PERSONAL, CtxTraduccion } from '../excel/traductor';
 import { diagnosticar } from '../model/controles';
-import { fmtAnios } from '../format';
+import { fmtAnios, fmtK } from '../format';
 
 type Celda = { v?: string | number | boolean | null; f?: string; z?: string; s?: Record<string, unknown> };
 
@@ -125,7 +125,7 @@ const FILAS_PROYECCIONES: FilaProyeccion[] = [
   { tipo: 'regla', id: 'costos_totales_k', etiqueta: 'COSTOS Y GASTOS TOTALES', negrita: true },
   { tipo: 'regla', id: 'utilidad_antes_impuestos_k', etiqueta: 'UTILIDAD ANTES DE IMPUESTOS', negrita: true },
   { tipo: 'regla', id: 'impuesto_utilidades_k', etiqueta: 'Impuesto sobre utilidades (regla demostrativa)' },
-  { tipo: 'regla', id: 'utilidad_despues_impuestos_k', etiqueta: 'UTILIDAD DESPUÉS DE IMPUESTOS', negrita: true },
+  { tipo: 'regla', id: 'utilidad_despues_impuestos_k', etiqueta: 'UTILIDAD DESPUÉS DE IMPUESTOS (3-4)', negrita: true },
   { tipo: 'regla', id: 'flujo_proyecto_k', etiqueta: 'FLUJO DE CAJA DEL PROYECTO (FCFF)', negrita: true },
   { tipo: 'regla', id: 'flujo_acumulado_proyecto_k', etiqueta: 'FLUJO ACUMULADO DEL PROYECTO', negrita: true },
   { tipo: 'regla', id: 'saldo_pendiente_proyecto_k', etiqueta: 'Saldo pendiente (inversión total)' },
@@ -179,7 +179,10 @@ export async function activarRecalculoAutomatico(datos: ArrayBuffer): Promise<Ar
     xml = xml.replace('</sheets>', '</sheets><calcPr calcId="171027" fullCalcOnLoad="1"/>');
   }
   zip.file('xl/workbook.xml', xml);
-  const salida = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' });
+  // STORE (sin compresión): garantiza que el marcador fullCalcOnLoad y las
+  // fórmulas sean verificables en el archivo crudo (misión §16.7) y evita
+  // dependencias del descompresor para las auditorías del libro.
+  const salida = await zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
   return salida as ArrayBuffer;
 }
 
@@ -414,10 +417,16 @@ export async function exportarXLSX(proyecto: PlanexProject, modelo: ComputedMode
   kpi(14, 'Recuperación del capital aportado (FCFE, años)', modelo.indicadores.recuperacionSocios.anios ?? '—', Z.anios, `=FlujosCaja!$B$${F_ROW.recS}`);
   kpi(15, 'Total de trabajadores (operación)', modelo.indicadores.totalTrabajadores, '0');
   kpi(16, 'Salario promedio anual (CUP)', modelo.indicadores.salarioPromedioAnualCUP ?? '—', Z.cup);
-  hResumen.texto(18, 1, 'Notas:', ST.nota);
-  hResumen.texto(19, 1, proyecto.resumen.notas, ST.nota);
-  hResumen.texto(20, 1, 'Los beneficios al país usan el MISMO cálculo en resumen y tabla (período completo incluye el año 0; el subtotal de explotación se etiqueta aparte).', ST.nota);
-  if (esDemo) hResumen.texto(21, 1, 'EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS — validar cifras y supuestos antes de un uso oficial.', ST.alerta);
+  // Versión textual es-ES de las recuperaciones (misión §16.7: sin valores
+  // antiguos; el texto siempre refleja el modelo vigente con un decimal).
+  hResumen.set(17, 1, { v: 'Recuperación FCFF (años, texto)', s: ST.nota });
+  hResumen.set(17, 2, { v: modelo.indicadores.recuperacionProyecto.anios !== null ? fmtK(modelo.indicadores.recuperacionProyecto.anios) : 'No se recupera', s: ST.formula });
+  hResumen.set(18, 1, { v: 'Recuperación FCFE (años, texto)', s: ST.nota });
+  hResumen.set(18, 2, { v: modelo.indicadores.recuperacionSocios.anios !== null ? fmtK(modelo.indicadores.recuperacionSocios.anios) : 'No se recupera', s: ST.formula });
+  hResumen.texto(20, 1, 'Notas:', ST.nota);
+  hResumen.texto(21, 1, proyecto.resumen.notas, ST.nota);
+  hResumen.texto(22, 1, 'Los beneficios al país usan el MISMO cálculo en resumen y tabla (período completo incluye el año 0; el subtotal de explotación se etiqueta aparte).', ST.nota);
+  if (esDemo) hResumen.texto(23, 1, 'EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS — validar cifras y supuestos antes de un uso oficial.', ST.alerta);
 
   // ============================================================== Parametros
   const hParam = new Hoja();
@@ -1180,7 +1189,21 @@ export async function exportarXLSX(proyecto: PlanexProject, modelo: ComputedMode
   }
   hCtrl.texto(fCtrl, 1, `Conteo: ${resumen.conteo.error_bloqueante} error(es) bloqueante(s), ${resumen.conteo.advertencia_importante} advertencia(s) importante(s), ${resumen.conteo.informacion_pendiente} pendiente(s), ${resumen.conteo.observacion_calidad} observación(es) de calidad.`, ST.nota);
   hCtrl.texto(fCtrl + 1, 1, 'La completitud formal de campos NO se usa como prueba de calidad: un apartado completo de supuestos sin respaldo sigue sin estar validado.', ST.nota);
-  if (esDemo) hCtrl.texto(fCtrl + 2, 1, 'EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS.', ST.alerta);
+  // Leyenda de los CUATRO niveles del diagnóstico (misión §15): permite
+  // distinguir la clasificación aunque el plan no genere hallazgos de todos
+  // los niveles.
+  hCtrl.texto(fCtrl + 3, 1, 'Clasificación de hallazgos (misión §15)', ST.subtitulo);
+  const LEYENDA_NIVELES: [string, string][] = [
+    ['error_bloqueante', 'El cálculo es inválido, una fórmula tiene referencias rotas o existe una inconsistencia que impide interpretar el resultado.'],
+    ['advertencia_importante', 'Capacidad insuficiente, financiación no garantizada, recuperación no alcanzada o supuestos críticos no validados.'],
+    ['informacion_pendiente', 'Falta completar un campo, adjuntar evidencia o documentar un supuesto.'],
+    ['observacion_calidad', 'Recomendación de mejorar la redacción, la evidencia, el análisis o la presentación.'],
+  ];
+  LEYENDA_NIVELES.forEach(([nivel, desc], i) => {
+    hCtrl.texto(fCtrl + 4 + i, 1, nivel);
+    hCtrl.texto(fCtrl + 4 + i, 2, desc, ST.nota);
+  });
+  if (esDemo) hCtrl.texto(fCtrl + 4 + LEYENDA_NIVELES.length + 1, 1, 'EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS.', ST.alerta);
 
   // ============================================================== libro
   const wb = XLSX.utils.book_new();
