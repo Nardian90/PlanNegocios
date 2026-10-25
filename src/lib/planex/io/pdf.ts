@@ -185,9 +185,11 @@ function tabla(
 }
 
 /** Dibuja una figura del modelo con primitivas vectoriales (§9): mismos
- *  datos que las tablas; sin imágenes rasterizadas ni recursos remotos. */
+ *  datos que las tablas; sin imágenes rasterizadas ni recursos remotos.
+ *  (DOC-002-R1 §7) Los ejes llevan ETIQUETAS NUMÉRICAS: rejilla con valores
+ *  «bonitos» rotulados a la izquierda y marcas de año bajo el eje horizontal. */
 function dibujarFigura(doc: jsPDF, f: FiguraDoc, y0: number): number {
-  const altoFig = 72;
+  const altoFig = 76;
   let y = y0;
   if (y > ALTO - altoFig - ZONA_PIE - 24) {
     doc.addPage();
@@ -201,29 +203,47 @@ function dibujarFigura(doc: jsPDF, f: FiguraDoc, y0: number): number {
   doc.text(lineas, M, y);
   y += 4.5 * lineas.length + 2;
 
-  const izq = M + 6;
+  // Margen izquierdo adaptativo: la etiqueta Y más larga cabe completa (§7).
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
+  const anchoEtiquetaY = f.marcasY.reduce((m, x) => Math.max(m, doc.getTextDimensions(T(x.etiqueta)).w), 0);
+  const izq = M + 4 + anchoEtiquetaY + 2;
   const der = ANCHO - M - 4;
-  const arriba = y + 2;
   const abajo = y + altoFig;
   const { xMin, xMax, yMin, yMax } = f.ejes;
   const px = (x: number) => izq + ((x - xMin) / Math.max(1e-9, xMax - xMin)) * (der - izq);
   const py = (v: number) => abajo - ((v - yMin) / Math.max(1e-9, yMax - yMin)) * (altoFig - 6);
 
-  // Rejilla horizontal
+  // Rejilla horizontal: las MISMAS líneas «bonitas» que llevan etiqueta (§7)
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.15);
-  for (let i = 0; i <= 5; i++) {
-    const v = yMin + ((yMax - yMin) * i) / 5;
-    doc.line(izq, py(v), der, py(v));
+  for (const marca of f.marcasY) {
+    doc.line(izq, py(marca.y), der, py(marca.y));
   }
   // Ejes
   doc.setDrawColor(148, 163, 184);
   doc.setLineWidth(0.4);
-  doc.line(izq, arriba, izq, abajo);
+  doc.line(izq, y + 2, izq, abajo);
   doc.line(izq, abajo, der, abajo);
   if (yMin < 0 && yMax > 0) {
     doc.setDrawColor(203, 213, 225);
     doc.line(izq, py(0), der, py(0));
+  }
+
+  // Etiquetas numéricas del eje vertical + ticks (DOC-002-R1 §7)
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
+  doc.setTextColor(100, 116, 139);
+  for (const marca of f.marcasY) {
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.4);
+    doc.line(izq - 1.1, py(marca.y), izq, py(marca.y));
+    doc.text(T(marca.etiqueta), izq - 1.5, py(marca.y) + 1.1, { align: 'right' });
+  }
+  // Marcas de años del eje horizontal + ticks
+  for (const marca of f.marcasX) {
+    doc.line(px(marca.x), abajo, px(marca.x), abajo + 1.1);
+    doc.text(T(marca.etiqueta), px(marca.x), abajo + 3.6, { align: 'center' });
   }
 
   const trazo = (color: string, grosor: number) => {

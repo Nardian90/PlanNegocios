@@ -278,25 +278,45 @@ export function EtiquetaIssue({ tipo }: { tipo: string }) {
   );
 }
 
-/** Gráfico sencillo de flujo acumulado (SVG puro). */
-export function GraficoFlujo({ years, acumulado, umbral }: { years: number[]; acumulado: Record<number, number>; umbral: number }) {
+/** Gráfico sencillo de flujo acumulado (SVG puro). Ejes con etiquetas
+ *  numéricas y marcas de años (coherente con las figuras del documento). */
+export function GraficoFlujo({ years, acumulado, umbral, fmtEje }: { years: number[]; acumulado: Record<number, number>; umbral: number; fmtEje: (v: number) => string }) {
   const vals = years.map((t) => acumulado[t] ?? 0);
   const min = Math.min(0, ...vals);
   const max = Math.max(umbral, ...vals, 1);
   const W = 560;
   const H = 160;
-  const pasoX = W / Math.max(1, years.length - 1);
+  const PAD_IZQ = 52;
+  const pasoX = (W - PAD_IZQ) / Math.max(1, years.length - 1);
   const py = (v: number) => H - ((v - min) / (max - min)) * (H - 20) - 10;
-  const puntos = vals.map((v, i) => `${i * pasoX},${py(v)}`).join(' ');
+  const puntos = vals.map((v, i) => `${PAD_IZQ + i * pasoX},${py(v)}`).join(' ');
   const y0 = py(0);
+  // Rejilla con valores «bonitos» (DOC-002-R1 §7, misma convención que las figuras)
+  const paso = (() => {
+    const rango = (max - min) / 5;
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.abs(rango) || 1)));
+    const norm = rango / mag;
+    const n = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+    return n * mag;
+  })();
+  const lineas: number[] = [];
+  for (let v = Math.ceil(min / paso - 1e-9) * paso; v <= Math.floor(max / paso + 1e-9) * paso + paso * 1e-6; v += paso) lineas.push(Math.round(v * 1e6) / 1e6);
   return (
     <svg viewBox={`0 0 ${W} ${H + 16}`} className="w-full max-w-2xl" role="img" aria-label="Flujo de caja acumulado por año">
-      <line x1="0" y1={y0} x2={W} y2={y0} stroke="currentColor" strokeOpacity="0.35" strokeDasharray="4 3" />
+      {lineas.map((v) => (
+        <g key={v}>
+          <line x1={PAD_IZQ} y1={py(v)} x2={W} y2={py(v)} stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
+          <text x={PAD_IZQ - 6} y={py(v) + 3} textAnchor="end" className="fill-muted-foreground" fontSize="9">
+            {fmtEje(v)}
+          </text>
+        </g>
+      ))}
+      <line x1={PAD_IZQ} y1={y0} x2={W} y2={y0} stroke="currentColor" strokeOpacity="0.35" strokeDasharray="4 3" />
       <polyline points={puntos} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />
       {vals.map((v, i) => (
         <g key={i}>
-          <circle cx={i * pasoX} cy={py(v)} r="3" className="fill-primary" />
-          <text x={i * pasoX} y={H + 12} textAnchor="middle" className="fill-muted-foreground" fontSize="9">
+          <circle cx={PAD_IZQ + i * pasoX} cy={py(v)} r="3" className="fill-primary" />
+          <text x={PAD_IZQ + i * pasoX} y={H + 12} textAnchor="middle" className="fill-muted-foreground" fontSize="9">
             {years[i] === 0 ? 'Inv.' : `A${years[i]}`}
           </text>
         </g>

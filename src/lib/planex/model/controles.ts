@@ -34,6 +34,7 @@
 
 import { PlanexProject, ComputedModel } from '../types';
 import { generarAnalisis, CLAVES_ANALISIS, PresentacionMonetaria, PRESENTACION_NATIVA } from '../engine/analisis';
+import { conciliarArranque } from '../engine/flujos';
 import { fmtK, fmtAnios, fmtPct, esValorPendiente, esReferenciaHipotesis } from '../format';
 
 export type NivelHallazgo = 'error_bloqueante' | 'advertencia_importante' | 'informacion_pendiente' | 'observacion_calidad';
@@ -307,21 +308,22 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
     }
   }
 
-  // Conciliación del desembolso inicial (DOC-002 §4.2): la necesidad total
-  // (inversión + gastos del año 0) frente a las fuentes declaradas. El motor
-  // emite FINANCIACION_ANO0 cuando hay brecha; aquí se verifica además que
-  // las APORTACIONES se registren en el año 0 con el mismo significado que
-  // tienen en los flujos (montos[0] = año 0/montaje).
+  // Conciliación del desembolso inicial (DOC-002-R1 §2): la necesidad total
+  // (inversión + salidas de caja EXPLÍCITAS del año 0) frente a las fuentes
+  // declaradas. El motor emite FINANCIACION_ANO0 cuando hay brecha; aquí se
+  // verifica además que las APORTACIONES se registren en el año 0 con el
+  // mismo significado que tienen en los flujos (montos[0] = año 0/montaje).
+  // El gasto NO se deduce del resultado contable después de impuestos.
   {
-    const udi0 = m.valores['utilidad_despues_impuestos_k']?.[0];
-    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
-    const finDisp = m.valores['financiacion_disponible_k']?.[0] ?? 0;
-    const brecha = finDisp - inv - gastoAnio0;
-    if (gastoAnio0 > 0.005 && brecha >= -0.05) {
+    const arranque = conciliarArranque(m);
+    const gastoAnio0 = arranque.gastoCajaAnio0;
+    const finDisp = arranque.financiacionDisponible;
+    const brecha = arranque.brecha;
+    if ((arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) && brecha >= -0.05) {
       hallazgos.push({
         nivel: 'observacion_calidad',
         codigo: 'DESEMBOLSO_INICIAL_CONCILIADO',
-        mensaje: `Conciliación del desembolso inicial: inversión total ${pres.k(inv)} + gastos de montaje del año 0 ${pres.k(gastoAnio0)} = necesidad total ${pres.k(inv + gastoAnio0)} ${pres.corto}, frente a fuentes declaradas por ${pres.k(finDisp)} ${pres.corto} (brecha ${pres.k(brecha)}). Los desembolsos del año 0 y del año 1 conservan el mismo significado en las tablas de aportaciones, fuentes y flujos.`,
+        mensaje: `Conciliación del desembolso inicial: inversión total ${pres.k(inv)} + salidas de caja explícitas del año 0 ${pres.k(gastoAnio0)} (nómina de montaje ${pres.k(arranque.nominaMontaje)} + interés pagado ${pres.k(arranque.interesPagado)} + impuesto ${pres.k(arranque.impuestoPagado)} − ingresos del año 0 ${pres.k(arranque.ingresosAnio0)}) = necesidad total ${pres.k(arranque.necesidadTotal)} ${pres.corto}, frente a fuentes declaradas por ${pres.k(finDisp)} ${pres.corto} (brecha ${pres.k(brecha)}). El capital de trabajo ya está dentro de la inversión total y no se duplica. Los desembolsos del año 0 y del año 1 conservan el mismo significado en las tablas de aportaciones, fuentes y flujos.`,
         partida: 'conciliación del arranque',
         consecuencia: 'Sin brecha: la conciliación queda documentada en el informe.',
         correccion: 'Mantenga la conciliación al cambiar cualquier fuente o gasto del año 0.',
@@ -376,6 +378,64 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
       correccion: 'Asigne el canal de cada servicio en la tabla 4.6.',
       afectaConclusiones: false,
     });
+  }
+
+  // Año de la ampliación: narrativa vs dato estructurado (DOC-002-R1 §3). La
+  // narrativa NO puede fijar un año distinto del registrado en la tabla de
+  // recursos: capacidad, CAPEX y depreciación se derivan del mismo dato.
+  {
+    const aniosAmp = new Set(p.recursos.flatMap((r) => r.expansiones.map((e) => Math.max(1, Math.trunc(e.anio)))));
+    if (aniosAmp.size > 0) {
+      const textosNarrativos: { campo: string; partida: string; texto: string | undefined }[] = [
+        { campo: 'tecnico.capacidadInstalada', partida: '4.6', texto: p.tecnico.capacidadInstalada },
+        { campo: 'tecnico.plazoNiveles', partida: '4.6', texto: p.tecnico.plazoNiveles },
+        { campo: 'conclusiones.texto', partida: '4.12', texto: p.conclusiones.texto },
+      ];
+      const reAmpAnio = /ampliaci[\wáéíóú]*[^.;]{0,140}?\ba[ñn]o\s+(\d+)/gi;
+      for (const { campo, partida, texto } of textosNarrativos) {
+        if (!texto?.trim()) continue;
+        reAmpAnio.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = reAmpAnio.exec(texto))) {
+          const anioNarrado = Number(match[1]);
+          if (Number.isFinite(anioNarrado) && anioNarrado >= 1 && !aniosAmp.has(anioNarrado)) {
+            hallazgos.push({
+              nivel: 'advertencia_importante',
+              codigo: 'AMPLIACION_NARRATIVA_INCONSISTENTE',
+              mensaje: `La narrativa (${campo}) menciona la ampliación en el año ${anioNarrado}, pero la tabla de recursos operativos la registra en el/los año(s) ${[...aniosAmp].join(', ')}: el año de la capacidad, el CAPEX y la depreciación del modelo usan el dato estructurado, de modo que el texto narrado NO describe lo que calcula el modelo.`,
+              partida,
+              origen: campo,
+              consecuencia: 'El lector fecharía la ampliación en un año que el modelo no aplica: narrativa y resultados discrepan.',
+              correccion: `Corrija la narrativa al año registrado (${[...aniosAmp].join(', ')}) o reubique la ampliación en la tabla de recursos; el dato estructurado es la fuente única.`,
+              afectaConclusiones: false,
+            });
+            break; // un hallazgo por campo es suficiente para forzar la revisión
+          }
+        }
+      }
+    }
+  }
+
+  // Fecha de referencia de la tasa vs fecha del documento (DOC-002-R1 §6):
+  // una cotización fechada DESPUÉS del documento no puede presentarse como
+  // dato observado; debe marcarse como prevista o realinearse.
+  {
+    const tc = p.parametros.find((x) => x.id === 'tipo_cambio');
+    const fechaDoc = (p.general.fecha ?? '').trim();
+    const fechaTasa = (tc?.fechaRef ?? '').trim();
+    const esISO = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+    if (esISO(fechaDoc) && esISO(fechaTasa) && fechaTasa > fechaDoc) {
+      hallazgos.push({
+        nivel: 'advertencia_importante',
+        codigo: 'TASA_FECHA_FUTURA',
+        mensaje: `La fecha de referencia de la tasa de cambio (${fechaTasa}) es POSTERIOR a la fecha del documento (${fechaDoc}): una cotización futura NO puede presentarse como dato observado. Corrija la fecha de referencia, realinee la fecha del documento o declare la tasa como fecha PREVISTA hasta que exista una fuente oficial verificable.`,
+        partida: 'parametros.tipo_cambio',
+        origen: `fechaRef ${fechaTasa} > fecha del documento ${fechaDoc}`,
+        consecuencia: 'El documento citaría una cotización inexistente en su fecha de emisión: la trazabilidad de la fuente queda comprometida.',
+        correccion: 'Ajuste la fecha de referencia de la tasa (o márquela como prevista) antes de cualquier presentación.',
+        afectaConclusiones: false,
+      });
+    }
   }
 
   // Análisis editados manualmente y desactualizados frente al modelo actual

@@ -33,7 +33,11 @@ describe('DOC-001 §5 — Contexto de conversión', () => {
   test('la tasa se lee del parámetro existente tipo_cambio (fuente única)', () => {
     const t = tasaCambioDe(p);
     expect(t.tasa).toBe(tasa);
-    expect(t.fecha).toBe('2026-10-26');
+    // DOC-002-R1 §6: fecha de corte del supuesto ALINEADA con la fecha del
+    // documento (2026-10-25); una fecha posterior la marcaría el diagnóstico.
+    expect(t.fecha).toBe('2026-10-25');
+    expect(p.general.fecha).toBe('2026-10-25');
+    expect(t.fecha <= p.general.fecha).toBe(true);
     expect(t.fuente.length).toBeGreaterThan(0);
     expect(t.demo).toBe(true);
   });
@@ -100,7 +104,10 @@ describe('DOC-001 Escenario A — Presentación en USD', () => {
   test('la nota del documento documenta tasa, fecha y fuente (misión §5.2.10)', () => {
     expect(doc.meta.notaMoneda).toContain('USD');
     expect(doc.meta.notaMoneda).toContain('743,0 CUP por USD');
-    expect(doc.meta.notaMoneda).toContain('2026-10-26');
+    // DOC-002-R1 §6: fecha de corte del supuesto (igual a la del documento),
+    // presentada como supuesto ilustrativo, no como cotización observada.
+    expect(doc.meta.notaMoneda).toContain('2026-10-25');
+    expect(doc.meta.notaMoneda).toContain('fecha de corte del supuesto ilustrativo, no una cotización observada');
     expect(doc.meta.notaMoneda.toLowerCase()).toContain('una sola vez');
   });
 

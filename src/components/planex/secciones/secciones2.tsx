@@ -722,7 +722,7 @@ export function SeccionFinanciero({ modelo }: { modelo: ComputedModel }) {
               </TableBody>
             </Table>
           </div>
-          <GraficoFlujo years={years} acumulado={modelo.valores['flujo_acumulado_proyecto_k'] ?? {}} umbral={0} />
+          <GraficoFlujo years={years} acumulado={modelo.valores['flujo_acumulado_proyecto_k'] ?? {}} umbral={0} fmtEje={fmtK} />
           <div className="flex gap-2 flex-wrap text-xs text-muted-foreground">
             <Badge variant="outline">FCFF: perspectiva del proyecto (excluye financiación)</Badge>
             <Badge variant="outline">FCFE: perspectiva del capital aportado</Badge>

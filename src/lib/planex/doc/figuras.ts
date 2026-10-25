@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { PlanexProject, ComputedModel } from '../types';
-import { fmtPct } from '../format';
+import { fmtPct, fmtK, fmtNum } from '../format';
 
 // ---------------------------------------------------------------------------
 // Primitivas (coordenadas de datos)
@@ -46,6 +46,13 @@ export interface FiguraDoc {
   nota: string;
   /** Rango de datos: [xMin, xMax, yMin, yMax]. */
   ejes: { xMin: number; xMax: number; yMin: number; yMax: number };
+  /** Rejilla del eje vertical con ETIQUETAS NUMÉRICAS (DOC-002-R1 §7):
+   *  valores «bonitos» (múltiplos redondos) dentro del rango, uno por línea
+   *  de rejilla dibujada; renderizadores y etiquetas usan la MISMA lista. */
+  marcasY: { y: number; etiqueta: string }[];
+  /** Marcas del eje horizontal con el Año (DOC-002-R1 §7): una por año del
+   *  rango (paso > 1 cuando el horizonte es muy largo para evitar solapes). */
+  marcasX: { x: number; etiqueta: string }[];
   primitivas: PrimitivaFigura[];
 }
 
@@ -72,6 +79,61 @@ function redondearEje(v: number, max: number): number {
   return Math.ceil((v * 1.05) / (paso / 2)) * (paso / 2);
 }
 
+// ---------------------------------------------------------------------------
+// Ejes con etiquetas numéricas (misión DOC-002-R1 §7)
+// ---------------------------------------------------------------------------
+
+/** Paso «bonito» para la rejilla del eje Y: de la escala 1/2/2,5/5/10 se
+ *  elige el valor MÁS CERCANO al objetivo (distancia logarítmica), de modo
+ *  que la rejilla conserve ~4-7 líneas incluso cuando el objetivo cae justo
+ *  por encima de un peldaño (p. ej. 1,1 × 10^n → 1 × 10^n, no 2 × 10^n). */
+function pasoBonito(rango: number): number {
+  const abs = Math.abs(rango) || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(abs)));
+  const norm = abs / mag;
+  let mejor = 1;
+  let mejorDist = Infinity;
+  for (const peldaño of [1, 2, 2.5, 5, 10]) {
+    const dist = Math.abs(Math.log(norm / peldaño));
+    if (dist < mejorDist) {
+      mejorDist = dist;
+      mejor = peldaño;
+    }
+  }
+  return mejor * mag;
+}
+
+/** Rejilla del eje vertical: múltiplos redondos DENTRO del rango, con su
+ *  etiqueta numérica formateada (es-ES agrupado; 1 decimal si el paso < 1
+ *  para que las etiquetas no colisionen). Renderizadores y etiquetas usan
+ *  esta MISMA lista: cada línea de rejilla lleva su cifra. */
+export function rejillaY(ejes: { yMin: number; yMax: number }, esPorcentaje: boolean): { y: number; etiqueta: string }[] {
+  const paso = pasoBonito((ejes.yMax - ejes.yMin) / 5);
+  // Primer múltiplo DENTRO del rango (ceil: nunca por debajo de yMin) y último
+  // que no supere yMax: toda línea etiquetada cae dentro del área trazada.
+  const inicio = Math.ceil(ejes.yMin / paso - 1e-9) * paso;
+  const fin = Math.floor(ejes.yMax / paso + 1e-9) * paso;
+  const salida: { y: number; etiqueta: string }[] = [];
+  for (let v = inicio; v <= fin + paso * 1e-6; v += paso) {
+    const redondeado = Math.round(v * 1e6) / 1e6;
+    const cifra = paso < 1 ? fmtK(redondeado) : fmtNum(redondeado);
+    salida.push({ y: redondeado, etiqueta: esPorcentaje ? `${cifra} %` : cifra });
+  }
+  return salida;
+}
+
+/** Marcas del eje horizontal: una por año del rango; paso > 1 cuando el
+ *  horizonte es tan largo que etiquetar cada año solaparía las cifras. */
+export function marcasAnios(xMin: number, xMax: number): { x: number; etiqueta: string }[] {
+  const span = Math.max(1, xMax - xMin);
+  const paso = Math.max(1, Math.ceil(span / 12));
+  const salida: { x: number; etiqueta: string }[] = [];
+  for (let x = Math.ceil(xMin / paso) * paso; x <= xMax + 1e-9; x += paso) {
+    salida.push({ x, etiqueta: String(Math.round(x)) });
+  }
+  return salida;
+}
+
 /** Genera las figuras del informe desde el modelo activo y la moneda de
  *  presentación (los importes del motor en kUSD se convierten con kUSDaK). */
 export function generarFiguras(
@@ -92,6 +154,7 @@ export function generarFiguras(
     const udi = years.map((t) => convK(m.indicadores.utilidadNeta[t] ?? 0));
     const maxV = Math.max(...ing, ...cos, ...udi, 0);
     const minV = Math.min(...ing, ...cos, ...udi, 0);
+    const ejes = { xMin: 1, xMax: N, yMin: Math.min(0, minV), yMax: redondearEje(maxV, maxV) };
     figuras.push({
       clave: 'evolucion',
       numero: 0,
@@ -104,7 +167,9 @@ export function generarFiguras(
         { etiqueta: 'Utilidad después de impuestos', color: COLORES_FIGURAS.utilidad },
       ],
       nota: `Fuente: modelo de cálculo activo (estado de resultados, años 1–${N}). Importes en ${conv.unidadTabla.toLowerCase()}; cantidades limitadas por la capacidad del escenario activo. Los valores de cada año corresponden a las mismas cifras de la tabla «Proyección de ingresos, costos y utilidades» del apartado 4.7.`,
-      ejes: { xMin: 1, xMax: N, yMin: Math.min(0, minV), yMax: redondearEje(maxV, maxV) },
+      ejes,
+      marcasY: rejillaY(ejes, false),
+      marcasX: marcasAnios(ejes.xMin, ejes.xMax),
       primitivas: [
         { t: 'polilinea', puntos: years.map((t, i) => [t, ing[i]]), color: COLORES_FIGURAS.ingresos, grosor: 2 },
         { t: 'polilinea', puntos: years.map((t, i) => [t, cos[i]]), color: COLORES_FIGURAS.costos, grosor: 2 },
@@ -132,6 +197,7 @@ export function generarFiguras(
         primitivas.push({ t: 'linea', x1: rec.anios, y1: minV, x2: rec.anios, y2: 0, color: rec.indicador === 'proyecto' ? COLORES_FIGURAS.fcff : COLORES_FIGURAS.fcfe, grosor: 1, punteada: true });
       }
     }
+    const ejes = { xMin: 0, xMax: N, yMin: Math.min(0, minV), yMax: redondearEje(maxV, maxV) };
     figuras.push({
       clave: 'flujos',
       numero: 0,
@@ -144,7 +210,9 @@ export function generarFiguras(
         { etiqueta: 'Cero (recuperación simple, sin descontar)', color: COLORES_FIGURAS.umbral },
       ],
       nota: `Fuente: modelo de cálculo activo (flujos de caja, años 0–${N}). Importes en ${conv.unidadTabla.toLowerCase()}. Las verticales punteadas señalan los cruces de cero del acumulado (recuperación simple, sin descontar, por interpolación lineal intranual); el FCFF reincorpora el interés después de impuestos y el FCFE restituye su escudo fiscal.`,
-      ejes: { xMin: 0, xMax: N, yMin: Math.min(0, minV), yMax: redondearEje(maxV, maxV) },
+      ejes,
+      marcasY: rejillaY(ejes, false),
+      marcasX: marcasAnios(ejes.xMin, ejes.xMax),
       primitivas,
     });
   }
@@ -176,6 +244,8 @@ export function generarFiguras(
       leyenda,
       nota: `Fuente: modelo de cálculo activo (capacidad del escenario activo, años 1–${N}). La utilización de cada recurso y año se reproduce como horas-mes demandadas divididas por horas-mes disponibles (tabla de utilización del apartado 4.6); el umbral de referencia es un parámetro de análisis, no un límite técnico.`,
       ejes: { xMin: 1, xMax: N, yMin: 0, yMax: redondearEje(maxUtil, maxUtil) },
+      marcasY: rejillaY({ yMin: 0, yMax: redondearEje(maxUtil, maxUtil) }, true),
+      marcasX: marcasAnios(1, N),
       primitivas,
     });
   }
@@ -270,6 +340,62 @@ function pintarLinea(lienzo: Lienzo, x1: number, y1: number, x2: number, y2: num
   void marcar;
 }
 
+/** Fuente bitmap 5×7 (DOC-002-R1 §7): glifos necesarios para las etiquetas
+ *  de los ejes (dígitos, signo menos, separadores es-ES, porcentaje y
+ *  espacio). Cada glifo son 7 filas de 5 píxeles, codificadas en bits. */
+const FUENTE_5X7: Record<string, number[]> = {
+  '0': [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e],
+  '1': [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
+  '2': [0x0e, 0x11, 0x01, 0x06, 0x08, 0x10, 0x1f],
+  '3': [0x1f, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0e],
+  '4': [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02],
+  '5': [0x1f, 0x10, 0x1e, 0x01, 0x01, 0x11, 0x0e],
+  '6': [0x06, 0x08, 0x10, 0x1e, 0x11, 0x11, 0x0e],
+  '7': [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+  '8': [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e],
+  '9': [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x02, 0x0c],
+  '-': [0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00],
+  '.': [0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06],
+  ',': [0x00, 0x00, 0x00, 0x00, 0x06, 0x06, 0x0c],
+  '%': [0x19, 0x1a, 0x02, 0x04, 0x08, 0x0b, 0x13],
+  ' ': [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+};
+
+/** Dibuja texto con la fuente bitmap 5×7 (escala entera ≥ 1). Devuelve el
+ *  ancho ocupado en píxeles. Alineación: 'fin' termina en xFin, 'centro'
+ *  centra, 'inicio' empieza en x. */
+function pintarTexto(lienzo: Lienzo, texto: string, x: number, y: number, color: string, escala: number, alineado: 'inicio' | 'centro' | 'fin' = 'inicio'): number {
+  const chars = [...texto];
+  const anchoTotal = chars.length * 6 * escala - escala;
+  let x0 = x;
+  if (alineado === 'centro') x0 = x - anchoTotal / 2;
+  else if (alineado === 'fin') x0 = x - anchoTotal;
+  x0 = Math.round(x0);
+  const y0 = Math.round(y);
+  chars.forEach((ch, i) => {
+    const glifo = FUENTE_5X7[ch];
+    if (!glifo) return;
+    for (let fila = 0; fila < 7; fila++) {
+      const bits = glifo[fila];
+      for (let col = 0; col < 5; col++) {
+        if (bits & (1 << (4 - col))) {
+          for (let sy = 0; sy < escala; sy++) {
+            for (let sx = 0; sx < escala; sx++) {
+              pintar(lienzo, x0 + i * 6 * escala + col * escala + sx, y0 + fila * escala + sy, color);
+            }
+          }
+        }
+      }
+    }
+  });
+  return anchoTotal;
+}
+
+/** Ancho estimado (px) de un texto con la fuente bitmap. */
+function anchoTexto(texto: string, escala: number): number {
+  return [...texto].length * 6 * escala - escala;
+}
+
 /** Rasteriza una figura a PNG (RGB sin alfa, fondo blanco). */
 export function rasterizarPNG(figura: FiguraDoc, opts?: { ancho?: number; alto?: number; escala?: number }): { png: Uint8Array; ancho: number; alto: number } {
   const ancho = opts?.ancho ?? 640;
@@ -277,19 +403,39 @@ export function rasterizarPNG(figura: FiguraDoc, opts?: { ancho?: number; alto?:
   const lienzo: Lienzo = { ancho, alto, px: new Uint8Array(ancho * alto * 3).fill(255) };
 
   const { xMin, xMax, yMin, yMax } = figura.ejes;
-  const pad = 26;
-  const pxX = (x: number) => pad + ((x - xMin) / Math.max(1e-9, xMax - xMin)) * (ancho - 2 * pad);
-  const pxY = (y: number) => alto - pad - ((y - yMin) / Math.max(1e-9, yMax - yMin)) * (alto - 2 * pad);
+  const escala = Math.max(1, opts?.escala ?? 1);
+  // Márgenes adaptativos: las etiquetas numéricas del eje vertical (izquierda)
+  // y las marcas de años (abajo) necesitan espacio FUERA del área de trazado.
+  const padSup = 12;
+  const padDer = 12;
+  const padInf = 12 /* eje */ + 7 * escala /* año */ + 6;
+  const etiquetaMasLarga = figura.marcasY.reduce((m, x) => Math.max(m, x.etiqueta.length), 0);
+  const padIzq = 8 + anchoTexto('0'.repeat(etiquetaMasLarga), escala) + 8;
+  const pxX = (x: number) => padIzq + ((x - xMin) / Math.max(1e-9, xMax - xMin)) * (ancho - padIzq - padDer);
+  const pxY = (y: number) => alto - padInf - ((y - yMin) / Math.max(1e-9, yMax - yMin)) * (alto - padSup - padInf);
 
-  // Rejilla horizontal (5 líneas) y ejes
-  for (let i = 0; i <= 5; i++) {
-    const y = yMin + ((yMax - yMin) * i) / 5;
-    pintarLinea(lienzo, pad, Math.round(pxY(y)), ancho - pad, Math.round(pxY(y)), '#eef2f7', 1);
+  // Rejilla horizontal: las MISMAS líneas «bonitas» que llevan etiqueta.
+  for (const marca of figura.marcasY) {
+    pintarLinea(lienzo, padIzq, Math.round(pxY(marca.y)), ancho - padDer, Math.round(pxY(marca.y)), '#eef2f7', 1);
   }
   // Ejes
-  pintarLinea(lienzo, pad, pad, pad, alto - pad, COLORES_FIGURAS.eje, 1);
-  pintarLinea(lienzo, pad, alto - pad, ancho - pad, alto - pad, COLORES_FIGURAS.eje, 1);
-  if (yMin < 0 && yMax > 0) pintarLinea(lienzo, pad, Math.round(pxY(0)), ancho - pad, Math.round(pxY(0)), '#cbd5e1', 1);
+  pintarLinea(lienzo, padIzq, padSup, padIzq, alto - padInf, COLORES_FIGURAS.eje, 1);
+  pintarLinea(lienzo, padIzq, alto - padInf, ancho - padDer, alto - padInf, COLORES_FIGURAS.eje, 1);
+  if (yMin < 0 && yMax > 0) pintarLinea(lienzo, padIzq, Math.round(pxY(0)), ancho - padDer, Math.round(pxY(0)), '#cbd5e1', 1);
+
+  // Etiquetas numéricas del eje vertical y ticks (DOC-002-R1 §7)
+  const colorEje = '#64748b';
+  for (const marca of figura.marcasY) {
+    const y = Math.round(pxY(marca.y));
+    pintarLinea(lienzo, padIzq - 4, y, padIzq, y, COLORES_FIGURAS.eje, 1);
+    pintarTexto(lienzo, marca.etiqueta, padIzq - 6, y - Math.round(3.5 * escala) + 1, colorEje, escala, 'fin');
+  }
+  // Marcas de años del eje horizontal y ticks
+  for (const marca of figura.marcasX) {
+    const x = Math.round(pxX(marca.x));
+    pintarLinea(lienzo, x, alto - padInf, x, alto - padInf + 4, COLORES_FIGURAS.eje, 1);
+    pintarTexto(lienzo, marca.etiqueta, x, alto - padInf + 6, colorEje, escala, 'centro');
+  }
 
   for (const pr of figura.primitivas) {
     if (pr.t === 'linea') {

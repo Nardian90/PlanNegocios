@@ -123,3 +123,81 @@ export function acumular(flujo: Record<number, number>, years: number[]): Record
   }
   return salida;
 }
+
+// ---------------------------------------------------------------------------
+// Conciliación del arranque (misión DOC-002-R1 §2)
+//
+// La brecha de financiación del año 0 se obtiene de PARTIDAS DE SALIDA DE
+// CAJA EXPLÍCITAMENTE IDENTIFICADAS como no capitalizables y no incluidas en
+// la inversión total. NO se deduce del resultado contable después de
+// impuestos (UDI_0): la UDI del año 0 incluye pérdidas no monetarias
+// (depreciación de activos disponibles en el año 0), intereses devengados
+// PERO CAPITALIZADOS (que no son salida de caja) y netea ingresos del año 0,
+// por lo que max(0, −UDI_0) NO representa el gasto de caja del arranque.
+//
+// Partidas explícitas consideradas (todas reglas/series activas del modelo):
+//   · nómina de montaje del año 0        → regla «costo_laboral_k» (SUMA_PERSONAL
+//     sobre la etapa «montaje»; gasto del período, no capitalizable)
+//   · interés PAGADO del año 0          → calendario de deuda (solo caja: la
+//     porción capitalizada en gracia total NO es salida)
+//   · impuesto sobre utilidades del año 0 → regla «impuesto_utilidades_k» (si
+//     es positivo: con pérdidas de montaje la regla plana da cero)
+//   · menos ingresos explícitos del año 0 → regla «ingresos_totales_k» (solo
+//     año 0: otros ingresos declarados por el usuario)
+//
+// El capital de trabajo NO se suma aparte: ya está DENTRO de la inversión
+// total («inversion_total_k = gastos previos + inversión fija + capital de
+// trabajo»), de modo que la brecha nunca lo duplica.
+// ---------------------------------------------------------------------------
+
+export interface ConciliacionArranque {
+  /** Nómina de montaje del año 0 (kUSD; regla costo_laboral_k, año 0). */
+  nominaMontaje: number;
+  /** Interés PAGADO en caja durante el año 0 (kUSD; excluye lo capitalizado). */
+  interesPagado: number;
+  /** Impuesto sobre utilidades pagadero del año 0 (kUSD; ≥ 0). */
+  impuestoPagado: number;
+  /** Ingresos explícitos del año 0 (kUSD; reducen la necesidad de caja). */
+  ingresosAnio0: number;
+  /** Salidas netas de caja del año 0 explícitamente identificadas (kUSD). */
+  gastoCajaAnio0: number;
+  /** Financiación disponible declarada (kUSD; año 0). */
+  financiacionDisponible: number;
+  /** Inversión total (kUSD; incluye el capital de trabajo). */
+  inversionTotal: number;
+  /** Necesidad total de arranque = inversión total + gasto de caja del año 0. */
+  necesidadTotal: number;
+  /** Brecha de financiación (kUSD; negativa = faltante sin cobertura). */
+  brecha: number;
+}
+
+/** Concilia el arranque desde salidas de caja EXPLÍCITAS del año 0 (DOC-002-R1). */
+export function conciliarArranque(m: {
+  valores: Record<string, Record<number, number>>;
+  deuda: { anio: number; interesPagado: number }[];
+}): ConciliacionArranque {
+  const val = (id: string): number => {
+    const v = m.valores[id]?.[0];
+    return Number.isFinite(v) ? (v as number) : 0;
+  };
+  const nominaMontaje = Math.max(0, val('costo_laboral_k'));
+  const interesPagado = Math.max(0, m.deuda.find((f) => f.anio === 0)?.interesPagado ?? 0);
+  const impuestoPagado = Math.max(0, val('impuesto_utilidades_k'));
+  const ingresosAnio0 = Math.max(0, val('ingresos_totales_k'));
+  const gastoCajaAnio0 = nominaMontaje + interesPagado + impuestoPagado - ingresosAnio0;
+  const financiacionDisponible = val('financiacion_disponible_k');
+  const inversionTotal = val('inversion_total_k');
+  const necesidadTotal = inversionTotal + Math.max(0, gastoCajaAnio0);
+  const brecha = financiacionDisponible - necesidadTotal;
+  return {
+    nominaMontaje,
+    interesPagado,
+    impuestoPagado,
+    ingresosAnio0,
+    gastoCajaAnio0,
+    financiacionDisponible,
+    inversionTotal,
+    necesidadTotal,
+    brecha,
+  };
+}
