@@ -1,6 +1,17 @@
 // ============================================================================
 // PLANEX Cuba — Modelo de datos (fuente única de verdad)
 // Plan de Negocios para propuestas de inversión extranjera (GOC-2026-O57)
+//
+// Esquema 2.0.0 (misión PLANEX-AUDIT-001):
+//  - Registro de activos depreciables con calendario por activo.
+//  - Calendario de deuda explícito (gracia principal/total, 3 métodos).
+//  - Recursos operativos compartidos y capacidad derivada de datos.
+//  - Escenarios de capacidad A (constante) y B (ampliaciones).
+//  - Flujos de caja separados: proyecto (FCFF) y socios (FCFE).
+//  - Módulo de dividendos con resultados acumulados, reservas y efectivo.
+//  - Beneficios directos al país con metadatos por partida.
+//  - Textos analíticos dinámicos con trazabilidad (generado/manual/desactualizado).
+//  - Diagnóstico con cuatro niveles de severidad.
 // ============================================================================
 
 /** Ámbito de evaluación de una regla. */
@@ -56,13 +67,50 @@ export interface ServicioRow {
   nombre: string;
   /** Precio unitario previsto (USD). */
   precioBase: number;
-  /** Cantidad mensual prevista (año 1). */
+  /** Cantidad mensual prevista — DEMANDA (año 1). El motor limita por capacidad. */
   cantidadBaseMensual: number;
-  /** Capacidad máxima mensual instalada. */
+  /** Año en que la línea inicia su demanda (1 = primer año de operación). */
+  anioInicioDemanda: number;
+  /** Capacidad técnica máxima mensual ADICIONAL del propio servicio (0 = sin tope directo). */
   capacidadMaxMensual: number;
   /** Costo variable unitario (USD). */
   costoVariableUnitario: number;
+  /** Duración media del procedimiento en minutos (consumo de recursos). */
+  duracionMinutos: number;
+  /** Recursos operativos que utiliza cada procedimiento (ids de RecursoRow). */
+  recursoIds: string[];
   fuente: string;
+}
+
+export interface ExpansionRecurso {
+  id: string;
+  /** Año de disponibilidad de la ampliación (≥ 1). */
+  anio: number;
+  /** Unidades añadidas al recurso. */
+  cantidad: number;
+  /** Costo de la ampliación (kUSD). Se trata como CAPEX del año. */
+  costoKUSD: number;
+  /** Vida útil de la ampliación para su depreciación (años). */
+  vidaUtilAnios: number;
+  observacion: string;
+}
+
+export interface RecursoRow {
+  id: string;
+  nombre: string;
+  tipo: 'gabinete' | 'sillon' | 'equipo' | 'profesional' | 'local' | 'otro';
+  /** Unidades disponibles en el escenario base. */
+  cantidad: number;
+  /** Horas de utilización por unidad y día. */
+  horasDia: number;
+  /** Días de operación por año. */
+  diasAnio: number;
+  /** Fracción de horas dedicada a mantenimiento (0–1). */
+  pctMantenimiento: number;
+  /** Año desde el que el recurso está disponible (≥ 0; 1 = operación). */
+  anioDisponible: number;
+  expansiones: ExpansionRecurso[];
+  observacion: string;
 }
 
 export type GrupoPersonal = 'cubano_directivo' | 'cubano_otro' | 'extranjero_directivo' | 'extranjero_otro';
@@ -96,6 +144,7 @@ export interface AportacionRow {
 
 export type CategoriaInversion = 'gastos_previos' | 'inversion_fija' | 'inducida';
 export type Moneda = 'USD' | 'CUP';
+export type MetodoDepreciacion = 'lineal' | 'ninguno';
 
 export interface InversionRow {
   id: string;
@@ -106,6 +155,11 @@ export interface InversionRow {
   monto: number;
   /** Vida útil en años para depreciación (solo inversión fija). */
   vidaUtilAnios: number;
+  /** Año en que el activo está disponible para su uso (1 = primer año de operación). */
+  anioDisponible: number;
+  /** Valor residual como fracción del costo (0–1). */
+  valorResidualPct: number;
+  metodoDepreciacion: MetodoDepreciacion;
   observacion: string;
 }
 
@@ -132,6 +186,62 @@ export interface CronogramaRow {
   fin: string;
   observacion: string;
 }
+
+// ---------------------------------------------------------------------------
+// Calendario de deuda (misión §6)
+// ---------------------------------------------------------------------------
+
+export type TipoGracia = 'principal' | 'total';
+export type MetodoAmortizacion = 'capital_constante' | 'sistema_frances' | 'pago_unico';
+
+export interface DeudaConfig {
+  /** ¿Existe crédito? Si es false, el resto de campos se ignora. */
+  habilitada: boolean;
+  /** Año en que se desembolsa el principal (0 = año de montaje). */
+  anioDesembolso: number;
+  /** Gracia de principal (solo intereses) o total (no se paga nada; el interés
+   *  devengado se capitaliza en el saldo). */
+  tipoGracia: TipoGracia;
+  /** Método de amortización del principal tras la gracia. */
+  metodo: MetodoAmortizacion;
+  /** Documentación del supuesto (contrato, fuente). */
+  fuente: string;
+}
+
+export interface FilaDeuda {
+  anio: number;
+  saldoInicial: number;
+  desembolso: number;
+  interesDevengado: number;
+  interesCapitalizado: number;
+  amortizacion: number;
+  interesPagado: number;
+  saldoFinal: number;
+}
+
+// ---------------------------------------------------------------------------
+// Escenarios de capacidad (misión §7.3)
+// ---------------------------------------------------------------------------
+
+export type EscenarioCapacidad = 'A_constante' | 'B_ampliacion';
+
+// ---------------------------------------------------------------------------
+// Textos analíticos con trazabilidad (misión §12.13)
+// ---------------------------------------------------------------------------
+
+export type EstadoAnalisis = 'generado' | 'manual' | 'desactualizado';
+
+export interface AnalisisGuardado {
+  /** Texto manual del usuario (undefined → se muestra el generado). */
+  texto?: string;
+  /** Huella de los datos de origen en el momento del guardado manual. */
+  huellaOrigen?: string;
+  /** Autor y fecha de la última edición manual (trazabilidad colaborativa). */
+  actualizadoPor?: string;
+  actualizadoEn?: string;
+}
+
+export type RegistroAnalisis = Record<string, AnalisisGuardado>;
 
 // ---------------------------------------------------------------------------
 // Secciones narrativas (4.1 – 4.12)
@@ -187,6 +297,8 @@ export interface TecnicoInfo {
   infraestructura: string;
   terrenosInstalaciones: string;
   necesidadesConstruccion: string;
+  /** Escenario activo de capacidad (misión §7.3). */
+  escenarioCapacidad: EscenarioCapacidad;
 }
 
 export interface MercadoInfo {
@@ -216,13 +328,13 @@ export interface ConclusionesInfo {
 // Proyecto completo
 // ---------------------------------------------------------------------------
 
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '2.0.0';
 
 export interface PlanexMeta {
   schemaVersion: string;
   app: string;
   generado: string;
-  plantillaOrigen: 'clinica' | 'default' | 'nuevo';
+  plantillaOrigen: 'clinica' | 'default' | 'centro' | 'nuevo';
 }
 
 export interface Ajustes {
@@ -234,6 +346,8 @@ export interface FinancieroInfo {
   vehiculos: VehiculoRow[];
   /** Otros ingresos por año (kUSD, índice 0 = año 1). */
   otrosIngresos: number[];
+  /** Calendario de deuda (misión §6). */
+  deuda: DeudaConfig;
 }
 
 export interface PlanexProject {
@@ -252,6 +366,7 @@ export interface PlanexProject {
   aportaciones: AportacionRow[];
   tecnico: TecnicoInfo;
   consumos: ConsumoRow[];
+  recursos: RecursoRow[];
   servicios: ServicioRow[];
   financiero: FinancieroInfo;
   mercado: MercadoInfo;
@@ -259,6 +374,8 @@ export interface PlanexProject {
   personal: PersonalRow[];
   cronograma: CronogramaRow[];
   conclusiones: ConclusionesInfo;
+  /** Textos analíticos editables con trazabilidad (misión §12.13). */
+  analisis: RegistroAnalisis;
   parametros: Parametro[];
   reglas: Regla[];
 }
@@ -301,18 +418,93 @@ export interface ServicioCalculado {
   nombre: string;
   /** Valores por año de las reglas de ámbito servicio. */
   valores: Record<number, Record<string, number>>;
+  /** Cantidad REALIZABLE por año (limitada por capacidad). */
   cantidades: Record<number, number>;
+  /** Años en los que la demanda prevista superó la capacidad disponible. */
   capacidadesExcedidas: number[];
 }
 
+/** Resultado de capacidad por servicio y año (misión §7). */
+export interface CapacidadServicio {
+  demandaMensual: number;
+  capacidadMensual: number;
+  cantidadRealMensual: number;
+  /** demanda / capacidad (puede superar 1). */
+  utilizacion: number;
+}
+
+export interface RecursoCalculado {
+  id: string;
+  nombre: string;
+  /** Horas-mes disponibles por año (tras mantenimiento y ampliaciones). */
+  horasDisponibles: Record<number, number>;
+  /** Horas-mes demandadas por los servicios que lo usan. */
+  horasDemandadas: Record<number, number>;
+  /** demanda / disponible. */
+  utilizacion: Record<number, number>;
+}
+
+/** Depreciación por activo (misión §5). */
+export interface ActivoDepreciable {
+  id: string;
+  concepto: string;
+  /** Base depreciable en kUSD (monto − residual, CUP convertido). */
+  baseDepreciableKUSD: number;
+  vidaUtilAnios: number;
+  anioDisponible: number;
+  valorResidualPct: number;
+  metodo: MetodoDepreciacion;
+  /** Depreciación por año (kUSD). */
+  depreciacion: Record<number, number>;
+  /** Acumulada al final del horizonte. */
+  acumulada: number;
+  /** Valor neto en libros al final del horizonte. */
+  vnl: number;
+}
+
+export interface DividendosAnio {
+  anio: number;
+  udi: number;
+  saldoAcumulablePrevio: number;
+  base: number;
+  reserva: number;
+  distribuible: number;
+  propuestos: number;
+  cajaAcumulada: number;
+  pagables: number;
+  socioNacional: number;
+  socioExtranjero: number;
+  saldoAcumulable: number;
+}
+
+export type FlujoIndicador = 'proyecto' | 'socios';
+
+export interface Recuperacion {
+  indicador: FlujoIndicador;
+  /** Período de recuperación en años (interpolación lineal) o null. */
+  anios: number | null;
+  /** Año en que se cruza el cero (si ocurre dentro del horizonte). */
+  anioCruce: number | null;
+  /** ¿No se puede determinar (flujos no convencionales / falta de datos)? */
+  indeterminado: boolean;
+  motivo: string;
+}
+
 export interface Indicadores {
-  recuperacionAnios: number | null;
+  /** Recuperación de la INVERSIÓN TOTAL del proyecto (flujo FCFF). */
+  recuperacionProyecto: Recuperacion;
+  /** Recuperación del CAPITAL APORTADO por los socios (flujo FCFE). */
+  recuperacionSocios: Recuperacion;
   inversionTotalKUSD: number;
+  aportacionesTotalesKUSD: number;
   ingresosTotales: Record<number, number>;
   utilidadNeta: Record<number, number>;
   utilidadNetaAcumulada: number;
   beneficiosPais: Record<number, number>;
+  /** Total de beneficios al país incluyendo el año 0 (conciliado con la tabla). */
   beneficiosPaisAcumulados: number;
+  /** Subtotal de beneficios al país de la explotación (años 1..N), etiquetado. */
+  beneficiosPaisExplotacion: number;
   impuestosTotales: number;
   totalTrabajadores: number;
   trabajadoresMontaje: number;
@@ -321,6 +513,14 @@ export interface Indicadores {
   extranjeros: number;
   salarioPromedioAnualCUP: number | null;
   margenContribucionAnio1: number | null;
+  /** FCFF por año (kUSD). */
+  fcff: Record<number, number>;
+  fcffAcumulado: Record<number, number>;
+  /** FCFE por año (kUSD). */
+  fcfe: Record<number, number>;
+  fcfeAcumulado: Record<number, number>;
+  /** CAPEX de ampliaciones por año (kUSD). */
+  capexAmpliaciones: Record<number, number>;
 }
 
 export interface ComputedModel {
@@ -332,6 +532,13 @@ export interface ComputedModel {
   servicios: ServicioCalculado[];
   issues: Issue[];
   indicadores: Indicadores;
+  /** Motor estructural (misión §4–§8). */
+  depreciacion: ActivoDepreciable[];
+  depreciacionTotal: Record<number, number>;
+  deuda: FilaDeuda[];
+  dividendos: DividendosAnio[];
+  capacidadServicios: Record<string, Record<number, CapacidadServicio>>;
+  recursosCalculados: RecursoCalculado[];
 }
 
 export const ADVERTENCIA_DATOS_FICTICIOS =
@@ -361,7 +568,9 @@ export interface GrupoEstado {
   lineas: LineaEstado[];
 }
 
-/** Estado de resultados (4.7) — las cifras provienen siempre del motor. */
+/** Estado de resultados (4.7) — las cifras provienen siempre del motor.
+ *  Los costos fijos de explotación (canon, públicos, otros) se activan solo
+ *  en años de operación mediante reglas envolventes IF(PERIODO >= 1, …). */
 export const ESTADO_RESULTADOS: GrupoEstado[] = [
   {
     titulo: 'Ingresos',
@@ -376,11 +585,11 @@ export const ESTADO_RESULTADOS: GrupoEstado[] = [
     lineas: [
       { id: 'c_var', etiqueta: 'Costos variables (materiales y consumibles)', ref: { tipo: 'regla', id: 'costos_variables_k' } },
       { id: 'c_lab', etiqueta: 'Costo de la fuerza de trabajo', ref: { tipo: 'regla', id: 'costo_laboral_k' } },
-      { id: 'c_canon', etiqueta: 'Canon (arrendamiento)', ref: { tipo: 'param', id: 'canon_anual_k' } },
+      { id: 'c_canon', etiqueta: 'Canon (arrendamiento)', ref: { tipo: 'regla', id: 'canon_k' } },
       { id: 'c_mant', etiqueta: 'Mantenimiento', ref: { tipo: 'regla', id: 'mantenimiento_k' } },
-      { id: 'c_pub', etiqueta: 'Servicios públicos (agua, electricidad, portadores)', ref: { tipo: 'param', id: 'servicios_publicos_anual_k' } },
+      { id: 'c_pub', etiqueta: 'Servicios públicos (agua, electricidad, portadores)', ref: { tipo: 'regla', id: 'servicios_publicos_k' } },
       { id: 'c_adm', etiqueta: 'Gastos administrativos', ref: { tipo: 'regla', id: 'gastos_admin_k' } },
-      { id: 'c_otros', etiqueta: 'Otros gastos fijos', ref: { tipo: 'param', id: 'otros_gastos_fijos_k' } },
+      { id: 'c_otros', etiqueta: 'Otros gastos fijos', ref: { tipo: 'regla', id: 'otros_gastos_k' } },
       { id: 'c_dep', etiqueta: 'Depreciación', ref: { tipo: 'regla', id: 'depreciacion_anual_k' } },
       { id: 'c_int', etiqueta: 'Intereses del crédito', ref: { tipo: 'regla', id: 'interes_k' } },
       { id: 'c_tot', etiqueta: 'COSTOS Y GASTOS TOTALES', ref: { tipo: 'regla', id: 'costos_totales_k' }, negrita: true },
@@ -396,17 +605,28 @@ export const ESTADO_RESULTADOS: GrupoEstado[] = [
   },
 ];
 
-/** Beneficios directos al país (4.11). */
-export const BENEFICIOS_PAIS: LineaEstado[] = [
-  { id: 'b_imp', etiqueta: 'Impuesto sobre utilidades', ref: { tipo: 'regla', id: 'impuesto_utilidades_k' } },
-  { id: 'b_otrosimp', etiqueta: 'Otros impuestos, tasas y contribuciones', ref: { tipo: 'param', id: 'otros_impuestos_anual_k' } },
-  { id: 'b_div', etiqueta: 'Dividendos de la parte cubana', ref: { tipo: 'regla', id: 'dividendos_parte_cubana_k' } },
-  { id: 'b_aranc', etiqueta: 'Aranceles', ref: { tipo: 'param', id: 'aranceles_anual_k' } },
-  { id: 'b_ft', etiqueta: 'Pagos por la fuerza de trabajo', ref: { tipo: 'regla', id: 'pagos_fuerza_trabajo_k' } },
-  { id: 'b_canon', etiqueta: 'Canon', ref: { tipo: 'param', id: 'canon_anual_k' } },
-  { id: 'b_roy', etiqueta: 'Royalties', ref: { tipo: 'param', id: 'royalties_anual_k' } },
-  { id: 'b_otros', etiqueta: 'Otros ingresos', ref: { tipo: 'param', id: 'otros_beneficios_pais_k' } },
-  { id: 'b_tot', etiqueta: 'TOTAL BENEFICIOS DIRECTOS AL PAÍS', ref: { tipo: 'regla', id: 'total_beneficios_pais_k' }, negrita: true },
+export interface LineaBeneficioPais {
+  id: string;
+  etiqueta: string;
+  ref: RefLinea;
+  negrita?: boolean;
+  /** ¿La partida incluye el año 0 (montaje)? (misión §9) */
+  incluyeAnioCero: boolean;
+  /** Criterio de agregación documentado. */
+  reglaAgregacion: string;
+}
+
+/** Beneficios directos al país (4.11) — con metadatos por partida (misión §9). */
+export const BENEFICIOS_PAIS: LineaBeneficioPais[] = [
+  { id: 'b_imp', etiqueta: 'Impuesto sobre utilidades', ref: { tipo: 'regla', id: 'impuesto_utilidades_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual de la regla activa del impuesto (años 1..N).' },
+  { id: 'b_otrosimp', etiqueta: 'Otros impuestos, tasas y contribuciones', ref: { tipo: 'regla', id: 'otros_impuestos_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual del parámetro en años de operación (1..N).' },
+  { id: 'b_div', etiqueta: 'Dividendos de la parte cubana', ref: { tipo: 'regla', id: 'dividendos_parte_cubana_k' }, incluyeAnioCero: false, reglaAgregacion: 'Módulo de dividendos: pagables × participación cubana (años 1..N).' },
+  { id: 'b_aranc', etiqueta: 'Aranceles', ref: { tipo: 'regla', id: 'aranceles_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual del parámetro en años de operación (1..N).' },
+  { id: 'b_ft', etiqueta: 'Pagos por la fuerza de trabajo', ref: { tipo: 'regla', id: 'pagos_fuerza_trabajo_k' }, incluyeAnioCero: true, reglaAgregacion: 'Costo laboral del año; incluye el personal de montaje del año 0 (pago real a trabajadores cubanos).' },
+  { id: 'b_canon', etiqueta: 'Canon', ref: { tipo: 'regla', id: 'canon_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual del parámetro en años de operación (1..N).' },
+  { id: 'b_roy', etiqueta: 'Royalties', ref: { tipo: 'regla', id: 'royalties_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual del parámetro en años de operación (1..N).' },
+  { id: 'b_otros', etiqueta: 'Otros ingresos', ref: { tipo: 'regla', id: 'otros_beneficios_pais_k' }, incluyeAnioCero: false, reglaAgregacion: 'Suma anual del parámetro en años de operación (1..N).' },
+  { id: 'b_tot', etiqueta: 'TOTAL BENEFICIOS DIRECTOS AL PAÍS', ref: { tipo: 'regla', id: 'total_beneficios_pais_k' }, negrita: true, incluyeAnioCero: true, reglaAgregacion: 'Suma de las partidas anteriores con el período indicado en cada una; un único acumulado conciliado entre resumen, tabla y conclusiones.' },
 ];
 
 /** Etiquetas de apoyo. */
@@ -430,4 +650,24 @@ export const ETIQUETAS_CATEGORIA_INV: Record<CategoriaInversion, string> = {
   gastos_previos: 'Gastos previos',
   inversion_fija: 'Inversión fija',
   inducida: 'Inversiones inducidas',
+};
+
+export const ETIQUETAS_RECURSO: Record<RecursoRow['tipo'], string> = {
+  gabinete: 'Gabinete',
+  sillon: 'Sillón / posición de atención',
+  equipo: 'Equipo',
+  profesional: 'Profesional',
+  local: 'Local / área',
+  otro: 'Otro',
+};
+
+export const ETIQUETAS_METODO_AMORT: Record<MetodoAmortizacion, string> = {
+  capital_constante: 'Capital constante (cuotas de principal iguales)',
+  sistema_frances: 'Sistema francés (cuota total constante)',
+  pago_unico: 'Pago único al vencimiento (bullet)',
+};
+
+export const ETIQUETAS_TIPO_GRACIA: Record<TipoGracia, string> = {
+  principal: 'Gracia de principal (se pagan intereses)',
+  total: 'Gracia total (intereses capitalizados)',
 };

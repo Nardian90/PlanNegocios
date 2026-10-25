@@ -12,7 +12,7 @@ import { FileText, ListOrdered } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, ETIQUETAS_APORTACION, DECLARACION_RESPONSABILIDAD } from '@/lib/planex/types';
 import { fmtK, fmtAnios, fechaLarga } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, PanelAnalisis } from '../comunes';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { AportacionRow } from '@/lib/planex/types';
 
@@ -22,7 +22,7 @@ export function SeccionGeneral({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
   const setSeccion = usePlanex((s) => s.setSeccion);
-  const esDemo = p.planex.plantillaOrigen === 'clinica';
+  const esDemo = p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro';
 
   return (
     <Seccion num="4.1" titulo="Información general" descripcion="Autoría, firma, fecha y declaración de responsabilidad sobre la veracidad de los datos.">
@@ -54,8 +54,12 @@ export function SeccionGeneral({ modelo }: { modelo: ComputedModel }) {
                 <CeldaCalculada valor={`${fmtK(modelo.indicadores.inversionTotalKUSD)} kUSD`} formula="gastos_previos_k + inversion_fija_k + capital_trabajo_k" />
               </div>
               <div className="rounded-lg border p-3">
-                <div className="text-xs text-muted-foreground">Recuperación</div>
-                <CeldaCalculada valor={modelo.indicadores.recuperacionAnios === null ? 'No recuperado' : fmtAnios(modelo.indicadores.recuperacionAnios)} formula="interpolación del flujo acumulado" />
+                <div className="text-xs text-muted-foreground">Recuperación (inversión total / FCFF)</div>
+                <CeldaCalculada valor={modelo.indicadores.recuperacionProyecto.anios === null ? 'No recuperada' : fmtAnios(modelo.indicadores.recuperacionProyecto.anios)} formula="interpolación lineal del flujo acumulado del proyecto" />
+              </div>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">Recuperación (capital socios / FCFE)</div>
+                <CeldaCalculada valor={modelo.indicadores.recuperacionSocios.anios === null ? 'No recuperada' : fmtAnios(modelo.indicadores.recuperacionSocios.anios)} formula="interpolación lineal del flujo acumulado de los socios" />
               </div>
               <div className="rounded-lg border p-3">
                 <div className="text-xs text-muted-foreground">Fecha del documento</div>
@@ -105,7 +109,7 @@ export function SeccionGeneral({ modelo }: { modelo: ComputedModel }) {
 export function SeccionResumen({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
-  const esDemo = p.planex.plantillaOrigen === 'clinica';
+  const esDemo = p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro';
   const ind = modelo.indicadores;
 
   const kpi = (etiqueta: string, valor: string) => (
@@ -119,22 +123,23 @@ export function SeccionResumen({ modelo }: { modelo: ComputedModel }) {
     <Seccion num="4.4" titulo="Resumen ejecutivo" descripcion="Síntesis del negocio con cifras vinculadas al modelo financiero activo: se actualizan solas al cambiar parámetros o fórmulas.">
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         {kpi('Inversión total', `${fmtK(ind.inversionTotalKUSD)} kUSD`)}
-        {kpi('Aportaciones', `${fmtK(modelo.valores['aportaciones_total_k']?.[0] ?? 0)} kUSD`)}
+        {kpi('Aportaciones', `${fmtK(ind.aportacionesTotalesKUSD)} kUSD`)}
         {kpi('Ingresos año 1', `${fmtK(ind.ingresosTotales[1] ?? 0)} kUSD`)}
         {kpi('Utilidad neta año 1', `${fmtK(ind.utilidadNeta[1] ?? 0)} kUSD`)}
-        {kpi('Recuperación', ind.recuperacionAnios === null ? 'No recuperado' : fmtAnios(ind.recuperacionAnios))}
-        {kpi('Beneficios al país (acum.)', `${fmtK(ind.beneficiosPaisAcumulados)} kUSD`)}
+        {kpi('Recuperación — inversión (FCFF)', ind.recuperacionProyecto.anios === null ? 'No recuperada' : fmtAnios(ind.recuperacionProyecto.anios))}
+        {kpi('Recuperación — socios (FCFE)', ind.recuperacionSocios.anios === null ? 'No recuperada' : fmtAnios(ind.recuperacionSocios.anios))}
+        {kpi('Beneficios al país (período completo)', `${fmtK(ind.beneficiosPaisAcumulados)} kUSD`)}
         {kpi('Empleos en operación', String(ind.totalTrabajadores))}
-        {kpi('Horizonte', `${p.ajustes.horizonteAnios} años`)}
       </div>
-      <Campo etiqueta="Descripción del negocio y resultados esperados" valor={p.resumen.introduccion} onChange={(v) => actualizar((x) => void (x.resumen.introduccion = v))} filas={7} />
+      <PanelAnalisis titulo="Resumen ejecutivo (análisis dinámico)" clave="resumen_ejecutivo" modelo={modelo} />
+      <Campo etiqueta="Descripción del negocio y resultados esperados (texto editable del usuario)" valor={p.resumen.introduccion} onChange={(v) => actualizar((x) => void (x.resumen.introduccion = v))} filas={7} />
       <Campo etiqueta="Notas" valor={p.resumen.notas} onChange={(v) => actualizar((x) => void (x.resumen.notas = v))} filas={3} />
       {esDemo && <AdvertenciaDemo />}
     </Seccion>
   );
 }
 
-export function SeccionNegocio() {
+export function SeccionNegocio({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
   const { addAportacion, updAportacion, updAportacionMonto, delFila } = usePlanex();
@@ -234,6 +239,7 @@ export function SeccionNegocio() {
         addLabel="Añadir aportación"
         vacio="Sin aportaciones definidas. El análisis de financiación marcará la insuficiencia correspondiente."
       />
+      <PanelAnalisis titulo="Análisis de las aportaciones" clave="aportaciones" modelo={modelo} />
       {faltanDerechos.length > 0 && (
         <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-900 dark:text-amber-200">
           Hay {faltanDerechos.length} aporte(s) por derechos reales sin referencia documental. La metodología exige adjuntar la certificación de la Dirección de Patrimonio del MFP cuando corresponda.

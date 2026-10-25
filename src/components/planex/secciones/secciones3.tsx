@@ -13,7 +13,8 @@ import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, BENEFICIOS_PAIS, ETIQUETAS_GRUPO } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
 import { fmtK, fmtCUP, fmtAnios, mesAnio } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, PanelAnalisis } from '../comunes';
+import { generarAnalisis } from '@/lib/planex/engine/analisis';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { PersonalRow, VehiculoRow, CronogramaRow } from '@/lib/planex/types';
 
@@ -23,7 +24,7 @@ const ayuda = (clave: string) => AYUDAS_METODOLOGICAS.find((a) => a.clave === cl
 // 4.8 Mercado
 // ---------------------------------------------------------------------------
 
-export function SeccionMercado() {
+export function SeccionMercado({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
   const campos: [string, keyof typeof p.mercado, number][] = [
@@ -54,6 +55,7 @@ export function SeccionMercado() {
           />
         ))}
       </div>
+      <PanelAnalisis titulo="Lectura de los datos de mercado" clave="mercado" modelo={modelo} />
     </Seccion>
   );
 }
@@ -159,6 +161,7 @@ export function SeccionFuerza({ modelo }: { modelo: ComputedModel }) {
           </div>
         </CardContent>
       </Card>
+      <PanelAnalisis titulo="Análisis de la fuerza de trabajo" clave="fuerza_trabajo" modelo={modelo} />
     </Seccion>
   );
 }
@@ -167,7 +170,7 @@ export function SeccionFuerza({ modelo }: { modelo: ComputedModel }) {
 // 4.10 Inversiones
 // ---------------------------------------------------------------------------
 
-export function SeccionInversiones() {
+export function SeccionInversiones({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const { addVehiculo, updVehiculo, addCronograma, updCronograma, delFila } = usePlanex();
 
@@ -224,6 +227,7 @@ export function SeccionInversiones() {
           </CardContent>
         </Card>
       )}
+      <PanelAnalisis titulo="Análisis de inversiones y cronograma" clave="inversiones_cronograma" modelo={modelo} />
     </Seccion>
   );
 }
@@ -236,11 +240,11 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const setSeccion = usePlanex((s) => s.setSeccion);
   const years = modelo.years;
-  const rec = modelo.indicadores.recuperacionAnios;
+  const rec = modelo.indicadores.recuperacionProyecto;
   const N = p.ajustes.horizonteAnios;
 
   return (
-    <Seccion num="4.11" titulo="Indicadores de beneficios directos al país" descripcion="Por año: impuestos, dividendos de la parte cubana, aranceles, pagos por fuerza de trabajo, canon, royalties y otros. Partidas vinculadas al modelo sin doble contabilización.">
+    <Seccion num="4.11" titulo="Indicadores de beneficios directos al país" descripcion="Por año: impuestos, dividendos de la parte cubana, aranceles, pagos por fuerza de trabajo, canon, royalties y otros. Cada partida declara su período; el total del período completo concilia con resumen y conclusiones.">
       <Ayuda titulo={ayuda('beneficios')?.titulo ?? ''} texto={ayuda('beneficios')?.texto ?? ''} />
       <Card>
         <CardContent className="px-2">
@@ -248,7 +252,7 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
             <Table className="min-w-full">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="sticky left-0 bg-background z-10 min-w-56">Partida</TableHead>
+                  <TableHead className="sticky left-0 bg-background z-10 min-w-56">Partida (período)</TableHead>
                   {years.map((t) => (
                     <TableHead key={t} className="text-right min-w-24">
                       {t === 0 ? 'Año 0' : `Año ${t}`}
@@ -260,7 +264,10 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
               <TableBody>
                 {BENEFICIOS_PAIS.map((linea) => (
                   <TableRow key={linea.id} className={linea.negrita ? 'font-semibold' : ''}>
-                    <TableCell className="sticky left-0 bg-background z-10">{linea.etiqueta}</TableCell>
+                    <TableCell className="sticky left-0 bg-background z-10">
+                      <div>{linea.etiqueta}</div>
+                      <div className="text-[10px] text-muted-foreground">{linea.incluyeAnioCero ? 'Incluye año 0' : 'Años 1–N (explotación)'}</div>
+                    </TableCell>
                     {years.map((t) => (
                       <TableCell key={t} className="px-1">
                         <CeldaCalculada
@@ -271,7 +278,7 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
                       </TableCell>
                     ))}
                     <TableCell className="px-1">
-                      <CeldaCalculada valor={fmtK(years.reduce((s, t) => s + valorLinea(modelo, p, linea.ref, t), 0))} formula="suma del período" alPulsar={() => setSeccion('config')} />
+                      <CeldaCalculada valor={fmtK(years.reduce((s, t) => s + valorLinea(modelo, p, linea.ref, t), 0))} formula="suma del período declarado" alPulsar={() => setSeccion('config')} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -280,9 +287,10 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
           </div>
         </CardContent>
       </Card>
-      <div className={`rounded-lg border p-3 text-sm ${rec !== null && N >= Math.ceil(rec + 1) ? 'border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300' : 'border-amber-300/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'}`}>
-        Período de análisis: {N} años {rec !== null ? `(recuperación ${fmtAnios(rec)}; requisito ≥ recuperación + 1 ${N >= Math.ceil(rec + 1) ? 'cumplido' : 'PENDIENTE de ampliar'})` : '— la inversión no se recupera en el horizonte'}. Beneficios acumulados: <b>{fmtK(modelo.indicadores.beneficiosPaisAcumulados)} kUSD</b>, de los cuales impuestos sobre utilidades: {fmtK(modelo.indicadores.impuestosTotales)} kUSD.
+      <div className={`rounded-lg border p-3 text-sm ${rec.anios !== null && N >= Math.ceil(rec.anios + 1) ? 'border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300' : 'border-amber-300/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'}`}>
+        Período de análisis: {N} años {rec.anios !== null ? `(recuperación del proyecto ${fmtAnios(rec.anios)}; requisito ≥ recuperación + 1 ${N >= Math.ceil(rec.anios + 1) ? 'cumplido' : 'PENDIENTE de ampliar'})` : '— la inversión no se recupera en el horizonte'}. Beneficios acumulados del período completo: <b>{fmtK(modelo.indicadores.beneficiosPaisAcumulados)} kUSD</b> (mismo cálculo del resumen y las conclusiones). Subtotal de explotación (años 1–{N}): <b>{fmtK(modelo.indicadores.beneficiosPaisExplotacion)} kUSD</b>. Impuestos sobre utilidades: {fmtK(modelo.indicadores.impuestosTotales)} kUSD.
       </div>
+      <PanelAnalisis titulo="Análisis de los beneficios directos al país" clave="beneficios_pais" modelo={modelo} />
     </Seccion>
   );
 }
@@ -296,17 +304,10 @@ export function SeccionConclusiones({ modelo }: { modelo: ComputedModel }) {
   const actualizar = usePlanex((s) => s.actualizar);
   const ind = modelo.indicadores;
 
+  // El borrador se genera desde el MISMO generador de análisis del modelo
+  // (misión §12.12): nada está escrito de antemano y cambia con los datos.
   const generarBorrador = () => {
-    const rec = ind.recuperacionAnios;
-    const texto = [
-      `El modelo financiero activo proyecta una inversión total de ${fmtK(ind.inversionTotalKUSD)} miles de USD y un horizonte de análisis de ${p.ajustes.horizonteAnios} años.`,
-      rec === null
-        ? 'Con los supuestos actuales, la inversión no se recupera dentro del horizonte de análisis, por lo que la viabilidad preliminar no puede sostenerse y deben revisarse precios, volúmenes, costos o el propio alcance del proyecto.'
-        : `El flujo de caja acumulado recupera la inversión en aproximadamente ${fmtAnios(rec)}, manteniéndose el horizonte de análisis un año o más por encima de la recuperación, como exige la metodología.`,
-      `La utilidad después de impuestos acumulada en el período asciende a ${fmtK(ind.utilidadNetaAcumulada)} miles de USD y los beneficios directos al país acumulados a ${fmtK(ind.beneficiosPaisAcumulados)} miles de USD, incluyendo ${fmtK(ind.impuestosTotales)} por impuesto sobre utilidades conforme a la regla activa.`,
-      `La propuesta contempla ${ind.totalTrabajadores} empleos directos en operación (${ind.cubanos} cubanos y ${ind.extranjeros} extranjeros) con un salario promedio anual de ${fmtCUP(ind.salarioPromedioAnualCUP ?? 0)}.`,
-      'Estas conclusiones son preliminares y editables: no debe declararse viable un proyecto solo porque presente beneficios contables en un año. Quedan pendientes de validación la demanda solvente, los precios, los costos, la tasa tributaria aplicable y los requisitos legales, sanitarios y de inversión correspondientes.',
-    ].join(' ');
+    const texto = generarAnalisis(p, modelo).conclusiones.texto;
     actualizar((x) => void (x.conclusiones.texto = texto));
   };
 
@@ -314,16 +315,17 @@ export function SeccionConclusiones({ modelo }: { modelo: ComputedModel }) {
     <Seccion
       num="4.12"
       titulo="Conclusiones"
-      descripcion="Viabilidad preliminar, resultados económicos, recuperación, beneficios al país, empleo, tecnología, encadenamientos, impacto territorial, riesgos y condiciones pendientes."
+      descripcion="Viabilidad preliminar, resultados económicos, recuperación, beneficios al país, empleo, tecnología, encadenamientos, impacto territorial, riesgos y condiciones pendientes. La síntesis cuantitativa se genera desde el modelo."
       acciones={
         <Button variant="outline" size="sm" onClick={generarBorrador} className="gap-1.5">
-          <Sparkles className="size-3.5" /> Generar borrador desde el modelo
+          <Sparkles className="size-3.5" /> Copiar análisis dinámico al texto editable
         </Button>
       }
     >
       <Ayuda titulo={ayuda('conclusiones')?.titulo ?? ''} texto={ayuda('conclusiones')?.texto ?? ''} />
-      <Campo etiqueta="Conclusiones del plan de negocios" valor={p.conclusiones.texto} onChange={(v) => actualizar((x) => void (x.conclusiones.texto = v))} filas={12} />
-      {p.planex.plantillaOrigen === 'clinica' && <AdvertenciaDemo />}
+      <PanelAnalisis titulo="Conclusiones (análisis dinámico del modelo)" clave="conclusiones" modelo={modelo} />
+      <Campo etiqueta="Conclusiones del plan de negocios (texto editable del usuario)" valor={p.conclusiones.texto} onChange={(v) => actualizar((x) => void (x.conclusiones.texto = v))} filas={12} />
+      {(p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro') && <AdvertenciaDemo />}
     </Seccion>
   );
 }

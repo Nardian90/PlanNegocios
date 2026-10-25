@@ -15,8 +15,11 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { AlertCircle, ChevronDown, ChevronUp, HelpCircle, Info, Plus, Sigma, Trash2, TriangleAlert } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, FileWarning, HelpCircle, Info, PenLine, Plus, RefreshCw, Sigma, Trash2, TriangleAlert } from 'lucide-react';
 import { ADVERTENCIA_DATOS_FICTICIOS } from '@/lib/planex/types';
+import { usePlanex } from '@/lib/planex/store';
+import { generarAnalisis, estadoAnalisis, ClaveAnalisis } from '@/lib/planex/engine/analisis';
+import type { ComputedModel } from '@/lib/planex/types';
 
 export function Seccion({ num, titulo, descripcion, children, acciones }: { num: string; titulo: string; descripcion?: string; children: React.ReactNode; acciones?: React.ReactNode }) {
   return (
@@ -297,5 +300,142 @@ export function GraficoFlujo({ years, acumulado, umbral }: { years: number[]; ac
         </g>
       ))}
     </svg>
+  );
+}
+
+// ============================================================================
+// Panel de análisis dinámico con trazabilidad (misión §12.13).
+// Muestra el texto GENERADO por el modelo, permite editarlo (guardando la
+// huella de origen y el autor) y regenerarlo; si los datos cambian tras una
+// edición manual, marca el texto como DESACTUALIZADO sin sobrescribirlo.
+// ============================================================================
+
+export function PanelAnalisis({
+  titulo,
+  clave,
+  modelo,
+  autorActual,
+}: {
+  titulo: string;
+  clave: ClaveAnalisis;
+  modelo: ComputedModel;
+  autorActual?: string;
+}) {
+  const p = usePlanex((s) => s.proyecto);
+  const guardarAnalisis = usePlanex((s) => s.guardarAnalisis);
+  const regenerarAnalisis = usePlanex((s) => s.regenerarAnalisis);
+  const [editando, setEditando] = React.useState(false);
+  const [borrador, setBorrador] = React.useState('');
+  const [verDiff, setVerDiff] = React.useState(false);
+
+  const generados = generarAnalisis(p, modelo);
+  const actual = generados[clave];
+  const { estado, texto } = estadoAnalisis(p, clave, actual);
+  const guardado = p.analisis?.[clave];
+
+  const badge =
+    estado === 'generado' ? (
+      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/40 gap-1">
+        <Sigma className="size-3" /> Generado por el modelo
+      </Badge>
+    ) : estado === 'manual' ? (
+      <Badge className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/40 gap-1">
+        <PenLine className="size-3" /> Editado (al día)
+      </Badge>
+    ) : (
+      <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/40 gap-1">
+        <FileWarning className="size-3" /> Editado — DESACTUALIZADO
+      </Badge>
+    );
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="py-3">
+        <CardTitle className="text-sm font-medium flex flex-wrap items-center gap-2 justify-between">
+          <span className="flex items-center gap-2">{titulo} {badge}</span>
+          <span className="flex gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => {
+                setBorrador(texto);
+                setEditando((e) => !e);
+                setVerDiff(false);
+              }}
+            >
+              <PenLine className="size-3" /> {editando ? 'Cerrar' : estado === 'generado' ? 'Editar' : 'Revisar'}
+            </Button>
+            {estado !== 'generado' && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => setVerDiff((v) => !v)}
+                >
+                  <RefreshCw className="size-3" /> {verDiff ? 'Ocultar propuesta' : 'Comparar con el modelo'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => regenerarAnalisis(clave)}
+                  title="Sustituye la edición manual por la versión actual del modelo"
+                >
+                  Regenerar
+                </Button>
+              </>
+            )}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-2">
+        {(estado === 'generado' || !editando) && (
+          <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{texto}</p>
+        )}
+        {verDiff && (
+          <div className="rounded-lg border p-3 text-xs leading-relaxed bg-muted/40">
+            <div className="font-medium mb-1">Versión actual del modelo (propuesta):</div>
+            <p className="whitespace-pre-wrap">{actual.texto}</p>
+          </div>
+        )}
+        {editando && (
+          <div className="space-y-2">
+            <Textarea
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              rows={8}
+              className="text-sm"
+              aria-label="Edición del análisis"
+            />
+            <div className="flex flex-wrap gap-2 items-center">
+              <Button
+                size="sm"
+                onClick={() => {
+                  guardarAnalisis(clave, borrador, actual.huella, autorActual);
+                  setEditando(false);
+                  setVerDiff(false);
+                }}
+              >
+                Guardar edición
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setEditando(false)}>
+                Cancelar
+              </Button>
+              <p className="text-[11px] text-muted-foreground flex-1 min-w-48">
+                Al guardar se registra la huella de los datos de origen{autorActual ? ` y el autor («${autorActual}»)` : ''}; si el modelo cambia, el texto se marcará como desactualizado en lugar de sobrescribirse.
+              </p>
+            </div>
+          </div>
+        )}
+        {guardado?.actualizadoEn && estado !== 'generado' && (
+          <p className="text-[11px] text-muted-foreground">
+            Última edición manual: {guardado.actualizadoPor ? `por ${guardado.actualizadoPor} — ` : ''}
+            {new Date(guardado.actualizadoEn).toLocaleString('es-ES')}.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

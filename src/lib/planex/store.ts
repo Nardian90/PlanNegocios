@@ -3,12 +3,15 @@
 // ============================================================================
 // Almacén de estado PLANEX (zustand). Toda mutación pasa por aquí y toca el
 // modelo de datos único; el motor recalcula en los componentes con useMemo.
+// Esquema 2.0.0: recursos operativos, calendario de deuda, escenario de
+// capacidad y análisis con trazabilidad.
 // ============================================================================
 
 import { create } from 'zustand';
-import { PlanexProject, AportacionRow, ConsumoRow, InversionRow, PersonalRow, ServicioRow, VehiculoRow, CronogramaRow, Parametro, Regla } from './types';
+import { PlanexProject, AportacionRow, ConsumoRow, InversionRow, PersonalRow, ServicioRow, VehiculoRow, CronogramaRow, RecursoRow, ExpansionRecurso, DeudaConfig, EscenarioCapacidad, Parametro, Regla } from './types';
 import { crearProyectoClinica } from './templates/clinica';
 import { crearProyectoDefault } from './templates/default';
+import { crearProyectoCentro } from './templates/centro';
 import { normalizarSerie, nuevoId, ahoraISO } from './model/factory';
 import { guardarActual, guardarEnBiblioteca, guardarTema, cargarTema } from './io/persistence';
 
@@ -26,7 +29,7 @@ interface EstadoPlanex {
   objetivoAlerta: string | null;
   /** Aplica un cambio inmutable al proyecto activo. */
   actualizar: (mut: (p: PlanexProject) => void) => void;
-  abrirPlantilla: (tipo: 'clinica' | 'default') => void;
+  abrirPlantilla: (tipo: 'clinica' | 'default' | 'centro') => void;
   proyectoNuevo: () => void;
   reemplazarProyecto: (p: PlanexProject) => void;
   /** Sustituye el proyecto (p. ej. carga remota o realtime) SIN tocar la
@@ -54,14 +57,26 @@ interface EstadoPlanex {
   updAportacion: (id: string, patch: Partial<AportacionRow>) => void;
   updAportacionMonto: (id: string, anio: number, valor: number) => void;
   updServicio: (id: string, patch: Partial<ServicioRow>) => void;
+  toggleRecursoServicio: (id: string, recursoId: string) => void;
   updConsumo: (id: string, patch: Partial<ConsumoRow>) => void;
   updInversion: (id: string, patch: Partial<InversionRow>) => void;
   updVehiculo: (id: string, patch: Partial<VehiculoRow>) => void;
   updPersonal: (id: string, patch: Partial<PersonalRow>) => void;
   updCronograma: (id: string, patch: Partial<CronogramaRow>) => void;
-  delFila: (tabla: 'aportaciones' | 'consumos' | 'servicios' | 'personal' | 'cronograma' | 'inversion' | 'vehiculos', id: string) => void;
-  moverFila: (tabla: 'servicios' | 'personal' | 'inversion' | 'cronograma', id: string, dir: -1 | 1) => void;
+  delFila: (tabla: 'aportaciones' | 'consumos' | 'servicios' | 'personal' | 'cronograma' | 'inversion' | 'vehiculos' | 'recursos' | 'expansiones', id: string) => void;
+  moverFila: (tabla: 'servicios' | 'personal' | 'inversion' | 'cronograma' | 'recursos', id: string, dir: -1 | 1) => void;
   setOtrosIngresos: (anioIdx: number, valor: number) => void;
+  // Recursos operativos (misión §7)
+  addRecurso: () => void;
+  updRecurso: (id: string, patch: Partial<RecursoRow>) => void;
+  addExpansion: (recursoId: string) => void;
+  updExpansion: (recursoId: string, expId: string, patch: Partial<ExpansionRecurso>) => void;
+  // Calendario de deuda y escenario de capacidad (misión §6, §7.3)
+  updDeuda: (patch: Partial<DeudaConfig>) => void;
+  setEscenarioCapacidad: (e: EscenarioCapacidad) => void;
+  // Análisis con trazabilidad (misión §12.13)
+  guardarAnalisis: (clave: string, texto: string, huella: string, autor?: string) => void;
+  regenerarAnalisis: (clave: string) => void;
   guardarTema: (tema: 'dark' | 'light') => void;
   tema: 'dark' | 'light';
 }
@@ -91,7 +106,7 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
 
   abrirPlantilla: (tipo) =>
     set(() => ({
-      proyecto: tipo === 'clinica' ? crearProyectoClinica() : crearProyectoDefault(),
+      proyecto: tipo === 'clinica' ? crearProyectoClinica() : tipo === 'centro' ? crearProyectoCentro() : crearProyectoDefault(),
       sucio: false,
       guardadoEn: null,
       seccion: 'general',
@@ -193,7 +208,7 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
     }),
   addServicio: () =>
     get().actualizar((p) => {
-      p.servicios.push({ id: nuevoId(), nombre: 'Servicio nuevo', precioBase: 0, cantidadBaseMensual: 0, capacidadMaxMensual: 0, costoVariableUnitario: 0, fuente: '' });
+      p.servicios.push({ id: nuevoId(), nombre: 'Servicio nuevo', precioBase: 0, cantidadBaseMensual: 0, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 0, duracionMinutos: 30, recursoIds: [], fuente: '' });
     }),
   addConsumo: () =>
     get().actualizar((p) => {
@@ -201,7 +216,7 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
     }),
   addInversion: () =>
     get().actualizar((p) => {
-      p.financiero.inversion.push({ id: nuevoId(), concepto: '', categoria: 'inversion_fija', moneda: 'USD', monto: 0, vidaUtilAnios: 10, observacion: '' });
+      p.financiero.inversion.push({ id: nuevoId(), concepto: '', categoria: 'inversion_fija', moneda: 'USD', monto: 0, vidaUtilAnios: 10, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '' });
     }),
   addVehiculo: () =>
     get().actualizar((p) => {
@@ -259,20 +274,34 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
 
   delFila: (tabla, id) =>
     get().actualizar((p) => {
+      if (tabla === 'expansiones') {
+        for (const r of p.recursos) {
+          const i = r.expansiones.findIndex((e) => e.id === id);
+          if (i >= 0) r.expansiones.splice(i, 1);
+        }
+        return;
+      }
       const lista =
         tabla === 'inversion' || tabla === 'vehiculos'
           ? tabla === 'inversion'
             ? p.financiero.inversion
             : p.financiero.vehiculos
-          : (p[tabla] as unknown[]);
+          : (p[tabla as 'aportaciones' | 'consumos' | 'servicios' | 'personal' | 'cronograma' | 'recursos'] as unknown[]);
       const i = lista.findIndex((x) => (x as { id: string }).id === id);
       if (i >= 0) lista.splice(i, 1);
+      // Al eliminar un recurso, los servicios dejan de usarlo.
+      if (tabla === 'recursos') {
+        for (const s of p.servicios) {
+          const j = s.recursoIds.indexOf(id);
+          if (j >= 0) s.recursoIds.splice(j, 1);
+        }
+      }
     }),
 
   moverFila: (tabla, id, dir) =>
     get().actualizar((p) => {
       const lista =
-        tabla === 'inversion' ? p.financiero.inversion : (p[tabla as 'servicios' | 'personal' | 'cronograma'] as unknown as { id: string }[]);
+        tabla === 'inversion' ? p.financiero.inversion : (p[tabla as 'servicios' | 'personal' | 'cronograma' | 'recursos'] as unknown as { id: string }[]);
       const i = lista.findIndex((x) => x.id === id);
       const j = i + dir;
       if (i >= 0 && j >= 0 && j < lista.length) {
@@ -284,6 +313,71 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
   setOtrosIngresos: (anioIdx, valor) =>
     get().actualizar((p) => {
       if (Number.isFinite(valor)) p.financiero.otrosIngresos[anioIdx] = valor;
+    }),
+
+  // ---------------- Recursos operativos (misión §7) ----------------
+  addRecurso: () =>
+    get().actualizar((p) => {
+      p.recursos.push({
+        id: nuevoId(),
+        nombre: 'Recurso operativo nuevo',
+        tipo: 'gabinete',
+        cantidad: 1,
+        horasDia: 8,
+        diasAnio: 288,
+        pctMantenimiento: 0.05,
+        anioDisponible: 1,
+        expansiones: [],
+        observacion: '',
+      });
+    }),
+  updRecurso: (id, patch) =>
+    get().actualizar((p) => {
+      const x = p.recursos.find((q) => q.id === id);
+      if (x) Object.assign(x, patch);
+    }),
+  addExpansion: (recursoId) =>
+    get().actualizar((p) => {
+      const x = p.recursos.find((q) => q.id === recursoId);
+      if (x) x.expansiones.push({ id: nuevoId(), anio: 2, cantidad: 1, costoKUSD: 0, vidaUtilAnios: 10, observacion: '' });
+    }),
+  updExpansion: (recursoId, expId, patch) =>
+    get().actualizar((p) => {
+      const x = p.recursos.find((q) => q.id === recursoId)?.expansiones.find((e) => e.id === expId);
+      if (x) Object.assign(x, patch);
+    }),
+  toggleRecursoServicio: (id, recursoId) =>
+    get().actualizar((p) => {
+      const x = p.servicios.find((q) => q.id === id);
+      if (!x) return;
+      const i = x.recursoIds.indexOf(recursoId);
+      if (i >= 0) x.recursoIds.splice(i, 1);
+      else x.recursoIds.push(recursoId);
+    }),
+
+  // ------------- Deuda y escenario de capacidad (§6, §7.3) -------------
+  updDeuda: (patch) =>
+    get().actualizar((p) => {
+      Object.assign(p.financiero.deuda, patch);
+    }),
+  setEscenarioCapacidad: (e) =>
+    get().actualizar((p) => {
+      p.tecnico.escenarioCapacidad = e;
+    }),
+
+  // ---------------- Análisis con trazabilidad (§12.13) ----------------
+  guardarAnalisis: (clave, texto, huella, autor) =>
+    get().actualizar((p) => {
+      p.analisis[clave] = {
+        texto,
+        huellaOrigen: huella,
+        actualizadoPor: autor,
+        actualizadoEn: ahoraISO(),
+      };
+    }),
+  regenerarAnalisis: (clave) =>
+    get().actualizar((p) => {
+      delete p.analisis[clave];
     }),
 
   guardarTema: (tema) => {

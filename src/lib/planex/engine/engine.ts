@@ -1,14 +1,29 @@
 // ============================================================================
 // Motor de cálculo PLANEX — única fuente de verdad para interfaz,
-// validaciones, previsualización, PDF y Excel.
+// validaciones, análisis, previsualización, PDF y Excel.
 //
 // Fases:
-//  1. Parseo de reglas (errores de sintaxis → issues).
-//  2. Grafo de dependencias por ámbito + orden topológico + detección de ciclos
-//     (las auto-referencias vía LAG son recurrencias legítimas).
-//  3. Evaluación: reglas de proyecto → por año (filas servicio/personal → reglas de año).
-//  4. Indicadores (recuperación, beneficios acumulados, fuerza de trabajo).
-//  5. Emisión de issues (errores, inconsistencias, pendientes, supuestos).
+//  1. Parseo de reglas (errores de sintaxis → issues). El prefijo «mtr_» está
+//     reservado para las variables del motor estructural.
+//  2. Motor estructural (misión §5–§8): calendario de depreciación por activo,
+//     calendario de deuda, CAPEX de ampliaciones y recuperación del capital
+//     de trabajo — todos derivados de datos y parámetros, nunca de cifras
+//     fijas.
+//  3. Grafo de dependencias por ámbito + orden topológico + detección de
+//     ciclos (las auto-referencias vía LAG son recurrencias legítimas).
+//  4. Evaluación por año:
+//       a) reglas de servicio SIN variables del motor (demanda, precios…);
+//       b) capacidad del año (recursos compartidos, escenario A/B);
+//       c) reglas de servicio restantes (limitadas por capacidad);
+//       d) reglas de personal y de año (con variables mtr_ y cálculo perezoso
+//          de FCFF/FCFE y dividendos, que dependen de la utilidad del período).
+//  5. Indicadores: recuperación del proyecto (FCFF) y del capital aportado
+//     (FCFE) con interpolación lineal, dividendos, beneficios al país
+//     conciliados, fuerza de trabajo.
+//  6. Emisión de issues (errores, inconsistencias, pendientes, supuestos).
+//
+// Principio de la misión PLANEX-AUDIT-001: ninguna partida final está
+// escrita en el código; todas derivan de entradas, parámetros y reglas.
 // ============================================================================
 
 import {
@@ -19,17 +34,28 @@ import {
   EstadoRegla,
   ServicioCalculado,
   Indicadores,
+  Recuperacion,
+  DividendosAnio,
+  CapacidadServicio,
+  RecursoCalculado,
   ADVERTENCIA_DATOS_FICTICIOS,
+  InversionRow,
 } from '../types';
 import { parsear, Nodo, extraerVariables, extraerLags } from './parser';
 import { evalNodo, EvalContexto, Valor } from './evaluator';
 import { FormulaError } from './tokenizer';
+import { calcularDepreciacion } from './depreciacion';
+import { calcularDeuda } from './deuda';
+import { capacidadAnio, ampliacionesActivas } from './capacidad';
+import { calcularRecuperacion, acumular } from './flujos';
 
 const CAMPOS_SERVICIO: Record<string, (s: PlanexProject['servicios'][number]) => Valor> = {
   precio_base: (s) => s.precioBase,
   cantidad_base_mensual: (s) => s.cantidadBaseMensual,
+  anio_inicio_demanda: (s) => (Number.isFinite(s.anioInicioDemanda) && s.anioInicioDemanda >= 1 ? s.anioInicioDemanda : 1),
   capacidad_max_mensual: (s) => s.capacidadMaxMensual,
   costo_variable_unitario: (s) => s.costoVariableUnitario,
+  duracion_minutos: (s) => s.duracionMinutos,
 };
 
 const CAMPOS_PERSONAL: Record<string, (p: PlanexProject['personal'][number]) => Valor> = {
@@ -50,10 +76,13 @@ const CAMPOS_INVERSION: Record<string, (i: PlanexProject['financiero']['inversio
   categoria_inv: (i) => i.categoria,
   moneda_inv: (i) => i.moneda,
   vida_util_inv: (i) => i.vidaUtilAnios,
+  anio_disponible_inv: (i) => i.anioDisponible,
+  residual_inv: (i) => i.valorResidualPct,
 };
 
-/** Orden topológico por ámbito. Devuelve ciclos detectados (auto-referencias
- *  sin LAG y grupos no resueltos). */
+const PREFIJO_MOTOR = 'mtr_';
+
+/** Orden topológico por ámbito. Devuelve ciclos detectados. */
 function ordenarAmbito(
   reglas: Regla[],
   asts: Map<string, Nodo>,
@@ -115,9 +144,80 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   const reglaMap = new Map(proyecto.reglas.map((r) => [r.id, r]));
   const activas = proyecto.reglas.filter((r) => r.habilitada);
 
-  // ---------------------------------------------------------------- 1. Parseo
+  const valorParam = (nombre: string): number | undefined => paramMap.get(nombre)?.valor;
+
+  // ------------------------------------------------- 0. Motor estructural
+  const tipoCambio = Math.max(1, valorParam('tipo_cambio') ?? 1);
+  const capitalTrabajo = Number.isFinite(valorParam('capital_trabajo_k')) ? valorParam('capital_trabajo_k')! : 0;
+  const pctRecuperacionCT = Math.min(1, Math.max(0, valorParam('pct_recuperacion_capital_trabajo') ?? 0));
+  const escenario = proyecto.tecnico?.escenarioCapacidad ?? 'A_constante';
+
+  // Ampliaciones del escenario B: CAPEX por año y activos depreciables.
+  const { capexPorAnio: capexAmp, ampliaciones: activosAmp } = ampliacionesActivas(
+    proyecto.recursos ?? [],
+    escenario,
+    N
+  );
+
+  // Registro de activos depreciables: inversiones fijas + ampliaciones (esc. B).
+  const filasActivos: InversionRow[] = [
+    ...(proyecto.financiero?.inversion ?? []).map((r) => ({ ...r })),
+    ...activosAmp.map<InversionRow>((a) => ({
+      id: a.id,
+      concepto: a.concepto,
+      categoria: 'inversion_fija',
+      moneda: 'USD',
+      monto: a.costoKUSD,
+      vidaUtilAnios: a.vidaUtilAnios,
+      anioDisponible: a.anioDisponible,
+      valorResidualPct: 0,
+      metodoDepreciacion: 'lineal',
+      observacion: 'Ampliación de capacidad (escenario B)',
+    })),
+  ];
+  const dep = calcularDepreciacion({ inversion: filasActivos, horizonteAnios: N, tipoCambio });
+  for (const msg of dep.issues) {
+    issues.push({ tipo: 'inconsistencia', codigo: 'DEPRECIACION', mensaje: msg, seccion: 'inversiones' });
+  }
+
+  // Calendario de deuda.
+  const deuda = calcularDeuda({
+    config: proyecto.financiero?.deuda ?? { habilitada: false, anioDesembolso: 0, tipoGracia: 'principal', metodo: 'capital_constante', fuente: '' },
+    montoKUSD: valorParam('credito_monto_k') ?? 0,
+    tasaInteres: valorParam('tasa_interes') ?? 0,
+    periodoGracia: valorParam('periodo_gracia') ?? 0,
+    plazoAmortizacion: valorParam('plazo_amortizacion') ?? 1,
+    horizonteAnios: N,
+  });
+  for (const msg of deuda.issues) {
+    issues.push({ tipo: 'inconsistencia', codigo: 'DEUDA', mensaje: msg, seccion: 'financiero' });
+  }
+  const filaDeuda = (t: number) => deuda.filas[Math.min(t, deuda.filas.length - 1)];
+
+  const motorAnio: Record<string, Record<number, number>> = {
+    mtr_depreciacion_k: dep.totalPorAnio,
+    mtr_amortizacion_k: Object.fromEntries(years.map((t) => [t, filaDeuda(t).amortizacion])),
+    mtr_interes_devengado_k: Object.fromEntries(years.map((t) => [t, filaDeuda(t).interesDevengado])),
+    mtr_interes_pagado_k: Object.fromEntries(years.map((t) => [t, filaDeuda(t).interesPagado])),
+    mtr_saldo_deuda_k: Object.fromEntries(years.map((t) => [t, filaDeuda(t).saldoFinal])),
+    mtr_desembolso_credito_k: Object.fromEntries(years.map((t) => [t, filaDeuda(t).desembolso])),
+    mtr_capex_ampliaciones_k: capexAmp,
+    mtr_recuperacion_ct_k: Object.fromEntries(years.map((t) => [t, t === N ? pctRecuperacionCT * capitalTrabajo : 0])),
+  };
+
+  // ------------------------------------------------------------- 1. Parseo
   const asts = new Map<string, Nodo>();
   for (const r of activas) {
+    if (r.id.startsWith(PREFIJO_MOTOR)) {
+      issues.push({
+        tipo: 'error',
+        codigo: 'PREFIJO_RESERVADO',
+        mensaje: `El identificador «${r.id}» usa el prefijo reservado «${PREFIJO_MOTOR}» del motor estructural. Renombre la regla.`,
+        reglaId: r.id,
+        seccion: 'config',
+      });
+      continue;
+    }
     try {
       asts.set(r.id, parsear(r.expresion));
     } catch (e) {
@@ -170,6 +270,29 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     }
   }
 
+  // Fase de reglas de servicio: las que no usan (transitivamente) variables
+  // del motor se evalúan primero; la capacidad del año se resuelve después.
+  const usaMotor = (id: string, memo: Map<string, boolean>): boolean => {
+    if (memo.has(id)) return memo.get(id)!;
+    const ast = asts.get(id);
+    if (!ast) return false;
+    memo.set(id, true); // guarda temporal contra ciclos
+    let usa = [...extraerVariables(ast)].some((v) => v.startsWith(PREFIJO_MOTOR));
+    if (!usa) {
+      for (const v of extraerVariables(ast)) {
+        if (usaMotor(v, memo)) {
+          usa = true;
+          break;
+        }
+      }
+    }
+    memo.set(id, usa);
+    return usa;
+  };
+  const memoFase = new Map<string, boolean>();
+  const fase1Servicio = ordServicio.orden.filter((id) => !usaMotor(id, memoFase));
+  const fase2Servicio = ordServicio.orden.filter((id) => usaMotor(id, memoFase));
+
   // ------------------------------------------------- contexto de resolución
   const otrosIngresos = (t: number): number => {
     if (t <= 0) return 0;
@@ -177,13 +300,17 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     return Number.isFinite(v) ? v : 0;
   };
 
-  const valorParam = (nombre: string): number | undefined => paramMap.get(nombre)?.valor;
-
   /** Resolver para reglas de ámbito proyecto. */
   const resolverProyecto = (t: number) => (nombre: string, pos: number): Valor => {
     if (nombre === 'MESES_ANIO') return 12;
     if (nombre === 'PERIODO' || nombre === 'PERIODOS') {
       throw new FormulaError(`"${nombre}" no está disponible en reglas de ámbito proyecto`, pos);
+    }
+    if (nombre.startsWith(PREFIJO_MOTOR)) {
+      throw new FormulaError(
+        `Las variables del motor (${PREFIJO_MOTOR}*) son de ámbito anual o de servicio; no pueden usarse en reglas de ámbito proyecto`,
+        pos
+      );
     }
     const p = valorParam(nombre);
     if (p !== undefined) return p;
@@ -197,12 +324,137 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     throw new FormulaError(`Variable no definida: "${nombre}"`, pos);
   };
 
+  // ---------- Estado perezoso de flujos y dividendos (necesitan la UDI)
+  const fcffCache: Record<number, number> = {};
+  const fcfeCache: Record<number, number> = {};
+  const fcfeAcumCache: Record<number, number> = {};
+  const dividendosPasos: Record<number, DividendosAnio> = {};
+  let dividendosHasta = -1;
+
+  const udiDe = (t: number, pos: number): number => {
+    const r = reglaMap.get('utilidad_despues_impuestos_k');
+    if (!r || !r.habilitada) {
+      throw new FormulaError('El cálculo de flujos y dividendos requiere la regla «utilidad_despues_impuestos_k» (está deshabilitada o no existe)', pos);
+    }
+    const v = valores['utilidad_despues_impuestos_k']?.[t];
+    if (!Number.isFinite(v)) {
+      throw new FormulaError(
+        `La utilidad después de impuestos del año ${t} aún no está calculada: esta regla debe evaluarse después de «utilidad_despues_impuestos_k» (revise el orden de las dependencias)`,
+        pos
+      );
+    }
+    return v;
+  };
+
+  const fcffDe = (t: number, pos: number): number => {
+    if (t in fcffCache) return fcffCache[t];
+    const udi = udiDe(t, pos);
+    const v =
+      udi +
+      (motorAnio['mtr_interes_devengado_k'][t] ?? 0) +
+      (motorAnio['mtr_depreciacion_k'][t] ?? 0) -
+      (motorAnio['mtr_capex_ampliaciones_k'][t] ?? 0) +
+      (motorAnio['mtr_recuperacion_ct_k'][t] ?? 0) -
+      (t === 0 ? (Number.isFinite(valores['inversion_total_k']?.[0]) ? valores['inversion_total_k'][0] : NaN) : 0);
+    if (!Number.isFinite(v)) {
+      throw new FormulaError('El cálculo del flujo del proyecto requiere la partida «inversion_total_k» del año 0', pos);
+    }
+    fcffCache[t] = v;
+    return v;
+  };
+
+  const fcfeDe = (t: number, pos: number): number => {
+    if (t in fcfeCache) return fcfeCache[t];
+    const fcff = fcffDe(t, pos);
+    const v =
+      fcff -
+      (motorAnio['mtr_interes_pagado_k'][t] ?? 0) +
+      (motorAnio['mtr_desembolso_credito_k'][t] ?? 0) -
+      (motorAnio['mtr_amortizacion_k'][t] ?? 0);
+    fcfeCache[t] = v;
+    return v;
+  };
+
+  const fcfeAcumDe = (t: number, pos: number): number => {
+    if (t in fcfeAcumCache) return fcfeAcumCache[t];
+    let s = 0;
+    for (let k = 1; k <= t; k++) s += fcfeDe(k, pos);
+    fcfeAcumCache[t] = s;
+    return s;
+  };
+
+  const dividendosPaso = (t: number, pos: number): DividendosAnio => {
+    if (t in dividendosPasos) return dividendosPasos[t];
+    const pctReparto = Math.min(1, Math.max(0, valorParam('pct_reparto_dividendos') ?? 0));
+    const pctReserva = Math.min(1, Math.max(0, valorParam('pct_reserva_legal') ?? 0));
+    const pctCubana = Math.min(1, Math.max(0, valorParam('pct_parte_cubana') ?? 0));
+    for (let k = dividendosHasta + 1; k <= t; k++) {
+      const previo = k - 1 in dividendosPasos ? dividendosPasos[k - 1].saldoAcumulable : 0;
+      const udi = udiDe(k, pos);
+      let fila: DividendosAnio;
+      if (k === 0) {
+        fila = {
+          anio: 0,
+          udi,
+          saldoAcumulablePrevio: 0,
+          base: 0,
+          reserva: 0,
+          distribuible: 0,
+          propuestos: 0,
+          cajaAcumulada: 0,
+          pagables: 0,
+          socioNacional: 0,
+          socioExtranjero: 0,
+          saldoAcumulable: udi,
+        };
+      } else {
+        const base = Math.max(0, udi + previo);
+        const reserva = base * pctReserva;
+        const distribuible = base - reserva;
+        const propuestos = distribuible * pctReparto;
+        const caja = fcfeAcumDe(k, pos);
+        const pagables = Math.min(propuestos, Math.max(0, caja));
+        fila = {
+          anio: k,
+          udi,
+          saldoAcumulablePrevio: previo,
+          base,
+          reserva,
+          distribuible,
+          propuestos,
+          cajaAcumulada: caja,
+          pagables,
+          socioNacional: pagables * pctCubana,
+          socioExtranjero: pagables * (1 - pctCubana),
+          saldoAcumulable: previo + udi - reserva - pagables,
+        };
+      }
+      dividendosPasos[k] = fila;
+      dividendosHasta = k;
+    }
+    return dividendosPasos[t];
+  };
+
   /** Resolver para reglas de ámbito año (t = año actual). */
   const resolverAnio = (t: number) => (nombre: string, pos: number): Valor => {
     if (nombre === 'PERIODO') return t;
     if (nombre === 'PERIODOS') return N;
     if (nombre === 'MESES_ANIO') return 12;
     if (nombre === 'otros_ingresos_serie') return otrosIngresos(t);
+    if (nombre.startsWith(PREFIJO_MOTOR)) {
+      if (nombre in motorAnio) {
+        const v = motorAnio[nombre][t];
+        return Number.isFinite(v) ? v : 0;
+      }
+      if (nombre === 'mtr_fcff_k') return fcffDe(t, pos);
+      if (nombre === 'mtr_fcfe_k') return fcfeDe(t, pos);
+      if (nombre === 'mtr_fcfe_acum_k') return fcfeAcumDe(t, pos);
+      if (nombre === 'mtr_dividendos_pagables_k') return dividendosPaso(t, pos).pagables;
+      if (nombre === 'mtr_dividendos_nacional_k') return dividendosPaso(t, pos).socioNacional;
+      if (nombre === 'mtr_dividendos_extranjero_k') return dividendosPaso(t, pos).socioExtranjero;
+      if (nombre === 'mtr_caja_dividendos_k') return dividendosPaso(t, pos).cajaAcumulada;
+      throw new FormulaError(`Variable del motor no definida: "${nombre}"`, pos);
+    }
     const p = valorParam(nombre);
     if (p !== undefined) return p;
     const r = reglaMap.get(nombre);
@@ -331,50 +583,119 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     capacidadesExcedidas: [],
   }));
 
-  // Valores por fila de personal: rowId -> reglaId -> año -> valor
   const personalVal: Record<string, Record<string, Record<number, number>>> = {};
   for (const p of proyecto.personal ?? []) personalVal[p.id] = {};
 
-  const evaluarServicioAnio = (t: number) => {
-    for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
-      const row = proyecto.servicios[idx];
-      const svc = serviciosCalc[idx];
-      svc.valores[t] = {};
-      for (const id of ordServicio.orden) {
-        const r = reglaMap.get(id)!;
-        const resolver = (nombre: string, pos: number): Valor => {
-          const campo = CAMPOS_SERVICIO[nombre];
-          if (campo) return campo(row);
-          if (nombre === 'PERIODO') return t;
-          if (nombre === 'PERIODOS') return N;
-          if (nombre === 'MESES_ANIO') return 12;
-          const p = valorParam(nombre);
-          if (p !== undefined) return p;
-          if (ordServicio.orden.includes(nombre)) return svc.valores[t][nombre];
-          throw new FormulaError(`Variable no definida en el ámbito de servicios: "${nombre}"`, pos);
-        };
-        try {
-          const v = evaluarRegla(asts.get(id)!, {
-            resolver,
-            periodo: t,
-            periodos: N,
-            lag: () => {
-              throw new FormulaError('LAG no está disponible en el ámbito de servicios');
-            },
-          });
-          svc.valores[t][id] = v;
-          if (!estados[id]) estados[id] = { id, ok: true, refs: [], params: [] };
-          if (!estados[id].valores) estados[id].valores = {};
-          estados[id].valores![t] = (estados[id].valores![t] ?? 0) + v; // suma entre servicios (auditoría)
-        } catch (e) {
-          falla(r, e);
-          svc.valores[t][id] = NaN;
+  // Capacidad del año t (diferida): necesita la demanda ya evaluada (fase 1).
+  const capacidadCache: Record<number, Record<string, CapacidadServicio>> = {};
+  const recursosPorAnio: Record<
+    number,
+    { porServicio: Record<string, CapacidadServicio>; recursos: { id: string; nombre: string; minutosDisponibles: number; minutosDemandados: number; utilizacion: number }[] }
+  > = {};
+  const demandaFila = (row: PlanexProject['servicios'][number], t: number): number => {
+    const idx = (proyecto.servicios ?? []).findIndex((s) => s.id === row.id);
+    if (idx < 0) return 0;
+    const v = serviciosCalc[idx].valores[t]?.['srv_cantidad_mensual_proy'];
+    return Number.isFinite(v) ? v : 0;
+  };
+  const REGLA_DEMANDA = 'srv_cantidad_mensual_proy';
+  const astDemanda = asts.get(REGLA_DEMANDA);
+  const reglaDemanda = reglaMap.get(REGLA_DEMANDA);
+
+  const evaluarReglaServicio = (idx: number, t: number, id: string) => {
+    const row = proyecto.servicios[idx];
+    const svc = serviciosCalc[idx];
+    const r = reglaMap.get(id)!;
+    const resolver = (nombre: string, pos: number): Valor => {
+      const campo = CAMPOS_SERVICIO[nombre];
+      if (campo) return campo(row);
+      if (nombre === 'PERIODO') return t;
+      if (nombre === 'PERIODOS') return N;
+      if (nombre === 'MESES_ANIO') return 12;
+      if (nombre.startsWith(PREFIJO_MOTOR)) {
+        if (nombre === 'mtr_capacidad_mensual') {
+          const c = capacidadCache[t]?.[row.id];
+          if (!c) throw new FormulaError('La capacidad del año aún no está calculada', pos);
+          return c.capacidadMensual;
+        }
+        if (nombre === 'mtr_demanda_mensual') {
+          const v = svc.valores[t]?.[REGLA_DEMANDA];
+          return Number.isFinite(v) ? v : 0;
+        }
+        if (nombre === 'mtr_cantidad_real_mensual') {
+          const c = capacidadCache[t]?.[row.id];
+          if (!c) throw new FormulaError('La capacidad del año aún no está calculada', pos);
+          return c.cantidadRealMensual;
+        }
+        if (nombre === 'mtr_utilizacion_capacidad') {
+          const c = capacidadCache[t]?.[row.id];
+          if (!c) throw new FormulaError('La capacidad del año aún no está calculada', pos);
+          return c.utilizacion;
+        }
+        throw new FormulaError(`Variable del motor no disponible en el ámbito de servicios: "${nombre}"`, pos);
+      }
+      const p = valorParam(nombre);
+      if (p !== undefined) return p;
+      if (ordServicio.orden.includes(nombre)) return svc.valores[t][nombre];
+      throw new FormulaError(`Variable no definida en el ámbito de servicios: "${nombre}"`, pos);
+    };
+    try {
+      const v = evaluarRegla(asts.get(id)!, {
+        resolver,
+        periodo: t,
+        periodos: N,
+        lag: () => {
+          throw new FormulaError('LAG no está disponible en el ámbito de servicios');
+        },
+      });
+      svc.valores[t][id] = v;
+      if (!estados[id]) estados[id] = { id, ok: true, refs: [], params: [] };
+      if (!estados[id].valores) estados[id].valores = {};
+      estados[id].valores![t] = (estados[id].valores![t] ?? 0) + v; // suma entre servicios (auditoría)
+    } catch (e) {
+      falla(r, e);
+      svc.valores[t][id] = NaN;
+    }
+  };
+
+  const resolverCapacidadAnio = (t: number) => {
+    if (capacidadCache[t]) return;
+    // La demanda de TODOS los servicios debe existir antes de repartir recursos.
+    if (astDemanda && reglaDemanda?.habilitada) {
+      for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
+        if (Number.isFinite(serviciosCalc[idx].valores[t]?.[REGLA_DEMANDA])) continue;
+        evaluarReglaServicio(idx, t, REGLA_DEMANDA);
+      }
+    }
+    const res = capacidadAnio(proyecto.recursos ?? [], proyecto.servicios ?? [], escenario, t, (s) => demandaFila(s, t));
+    capacidadCache[t] = res.porServicio;
+    recursosPorAnio[t] = res;
+    const idsRecursos = new Set((proyecto.recursos ?? []).map((r) => r.id));
+    for (const s of proyecto.servicios ?? []) {
+      for (const rid of s.recursoIds ?? []) {
+        if (!idsRecursos.has(rid)) {
+          const msg = `El servicio «${s.nombre}» utiliza el recurso «${rid}» que no está definido en la tabla de recursos operativos: su capacidad no queda limitada por ese recurso.`;
+          if (!issues.some((i) => i.codigo === 'RECURSO_INEXISTENTE' && i.mensaje === msg)) {
+            issues.push({ tipo: 'inconsistencia', codigo: 'RECURSO_INEXISTENTE', mensaje: msg, seccion: 'tecnico' });
+          }
         }
       }
-      const cant = svc.valores[t]['srv_cantidad_mensual_proy'];
-      svc.cantidades[t] = isFinite(cant) ? cant : 0;
-      if (isFinite(cant) && cant > row.capacidadMaxMensual + 1e-9) {
-        svc.capacidadesExcedidas.push(t);
+    }
+  };
+
+  const evaluarServicioAnio = (t: number) => {
+    for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
+      serviciosCalc[idx].valores[t] = {};
+      for (const id of fase1Servicio) evaluarReglaServicio(idx, t, id);
+    }
+    resolverCapacidadAnio(t);
+    for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
+      for (const id of fase2Servicio) evaluarReglaServicio(idx, t, id);
+      const c = capacidadCache[t]?.[proyecto.servicios[idx].id];
+      const cant = serviciosCalc[idx].valores[t]?.['srv_cantidad_real_mensual'];
+      serviciosCalc[idx].cantidades[t] = Number.isFinite(cant) ? cant : 0;
+      if (c && c.cantidadRealMensual < c.demandaMensual - 1e-9) {
+        serviciosCalc[idx].capacidadesExcedidas.push(t);
       }
     }
   };
@@ -393,6 +714,9 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
           if (nombre === 'PERIODO') return t;
           if (nombre === 'PERIODOS') return N;
           if (nombre === 'MESES_ANIO') return 12;
+          if (nombre.startsWith(PREFIJO_MOTOR)) {
+            throw new FormulaError(`Las variables del motor no están disponibles en el ámbito de personal ("${nombre}")`, pos);
+          }
           const p = valorParam(nombre);
           if (p !== undefined) return p;
           if (ordPersonal.orden.includes(nombre)) return personalVal[row.id]?.[nombre]?.[t] ?? 0;
@@ -432,6 +756,17 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
           if (nombre === 'PERIODO') return t;
           if (nombre === 'PERIODOS') return N;
           if (nombre === 'MESES_ANIO') return 12;
+          if (nombre.startsWith(PREFIJO_MOTOR)) {
+            const c = capacidadCache[t]?.[row.id];
+            if (nombre === 'mtr_capacidad_mensual') return c ? c.capacidadMensual : 0;
+            if (nombre === 'mtr_cantidad_real_mensual') return c ? c.cantidadRealMensual : 0;
+            if (nombre === 'mtr_utilizacion_capacidad') return c ? c.utilizacion : 0;
+            if (nombre === 'mtr_demanda_mensual') {
+              const v = svc.valores[t]?.[REGLA_DEMANDA];
+              return Number.isFinite(v) ? v : 0;
+            }
+            throw new FormulaError(`Variable del motor no disponible en SUMA_SERVICIOS: "${nombre}"`, pos);
+          }
           const p = valorParam(nombre);
           if (p !== undefined) return p;
           if (nombre in svc.valores[t]) return svc.valores[t][nombre];
@@ -500,6 +835,20 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     evaluarAnio(t);
   }
 
+  // Finaliza la serie de dividendos para los años no solicitados por reglas
+  // (el módulo completo se expone en el modelo y las tablas).
+  if (reglaMap.get('utilidad_despues_impuestos_k')?.habilitada && valores['utilidad_despues_impuestos_k']) {
+    for (const t of years) {
+      if (t in dividendosPasos) continue;
+      if (!Number.isFinite(valores['utilidad_despues_impuestos_k'][t])) continue;
+      try {
+        dividendosPaso(t, -1);
+      } catch {
+        dividendosHasta = Math.max(dividendosHasta, t - 1);
+      }
+    }
+  }
+
   // Reglas deshabilitadas: estado informativo
   for (const r of proyecto.reglas) {
     if (!r.habilitada && !estados[r.id]) {
@@ -513,21 +862,38 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     return Number.isFinite(v) ? v : 0;
   };
 
-  function calcularRecuperacion(): number | null {
-    const acum = valores['flujo_acumulado_k'];
-    if (!acum) return null;
-    if ((acum[0] ?? 0) >= 0) return 0;
-    for (let t = 1; t <= N; t++) {
-      const a = acum[t - 1] ?? 0;
-      const b = acum[t] ?? 0;
-      if (a < 0 && b >= 0) {
-        return t - 1 + -a / (b - a);
-      }
-    }
-    return null;
+  // Series de flujos (desde el motor, con caché; los años sin UDI quedan en 0).
+  const fcff: Record<number, number> = {};
+  const fcfe: Record<number, number> = {};
+  for (const t of years) {
+    fcff[t] = fcffCache[t] ?? 0;
+    fcfe[t] = fcfeCache[t] ?? 0;
   }
+  const fcffAcum = acumular(fcff, years);
+  const fcfeAcum = acumular(fcfe, years);
 
-  const recuperacion = calcularRecuperacion();
+  const reglaAcumProyecto = valores['flujo_acumulado_proyecto_k'];
+  const reglaAcumSocios = valores['flujo_acumulado_socios_k'];
+  const recuperacionProyecto: Recuperacion = reglaAcumProyecto
+    ? calcularRecuperacion('proyecto', reglaAcumProyecto, years)
+    : {
+        indicador: 'proyecto',
+        anios: null,
+        anioCruce: null,
+        indeterminado: true,
+        motivo:
+          'No puede calcularse con fiabilidad: falta la regla «flujo_acumulado_proyecto_k» (deshabilitada, con error o eliminada). El plan debe definir el flujo de caja del proyecto para evaluar la recuperación de la inversión total.',
+      };
+  const recuperacionSocios: Recuperacion = reglaAcumSocios
+    ? calcularRecuperacion('socios', reglaAcumSocios, years)
+    : {
+        indicador: 'socios',
+        anios: null,
+        anioCruce: null,
+        indeterminado: true,
+        motivo:
+          'No puede calcularse con fiabilidad: falta la regla «flujo_acumulado_socios_k». El plan debe definir el flujo de caja de los socios para evaluar la recuperación del capital aportado.',
+      };
 
   const operacion = (proyecto.personal ?? []).filter((p) => p.etapa === 'operacion');
   const montaje = (proyecto.personal ?? []).filter((p) => p.etapa === 'montaje');
@@ -550,14 +916,18 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   const ingresosTotales: Record<number, number> = {};
   let utilidadNetaAcum = 0;
   let beneficiosPaisAcum = 0;
+  let beneficiosPaisExplot = 0;
   let impuestosTot = 0;
   for (const t of years) {
     utilidadNeta[t] = val('utilidad_despues_impuestos_k', t);
     beneficiosPais[t] = val('total_beneficios_pais_k', t);
     ingresosTotales[t] = val('ingresos_totales_k', t);
+    // Acumulado de beneficios: TODO el período (incluye el año 0), idéntico al
+    // de la tabla 4.11 — el resumen y las conclusiones usan este mismo total.
+    beneficiosPaisAcum += beneficiosPais[t];
     if (t >= 1) {
       utilidadNetaAcum += utilidadNeta[t];
-      beneficiosPaisAcum += beneficiosPais[t];
+      beneficiosPaisExplot += beneficiosPais[t];
       impuestosTot += val('impuesto_utilidades_k', t);
     }
   }
@@ -566,14 +936,36 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     ? serviciosCalc.reduce((s, x) => s + (x.valores[1]?.['srv_margen_contribucion'] ?? 0), 0)
     : null;
 
+  const dividendosFinales: DividendosAnio[] = years
+    .filter((t) => t in dividendosPasos)
+    .map((t) => dividendosPasos[t]);
+
+  const capacidadFinal: Record<string, Record<number, CapacidadServicio>> = {};
+  for (const t of years) {
+    for (const s of proyecto.servicios ?? []) {
+      const c = capacidadCache[t]?.[s.id];
+      if (c) capacidadFinal[s.id] = { ...(capacidadFinal[s.id] ?? {}), [t]: c };
+    }
+  }
+  const recursosCalculados: RecursoCalculado[] = (proyecto.recursos ?? []).map((r) => ({
+    id: r.id,
+    nombre: r.nombre,
+    horasDisponibles: Object.fromEntries(years.map((t) => [t, (recursosPorAnio[t]?.recursos.find((x) => x.id === r.id)?.minutosDisponibles ?? 0) / 60])),
+    horasDemandadas: Object.fromEntries(years.map((t) => [t, (recursosPorAnio[t]?.recursos.find((x) => x.id === r.id)?.minutosDemandados ?? 0) / 60])),
+    utilizacion: Object.fromEntries(years.map((t) => [t, recursosPorAnio[t]?.recursos.find((x) => x.id === r.id)?.utilizacion ?? 0])),
+  }));
+
   const indicadores: Indicadores = {
-    recuperacionAnios: recuperacion,
+    recuperacionProyecto,
+    recuperacionSocios,
     inversionTotalKUSD: val('inversion_total_k', 0),
+    aportacionesTotalesKUSD: val('aportaciones_total_k', 0),
     ingresosTotales,
     utilidadNeta,
     utilidadNetaAcumulada: utilidadNetaAcum,
     beneficiosPais,
     beneficiosPaisAcumulados: beneficiosPaisAcum,
+    beneficiosPaisExplotacion: beneficiosPaisExplot,
     impuestosTotales: impuestosTot,
     totalTrabajadores: totalCant,
     trabajadoresMontaje: montaje.reduce((s, p) => s + (Number.isFinite(p.cantidad) ? p.cantidad : 0), 0),
@@ -582,18 +974,52 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     extranjeros,
     salarioPromedioAnualCUP: salarioProm,
     margenContribucionAnio1: margenAnio1,
+    fcff,
+    fcffAcumulado: fcffAcum,
+    fcfe,
+    fcfeAcumulado: fcfeAcum,
+    capexAmpliaciones: capexAmp,
   };
 
   // ---------------------------------------------------------- 5. Issues
-  // Capacidad
+  // Capacidad: demanda no atendible (misión §7).
+  const umbralUtil = Math.min(1, Math.max(0.01, valorParam('umbral_utilizacion_capacidad') ?? 0.9));
   for (const svc of serviciosCalc) {
     if (svc.capacidadesExcedidas.length > 0) {
+      const t0 = svc.capacidadesExcedidas[0];
+      const c = capacidadFinal[svc.id]?.[t0];
+      const pctPerdido = c && c.demandaMensual > 0 ? (1 - c.cantidadRealMensual / c.demandaMensual) * 100 : 0;
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'CAPACIDAD',
-        mensaje: `El servicio «${svc.nombre}» supera la capacidad instalada en los años ${svc.capacidadesExcedidas.join(', ')}. Revise la capacidad máxima, el crecimiento del volumen o la ocupación prevista.`,
+        mensaje: `El servicio «${svc.nombre}» no puede atender ${pctPerdido.toFixed(1)} % de la demanda prevista en los años ${svc.capacidadesExcedidas.join(', ')} con la capacidad activa. La proyección se ha limitado a la demanda atendible; para servir toda la demanda se requiere ampliar recursos (escenario B) o revisar precios o volúmenes.`,
         seccion: 'tecnico',
         objetivoId: svc.id,
+      });
+    }
+  }
+  if ((proyecto.servicios ?? []).some((s) => (s.recursoIds ?? []).length > 0) && !(proyecto.recursos ?? []).length) {
+    issues.push({
+      tipo: 'inconsistencia',
+      codigo: 'SIN_RECURSOS',
+      mensaje: 'Hay servicios que declaran recursos operativos pero la tabla de recursos está vacía: la capacidad no queda limitada por recursos y la proyección no es operativamente verificable. Complete la tabla de recursos (4.6).',
+      seccion: 'tecnico',
+    });
+  }
+  if ((proyecto.recursos ?? []).length > 0) {
+    const alertas = (proyecto.recursos ?? [])
+      .map((r) => {
+        const util = Math.max(...years.map((t) => recursosPorAnio[t]?.recursos.find((x) => x.id === r.id)?.utilizacion ?? 0));
+        return { r, util };
+      })
+      .filter((x) => x.util > umbralUtil);
+    for (const { r, util } of alertas) {
+      issues.push({
+        tipo: 'supuesto',
+        codigo: 'UTILIZACION_ALTA',
+        mensaje: `El recurso «${r.nombre}» alcanza una utilización máxima de ${(util * 100).toFixed(0)} % (umbral de referencia: ${(umbralUtil * 100).toFixed(0)} %). Verifique la combinación de servicios y los tiempos de procedimiento: una utilización tan alta deja poco margen para imprevistos y mantenimiento.`,
+        seccion: 'tecnico',
+        objetivoId: r.id,
       });
     }
   }
@@ -616,23 +1042,39 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       });
     }
   }
-  // Recuperación y horizonte
-  if (valores['flujo_acumulado_k']) {
-    if (recuperacion === null) {
+  // Recuperación y horizonte (indicador del proyecto)
+  if (reglaAcumProyecto) {
+    if (recuperacionProyecto.anios === null) {
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'NO_RECUPERACION',
-        mensaje: `La inversión no se recupera dentro del horizonte de ${N} años. Amplíe el horizonte o revise los supuestos del modelo.`,
+        mensaje: `La inversión total del proyecto no se recupera dentro del horizonte de ${N} años con el flujo de caja del proyecto (FCFF). Amplíe el horizonte o revise los supuestos; no debe presentarse como recuperado.`,
         seccion: 'financiero',
       });
-    } else if (N < Math.ceil(recuperacion + 1)) {
+    } else if (N < Math.ceil(recuperacionProyecto.anios + 1)) {
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'HORIZONTE_CORTO',
-        mensaje: `El horizonte de análisis (${N} años) es inferior al período de recuperación (${recuperacion.toFixed(1)} años) más un año, como exige la metodología. Amplíe el horizonte.`,
+        mensaje: `El horizonte de análisis (${N} años) es inferior al período de recuperación del proyecto (${recuperacionProyecto.anios.toFixed(1)} años) más un año, como exige la metodología. Amplíe el horizonte.`,
         seccion: 'financiero',
       });
     }
+    if (recuperacionProyecto.indeterminado && recuperacionProyecto.anios !== null) {
+      issues.push({
+        tipo: 'inconsistencia',
+        codigo: 'FLUJO_NO_CONVENCIONAL',
+        mensaje: 'El flujo acumulado del proyecto cambia de signo más de una vez (posibles inversiones adicionales): el período de recuperación calculado por interpolación debe interpretarse con cautela.',
+        seccion: 'financiero',
+      });
+    }
+  }
+  if (reglaAcumSocios && recuperacionSocios.anios === null) {
+    issues.push({
+      tipo: 'pendiente',
+      codigo: 'NO_RECUPERACION_SOCIOS',
+      mensaje: `El capital aportado por los socios no se recupera dentro del horizonte de ${N} años según el flujo de caja de los socios (FCFE). Si se presenta, debe decirse expresamente.`,
+      seccion: 'financiero',
+    });
   }
   // Datos pendientes
   if (!(proyecto.servicios ?? []).length) {
@@ -662,16 +1104,28 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       });
     }
   }
-  // Inversión fija sin vida útil
-  for (const i of proyecto.financiero?.inversion ?? []) {
-    if (i.categoria === 'inversion_fija' && (!Number.isFinite(i.vidaUtilAnios) || i.vidaUtilAnios <= 0)) {
+  // Depreciación: activos disponibles después de la operación
+  for (const a of dep.activos) {
+    if (a.vidaUtilAnios > 0 && a.anioDisponible + a.vidaUtilAnios > N + 1) {
       issues.push({
-        tipo: 'inconsistencia',
-        codigo: 'VIDA_UTIL',
-        mensaje: `La partida de inversión fija «${i.concepto}» no tiene vida útil definida: no se incluirá en la depreciación anual.`,
+        tipo: 'documental',
+        codigo: 'DEP_FUERA_HORIZONTE',
+        mensaje: `El activo «${a.concepto}» (vida útil ${a.vidaUtilAnios} años, disponible en el año ${a.anioDisponible}) no termina de depreciarse dentro del horizonte de ${N} años: quedará un valor neto en libros al final del análisis.`,
         seccion: 'inversiones',
-        objetivoId: i.id,
+        objetivoId: a.id,
       });
+    }
+  }
+  // Dividendos restringidos por caja
+  for (const d of dividendosFinales) {
+    if (d.propuestos > d.pagables + 0.005) {
+      issues.push({
+        tipo: 'documental',
+        codigo: 'DIVIDENDOS_RESTRINGIDOS',
+        mensaje: `En el año ${d.anio} los dividendos propuestos (${d.propuestos.toFixed(1)} kUSD) superan la caja disponible (${d.cajaAcumulada.toFixed(1)} kUSD): solo se consideran pagables ${d.pagables.toFixed(1)} kUSD. La política de distribución está limitada por la liquidez modelada.`,
+        seccion: 'financiero',
+      });
+      break;
     }
   }
   // Inversiones en CUP
@@ -683,8 +1137,27 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       seccion: 'inversiones',
     });
   }
+  // Capital de trabajo con recuperación
+  if (pctRecuperacionCT > 0) {
+    issues.push({
+      tipo: 'supuesto',
+      codigo: 'CT_RECUPERACION',
+      mensaje: `El modelo incorpora la recuperación del ${(pctRecuperacionCT * 100).toFixed(0)} % del capital de trabajo en el último año del horizonte (regla parametrizada). Debe justificarse documentalmente que esa fracción es realmente recuperable al final del período.`,
+      seccion: 'financiero',
+      parametroId: 'pct_recuperacion_capital_trabajo',
+    });
+  }
+  // Escenario de capacidad activo
+  if (escenario === 'B_ampliacion' && activosAmp.length > 0) {
+    issues.push({
+      tipo: 'supuesto',
+      codigo: 'ESCENARIO_B',
+      mensaje: `Escenario activo: B (ampliación de capacidad). Las ampliaciones programadas (${activosAmp.length}) generan CAPEX y nueva capacidad en sus años de ejecución; sus cifras provienen de la tabla de recursos operativos.`,
+      seccion: 'tecnico',
+    });
+  }
   // Advertencia de datos ficticios (plantilla demostrativa)
-  if (proyecto.planex?.plantillaOrigen === 'clinica') {
+  if (proyecto.planex?.plantillaOrigen === 'clinica' || proyecto.planex?.plantillaOrigen === 'centro') {
     issues.push({ tipo: 'documental', codigo: 'DATOS_FICTICIOS', mensaje: ADVERTENCIA_DATOS_FICTICIOS, seccion: 'general' });
   }
   const tasaDemo = paramMap.get('tasa_impuesto_utilidades');
@@ -700,7 +1173,21 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
 
   const ok = !issues.some((i) => i.tipo === 'error');
 
-  return { years, ok, valores, estados, servicios: serviciosCalc, issues, indicadores };
+  return {
+    years,
+    ok,
+    valores,
+    estados,
+    servicios: serviciosCalc,
+    issues,
+    indicadores,
+    depreciacion: dep.activos,
+    depreciacionTotal: dep.totalPorAnio,
+    deuda: deuda.filas,
+    dividendos: dividendosFinales,
+    capacidadServicios: capacidadFinal,
+    recursosCalculados,
+  };
 }
 
 // ---------------------------------------------------------------------------

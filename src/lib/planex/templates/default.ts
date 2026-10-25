@@ -47,13 +47,13 @@ export const AYUDAS_METODOLOGICAS: AyudaApartado[] = [
     clave: 'tecnico',
     titulo: '4.6 Aspectos técnicos y operativos',
     texto:
-      'Caracterización de bienes y servicios, capacidad instalada y plazo para alcanzar los niveles previstos, tecnologías utilizadas y a incorporar, localización e infraestructura, terrenos e instalaciones, necesidades de construcción y estimación de consumos (agua, energía, portadores, residuos). Utilice la tabla de servicios con precios, volúmenes, capacidad máxima y costos variables: el motor calcula ingresos y costos y advierte cuando el volumen supera la capacidad.',
+      'Caracterización de bienes y servicios, capacidad instalada y plazo para alcanzar los niveles previstos, tecnologías, localización e infraestructura, terrenos e instalaciones, necesidades de construcción y estimación de consumos. La capacidad se deriva de la tabla de RECURSOS OPERATIVOS (gabinetes, equipos, profesionales…): defina duración media por procedimiento y los recursos que ocupa cada servicio; el motor reparte el tiempo compartido y limita la producción a lo realmente atendible según el escenario activo (A constante / B ampliaciones).',
   },
   {
     clave: 'financiero',
     titulo: '4.7 Análisis financiero',
     texto:
-      'Costo total de la inversión inicial (gastos previos, inversión fija y capital de trabajo), fuentes de financiamiento (aportaciones, crédito externo y otras), proyección de ingresos, costos y utilidades, impuesto sobre utilidades, utilidades después de impuestos, flujos de caja y período de recuperación. No se suman monedas distintas sin un parámetro explícito de conversión. El período de recuperación se basa en flujos de caja, no en la utilidad contable. La proyección debe extenderse al menos un año después de la recuperación.',
+      'Costo total de la inversión inicial (gastos previos, inversión fija y capital de trabajo), fuentes de financiamiento, proyección de ingresos, costos y utilidades, impuestos, flujos de caja y recuperación. El modelo calcula DOS indicadores separados: recuperación de la inversión total (flujo del proyecto, FCFF) y del capital aportado (flujo de los socios, FCFE), ambos por interpolación lineal. La depreciación corre por activo (vida útil, residual y año de disponibilidad) y la deuda tiene calendario explícito (gracia y método configurables). No se suman monedas distintas sin conversión documentada y la proyección debe extenderse al menos a recuperación + 1.',
   },
   {
     clave: 'mercado',

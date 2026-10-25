@@ -1,12 +1,18 @@
 // ============================================================================
-// Pruebas del motor de cálculo PLANEX (bun test)
+// Pruebas del motor de cálculo PLANEX (bun test) — esquema 2.0.0.
 // Ejecución: bun test tests/planex
+//
+// Anclas de regresión verificadas contra el motor nuevo (los valores del
+// enunciado de la misión §16.1 se comprueban en audit_regresion.test.ts).
+// Aquí: coherencia estructural del motor, reglas editables y validaciones.
 // ============================================================================
+
 import { describe, test, expect } from 'bun:test';
 import { computeProject } from '../../src/lib/planex/engine/engine';
 import { crearProyectoClinica } from '../../src/lib/planex/templates/clinica';
 import { crearProyectoDefault } from '../../src/lib/planex/templates/default';
 import { parsearProyectoJSON, proyectoAJSON } from '../../src/lib/planex/io/jsonio';
+import { diagnosticar } from '../../src/lib/planex/model/controles';
 import type { PlanexProject } from '../../src/lib/planex/types';
 
 function clonar(p: PlanexProject): PlanexProject {
@@ -17,15 +23,21 @@ function val(modelo: ReturnType<typeof computeProject>, id: string, t: number): 
   return modelo.valores[id]?.[t] ?? 0;
 }
 
-describe('Plantilla Clínica — carga inicial completa', () => {
+describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => {
   const modelo = computeProject(crearProyectoClinica());
 
-  test('calcula sin errores de motor', () => {
-    const errores = modelo.issues.filter((i) => i.tipo === 'error');
-    expect(errores.length).toBe(0);
+  test('calcula SIN errores de motor (misión: la plantilla abre coherente)', () => {
+    expect(modelo.issues.filter((i) => i.tipo === 'error').length).toBe(0);
+    expect(modelo.ok).toBe(true);
   });
 
-  test('ingresos por servicios del año 1 = 967,8 kUSD (valor esperado manual)', () => {
+  test('sin advertencias importantes en el diagnóstico de la plantilla demostrativa', () => {
+    const { resumen } = diagnosticar(crearProyectoClinica(), modelo);
+    expect(resumen.conteo.error_bloqueante).toBe(0);
+    expect(resumen.conteo.advertencia_importante).toBe(0);
+  });
+
+  test('ingresos por servicios del año 1 = 967,8 kUSD (ancla manual)', () => {
     expect(val(modelo, 'ingresos_servicios_k', 1)).toBeCloseTo(967.8, 1);
   });
 
@@ -37,8 +49,21 @@ describe('Plantilla Clínica — carga inicial completa', () => {
     expect(val(modelo, 'costo_laboral_k', 1)).toBeCloseTo(38.28, 1);
   });
 
-  test('depreciación anual = 117,125 kUSD', () => {
+  test('año 0 (montaje): solo costo laboral de montaje; sin canon/públicos/otros ni depreciación', () => {
+    expect(val(modelo, 'costo_laboral_k', 0)).toBeCloseTo(1.44, 2); // 6 × 96 000 CUP / 400 / 1000
+    expect(val(modelo, 'canon_k', 0)).toBe(0);
+    expect(val(modelo, 'servicios_publicos_k', 0)).toBe(0);
+    expect(val(modelo, 'otros_gastos_k', 0)).toBe(0);
+    expect(val(modelo, 'depreciacion_anual_k', 0)).toBe(0); // defecto corregido
+    expect(val(modelo, 'utilidad_despues_impuestos_k', 0)).toBeCloseTo(-1.44, 2);
+  });
+
+  test('depreciación: año 1 = 117,125 kUSD; activos respetan disponibilidad y tope depreciable', () => {
     expect(val(modelo, 'depreciacion_anual_k', 1)).toBeCloseTo(117.125, 2);
+    for (const a of modelo.depreciacion) {
+      expect(a.acumulada).toBeLessThanOrEqual(a.baseDepreciableKUSD + 0.01);
+      for (let t = 0; t < a.anioDisponible; t++) expect(a.depreciacion[t] ?? 0).toBe(0);
+    }
   });
 
   test('impuesto = MAX(0, UAI × 35 %) y utilidad neta = UAI − impuesto', () => {
@@ -51,30 +76,46 @@ describe('Plantilla Clínica — carga inicial completa', () => {
     }
   });
 
-  test('flujo acumulado = suma acumulada de flujos netos (recurrencia LAG)', () => {
-    let acum = 0;
+  test('flujos del proyecto y de los socios: acumulados por recurrencia LAG y coherentes con el motor', () => {
+    let acumP = 0;
+    let acumS = 0;
     for (const t of modelo.years) {
-      acum += val(modelo, 'flujo_neto_k', t);
-      expect(val(modelo, 'flujo_acumulado_k', t)).toBeCloseTo(acum, 2);
+      acumP += val(modelo, 'flujo_proyecto_k', t);
+      acumS += val(modelo, 'flujo_socios_k', t);
+      expect(val(modelo, 'flujo_acumulado_proyecto_k', t)).toBeCloseTo(acumP, 2);
+      expect(val(modelo, 'flujo_acumulado_socios_k', t)).toBeCloseTo(acumS, 2);
+      expect(val(modelo, 'flujo_proyecto_k', t)).toBeCloseTo(modelo.indicadores.fcff[t] ?? 0, 2);
+      expect(val(modelo, 'flujo_socios_k', t)).toBeCloseTo(modelo.indicadores.fcfe[t] ?? 0, 2);
     }
   });
 
-  test('crédito: saldo, intereses y amortización según gracia 1 y plazo 5', () => {
+  test('año 0 de los flujos: FCFF = −inversión total + resultado de montaje; FCFE = −aportaciones + montaje + desembolso', () => {
+    expect(modelo.indicadores.fcff[0]).toBeCloseTo(-1481.44, 2); // −1 480 − 1,44
+    expect(modelo.indicadores.fcfe[0]).toBeCloseTo(-1181.44, 2); // FCFF + crédito (300) = −1 180 − 1,44
+  });
+
+  test('crédito: gracia 1 (capital constante), intereses sobre saldo y amortización dentro del saldo', () => {
     expect(val(modelo, 'saldo_deuda_k', 0)).toBeCloseTo(300, 1);
     expect(val(modelo, 'amortizacion_k', 1)).toBeCloseTo(0, 1); // gracia
     expect(val(modelo, 'amortizacion_k', 2)).toBeCloseTo(60, 1);
     expect(val(modelo, 'interes_k', 1)).toBeCloseTo(24, 1); // 300 × 8 %
-    expect(val(modelo, 'saldo_deuda_k', 7)).toBeCloseTo(0, 1); // amortizado en el año 6
+    expect(val(modelo, 'saldo_deuda_k', 6)).toBeCloseTo(0, 1);
     expect(val(modelo, 'interes_k', 7)).toBeCloseTo(0, 1);
+    for (const f of modelo.deuda) {
+      const esperado = f.saldoInicial + f.desembolso + f.interesCapitalizado - f.amortizacion;
+      expect(f.saldoFinal).toBeCloseTo(esperado, 4); // invariante §6
+      expect(f.saldoFinal).toBeGreaterThanOrEqual(-0.01);
+    }
   });
 
-  test('recuperación de la inversión entre 3,5 y 5 años y horizonte ≥ recuperación + 1', () => {
-    const rec = modelo.indicadores.recuperacionAnios;
+  test('recuperación de la inversión total entre 3 y 5 años; horizonte ≥ recuperación + 1; socios también recuperados', () => {
+    const rec = modelo.indicadores.recuperacionProyecto.anios;
     expect(rec).not.toBeNull();
-    expect(rec!).toBeGreaterThan(3.5);
+    expect(rec!).toBeGreaterThan(3);
     expect(rec!).toBeLessThan(5);
     expect(modelo.years.length - 1).toBeGreaterThanOrEqual(Math.ceil(rec! + 1));
     expect(modelo.issues.some((i) => i.codigo === 'HORIZONTE_CORTO')).toBe(false);
+    expect(modelo.indicadores.recuperacionSocios.anios).not.toBeNull();
   });
 
   test('financiación exacta: diferencia ≈ 0 sin alertas de insuficiencia/exceso', () => {
@@ -82,15 +123,34 @@ describe('Plantilla Clínica — carga inicial completa', () => {
     expect(val(modelo, 'aportaciones_total_k', 0)).toBeCloseTo(1180, 1);
     expect(val(modelo, 'diferencia_financiacion_k', 0)).toBeCloseTo(0, 1);
     expect(modelo.issues.some((i) => i.codigo === 'FINANCIACION_INSUFICIENTE')).toBe(false);
+    expect(modelo.issues.some((i) => i.codigo === 'FINANCIACION_EXCESO')).toBe(false);
   });
 
-  test('beneficios al país año 1 ≈ 258,5 kUSD y sin doble contabilización', () => {
-    const b = val(modelo, 'total_beneficios_pais_k', 1);
-    expect(b).toBeCloseTo(258.49, 0);
+  test('beneficios al país: sin doble contabilización y conciliados resumen↔tabla (misión §9)', () => {
+    const b1 = val(modelo, 'total_beneficios_pais_k', 1);
     const imp = val(modelo, 'impuesto_utilidades_k', 1);
     const div = val(modelo, 'dividendos_parte_cubana_k', 1);
     const ft = val(modelo, 'pagos_fuerza_trabajo_k', 1);
-    expect(imp + div + ft + 5 + 8 + 30).toBeCloseTo(b, 1); // + otros imp, aranceles, canon
+    // + otros imp (5) + aranceles (8) + canon (30); royalties y otros = 0
+    expect(imp + div + ft + 5 + 8 + 30).toBeCloseTo(b1, 1);
+    // Conciliación total: resumen = suma de todos los años de la misma regla.
+    const suma = modelo.years.reduce((s, t) => s + val(modelo, 'total_beneficios_pais_k', t), 0);
+    expect(modelo.indicadores.beneficiosPaisAcumulados).toBeCloseTo(suma, 1);
+    // El subtotal de explotación difiere del total exactamente por el año 0.
+    expect(modelo.indicadores.beneficiosPaisAcumulados - modelo.indicadores.beneficiosPaisExplotacion).toBeCloseTo(
+      val(modelo, 'total_beneficios_pais_k', 0),
+      2
+    );
+    // Dividendos de la parte cubana = pagables × 40 % (módulo de dividendos).
+    const d1 = modelo.dividendos.find((x) => x.anio === 1)!;
+    expect(d1.pagables).toBeLessThanOrEqual(d1.cajaAcumulada + 1e-9);
+    expect(div).toBeCloseTo(d1.pagables * 0.4, 2);
+  });
+
+  test('año 0 de beneficios: SOLO pagos por fuerza de trabajo de montaje (corregido)', () => {
+    expect(val(modelo, 'total_beneficios_pais_k', 0)).toBeCloseTo(1.44, 2);
+    expect(val(modelo, 'canon_k', 0)).toBe(0);
+    expect(val(modelo, 'aranceles_k', 0)).toBe(0);
   });
 
   test('marca los datos ficticios y la tasa demostrativa', () => {
@@ -98,10 +158,13 @@ describe('Plantilla Clínica — carga inicial completa', () => {
     expect(modelo.issues.some((i) => i.codigo === 'TASA_DEMO')).toBe(true);
   });
 
-  test('advierte capacidad excedida en años avanzados (crecimiento 5 %)', () => {
-    const conAlerta = modelo.servicios.filter((s) => s.capacidadesExcedidas.length > 0);
-    expect(conAlerta.length).toBeGreaterThan(0);
-    expect(modelo.issues.some((i) => i.codigo === 'CAPACIDAD')).toBe(true);
+  test('plantilla sin excesos de capacidad (escenario B activo); escenario A sí alerta', () => {
+    expect(modelo.servicios.filter((s) => s.capacidadesExcedidas.length > 0).length).toBe(0);
+    const escA = clonar(crearProyectoClinica());
+    escA.tecnico.escenarioCapacidad = 'A_constante';
+    const mA = computeProject(escA);
+    expect(mA.servicios.filter((s) => s.capacidadesExcedidas.length > 0).length).toBeGreaterThan(0);
+    expect(mA.issues.some((i) => i.codigo === 'CAPACIDAD')).toBe(true);
   });
 });
 
@@ -117,7 +180,6 @@ describe('Nivel A — parámetros: recálculo inmediato', () => {
       expect(val(m2, 'impuesto_utilidades_k', t)).toBeCloseTo(val(m1, 'impuesto_utilidades_k', t) - uai * 0.05, 2);
       expect(val(m2, 'utilidad_despues_impuestos_k', t)).toBeCloseTo(val(m1, 'utilidad_despues_impuestos_k', t) + uai * 0.05, 2);
     }
-    // La UAI no cambia (el impuesto no afecta la base)
     expect(val(m2, 'utilidad_antes_impuestos_k', 1)).toBeCloseTo(val(m1, 'utilidad_antes_impuestos_k', 1), 4);
   });
 
@@ -138,6 +200,33 @@ describe('Nivel A — parámetros: recálculo inmediato', () => {
     expect(val(m, 'interes_k', 1)).toBeCloseTo(38.4, 1);
     expect(m.issues.some((i) => i.codigo === 'FINANCIACION_EXCESO')).toBe(true); // sobran 180 kUSD
   });
+
+  test('gracia TOTAL capitaliza intereses: el saldo crece durante la gracia', () => {
+    const p = clonar(crearProyectoClinica());
+    p.financiero.deuda.tipoGracia = 'total';
+    const m = computeProject(p);
+    expect(val(m, 'saldo_deuda_k', 1)).toBeCloseTo(300 * 1.08, 1); // 300 + 24 capitalizados
+    expect(m.deuda[1].interesPagado).toBeCloseTo(0, 2);
+    expect(m.deuda[1].interesCapitalizado).toBeCloseTo(24, 1);
+  });
+
+  test('método francés: cuota total constante y saldo a cero al vencimiento', () => {
+    const p = clonar(crearProyectoClinica());
+    p.financiero.deuda.metodo = 'sistema_frances';
+    const m = computeProject(p);
+    const servicio = m.deuda.slice(2, 7).map((f) => f.interesPagado + f.amortizacion);
+    for (const s of servicio) expect(s).toBeCloseTo(servicio[0], 1);
+    expect(val(m, 'saldo_deuda_k', 6)).toBeCloseTo(0, 1);
+  });
+
+  test('pago único (bullet): sin amortizaciones intermedias y saldo liquidado al vencimiento', () => {
+    const p = clonar(crearProyectoClinica());
+    p.financiero.deuda.metodo = 'pago_unico';
+    const m = computeProject(p);
+    for (const t of [2, 3, 4, 5]) expect(val(m, 'amortizacion_k', t)).toBeCloseTo(0, 1);
+    expect(val(m, 'amortizacion_k', 6)).toBeCloseTo(300, 1);
+    expect(val(m, 'saldo_deuda_k', 6)).toBeCloseTo(0, 1);
+  });
 });
 
 describe('Prueba obligatoria: precio, volumen y costo del servicio', () => {
@@ -146,13 +235,13 @@ describe('Prueba obligatoria: precio, volumen y costo del servicio', () => {
     const m1 = computeProject(p);
     p.servicios[0].precioBase = 50; // +25 USD
     const m2 = computeProject(p);
-    // +25 USD × 400/mes × 12 = +120 kUSD
+    // +25 USD × 400/mes × 12 = +120 kUSD (la demanda de consultas cabe en la capacidad)
     expect(val(m2, 'ingresos_servicios_k', 1)).toBeCloseTo(val(m1, 'ingresos_servicios_k', 1) + 120, 1);
     expect(val(m2, 'costos_variables_k', 1)).toBeCloseTo(val(m1, 'costos_variables_k', 1), 1);
     const deltaUAI = val(m2, 'utilidad_antes_impuestos_k', 1) - val(m1, 'utilidad_antes_impuestos_k', 1);
     expect(deltaUAI).toBeCloseTo(120 - 0.05 * 120, 1); // admin es 5 % de ingresos
     expect(val(m2, 'impuesto_utilidades_k', 1)).toBeGreaterThan(val(m1, 'impuesto_utilidades_k', 1));
-    expect(val(m2, 'flujo_acumulado_k', 10)).toBeGreaterThan(val(m1, 'flujo_acumulado_k', 10));
+    expect(val(m2, 'flujo_acumulado_proyecto_k', 10)).toBeGreaterThan(val(m1, 'flujo_acumulado_proyecto_k', 10));
   });
 
   test('cambiar el volumen de pacientes actualiza ingresos y costos variables', () => {
@@ -169,7 +258,6 @@ describe('Prueba obligatoria: precio, volumen y costo del servicio', () => {
     const m1 = computeProject(p);
     p.servicios[0].costoVariableUnitario = 8; // +2 USD
     const m2 = computeProject(p);
-    // +2 USD × 400 servicios/mes × 12 meses = +9,6 kUSD
     expect(val(m2, 'costos_variables_k', 1)).toBeCloseTo(val(m1, 'costos_variables_k', 1) + 9.6, 1);
     expect(val(m2, 'utilidad_antes_impuestos_k', 1)).toBeCloseTo(val(m1, 'utilidad_antes_impuestos_k', 1) - 9.6, 1);
   });
@@ -204,12 +292,11 @@ describe('Nivel B — fórmulas editables', () => {
 
   test('rechaza una fórmula con sintaxis inválida y marca la partida', () => {
     const p = clonar(crearProyectoClinica());
-    p.reglas.find((r) => r.id === 'impuesto_utilidades_k')!.expresion = 'MAX(0, utilidad_antes_impuestos_k *'; 
+    p.reglas.find((r) => r.id === 'impuesto_utilidades_k')!.expresion = 'MAX(0, utilidad_antes_impuestos_k *';
     const m = computeProject(p);
     expect(m.ok).toBe(false);
     expect(m.estados['impuesto_utilidades_k'].ok).toBe(false);
     expect(m.issues.some((i) => i.codigo === 'SINTAXIS')).toBe(true);
-    // La partida dependiente también falla, no muestra valores falsos
     expect(m.valores['impuesto_utilidades_k']).toBeUndefined();
     expect(m.estados['utilidad_despues_impuestos_k'].ok).toBe(false);
   });
@@ -249,6 +336,23 @@ describe('Nivel B — fórmulas editables', () => {
     expect(m.ok).toBe(false);
     expect(m.estados['ingresos_servicios_k'].ok).toBe(false);
   });
+
+  test('el prefijo mtr_ está reservado: una regla con ese prefijo se rechaza', () => {
+    const p = clonar(crearProyectoClinica());
+    p.reglas.push({
+      id: 'mtr_trampa',
+      nombre: 'Trampa de prefijo',
+      descripcion: 'test',
+      expresion: '1',
+      expresionDefault: '1',
+      ambito: 'anio',
+      unidad: 'kUSD',
+      categoria: 'test',
+      habilitada: true,
+    });
+    const m = computeProject(p);
+    expect(m.issues.some((i) => i.codigo === 'PREFIJO_RESERVADO')).toBe(true);
+  });
 });
 
 describe('Validaciones y control de consistencia', () => {
@@ -259,6 +363,8 @@ describe('Validaciones y control de consistencia', () => {
     const issue = m.issues.find((i) => i.codigo === 'FINANCIACION_INSUFICIENTE');
     expect(issue).toBeDefined();
     expect(val(m, 'diferencia_financiacion_k', 0)).toBeLessThan(-0.05);
+    const d = diagnosticar(p, m);
+    expect(d.resumen.conteo.error_bloqueante).toBeGreaterThan(0);
   });
 
   test('rechaza datos incompletos con pendientes (plantilla Default)', () => {
@@ -267,25 +373,25 @@ describe('Validaciones y control de consistencia', () => {
     expect(m.issues.some((i) => i.codigo === 'SIN_INVERSION')).toBe(true);
     expect(m.issues.some((i) => i.codigo === 'SIN_APORTACIONES')).toBe(true);
     expect(m.issues.some((i) => i.codigo === 'SIN_PERSONAL')).toBe(true);
-    // Sin servicios no hay ingresos: el resultado refleja solo los parámetros
-    // de costos fijos de fábrica (canon 30 + públicos 40 + otros 10) y queda
-    // señalado como pendiente, no como resultado definitivo.
+    // Sin servicios no hay ingresos: los costos fijos de operación activan
+    // desde el año 1 (canon 30 + públicos 40 + otros 10).
     expect(val(m, 'ingresos_totales_k', 1)).toBe(0);
     expect(val(m, 'utilidad_antes_impuestos_k', 1)).toBeCloseTo(-80, 1);
+    expect(val(m, 'utilidad_antes_impuestos_k', 0)).toBe(0);
     expect(m.ok).toBe(true); // son pendientes, no errores de cálculo
   });
 
-  test('horizonte 4 (sin recuperación) genera NO_RECUPERACION; horizonte 5 genera HORIZONTE_CORTO', () => {
+  test('horizonte 3 (sin recuperación) genera NO_RECUPERACION; horizonte 4 genera HORIZONTE_CORTO', () => {
     const a = clonar(crearProyectoClinica());
-    a.ajustes.horizonteAnios = 4; // recuperación ~4,04: aún negativo en el año 4
+    a.ajustes.horizonteAnios = 3; // recuperación ~3,5: acumulado aún negativo en el año 3
     const ma = computeProject(a);
     expect(ma.issues.some((i) => i.codigo === 'NO_RECUPERACION')).toBe(true);
-    expect(ma.indicadores.recuperacionAnios).toBeNull();
+    expect(ma.indicadores.recuperacionProyecto.anios).toBeNull();
 
     const b = clonar(crearProyectoClinica());
-    b.ajustes.horizonteAnios = 5; // recuperación 4,04 → necesita ≥ 6 (ceil(4,04+1))
+    b.ajustes.horizonteAnios = 4; // recuperación 3,50 → necesita ≥ 5 (ceil(3,50+1))
     const mb = computeProject(b);
-    expect(mb.indicadores.recuperacionAnios).not.toBeNull();
+    expect(mb.indicadores.recuperacionProyecto.anios).not.toBeNull();
     expect(mb.issues.some((i) => i.codigo === 'HORIZONTE_CORTO')).toBe(true);
   });
 
@@ -300,13 +406,21 @@ describe('Validaciones y control de consistencia', () => {
     const p = clonar(crearProyectoClinica());
     p.financiero.inversion.find((r) => r.id === 'iv-4')!.vidaUtilAnios = 0;
     const m = computeProject(p);
-    expect(m.issues.some((i) => i.codigo === 'VIDA_UTIL')).toBe(true);
+    expect(m.issues.some((i) => i.codigo === 'DEPRECIACION')).toBe(true);
     expect(val(m, 'depreciacion_anual_k', 1)).toBeCloseTo(117.125 - 52, 2);
+  });
+
+  test('la participación cubana distinta de la composición real de aportaciones genera advertencia', () => {
+    const p = clonar(crearProyectoClinica());
+    p.parametros.find((x) => x.id === 'pct_parte_cubana')!.valor = 0.3;
+    const m = computeProject(p);
+    const d = diagnosticar(p, m);
+    expect(d.hallazgos.some((h) => h.codigo === 'PARTICIPACION_INCOHERENTE')).toBe(true);
   });
 });
 
 describe('JSON — guardar, recuperar y rechazar', () => {
-  test('exportar e importar conserva datos, parámetros y reglas modificadas', () => {
+  test('exportar e importar conserva datos, parámetros, reglas, recursos y deuda', () => {
     const p = clonar(crearProyectoClinica());
     p.parametros.find((x) => x.id === 'tasa_impuesto_utilidades')!.valor = 0.3;
     const regla = p.reglas.find((r) => r.id === 'impuesto_utilidades_k')!;
@@ -319,7 +433,10 @@ describe('JSON — guardar, recuperar y rechazar', () => {
     const q = res.proyecto!;
     expect(q.parametros.find((x) => x.id === 'tasa_impuesto_utilidades')!.valor).toBeCloseTo(0.3, 6);
     expect(q.reglas.find((r) => r.id === 'impuesto_utilidades_k')!.expresion).toContain('ingresos_totales_k');
-    // Recalcula con lo importado: impuesto sobre ingresos con 30 %
+    expect(q.recursos.length).toBe(4);
+    expect(q.financiero.deuda.metodo).toBe('capital_constante');
+    expect(q.tecnico.escenarioCapacidad).toBe('B_ampliacion');
+    // Recalcula con lo importado
     const m = computeProject(q);
     expect(val(m, 'impuesto_utilidades_k', 1)).toBeCloseTo(val(m, 'ingresos_totales_k', 1) * 0.3, 1);
   });
