@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "Aplicación local para elaborar planes de negocios de propuestas con inversión extranjera conforme a las Bases Metodológicas GOC-2026-O57: motor de cálculo configurable, exportación PDF y Excel con fórmulas reales, e intercambio de proyectos por JSON.",
   keywords: ["PLANEX", "Cuba", "inversión extranjera", "plan de negocios", "GOC-2026-O57", "Ley 118"],
   icons: {
-    icon: "/logo.svg",
+    icon: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo.svg`,
   },
 };
 

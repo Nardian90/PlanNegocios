@@ -13,6 +13,14 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
 ![Pruebas](https://img.shields.io/badge/Pruebas-58%2F58_pass-brightgreen?style=flat-square)
+[![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
+
+### Aplicación en línea
+
+**https://nardian90.github.io/PlanNegocios/** — despliegue automático desde la rama `main`
+vía GitHub Actions + GitHub Pages. La aplicación es 100% estática: una vez cargada,
+funciona sin conexión y no envía datos a ningún servidor (los planes se guardan en el
+navegador y solo viajan cuando el usuario exporta JSON/PDF/Excel).
 
 </div>
 
@@ -40,10 +48,11 @@ demostración son **supuestos editables**, no tasas legales vigentes.
 6. [Exportación e intercambio](#exportación-e-intercambio)
 7. [Arquitectura del proyecto](#arquitectura-del-proyecto)
 8. [Requisitos e instalación](#requisitos-e-instalación)
-9. [Guía de uso rápido](#guía-de-uso-rápido)
-10. [Pruebas](#pruebas)
-11. [Limitaciones conocidas](#limitaciones-conocidas)
-12. [Documentación adicional](#documentación-adicional)
+9. [Despliegue](#despliegue)
+10. [Guía de uso rápido](#guía-de-uso-rápido)
+11. [Pruebas](#pruebas)
+12. [Limitaciones conocidas](#limitaciones-conocidas)
+13. [Documentación adicional](#documentación-adicional)
 
 ---
 
@@ -88,7 +97,8 @@ demostración son **supuestos editables**, no tasas legales vigentes.
 | ![Tema claro](docs/capturas/captura-claro.png) | ![Tema oscuro](docs/capturas/captura-oscuro.png) |
 
 *Vista de la sección de análisis financiero con la proyección plurianual del ejemplo
-Clínica Estomatológica.*
+Clínica Estomatológica.* También hay una [captura del sitio desplegado en GitHub Pages
+](docs/capturas/captura-github-pages.png) con el ejemplo cargado.
 
 ## Conformidad metodológica GOC-2026-O57
 
@@ -192,8 +202,10 @@ npm install        # o: bun install
 # Desarrollo (http://localhost:3000)
 npm run dev        # o: bun run dev
 
-# Producción
+# Compilación del sitio estático (genera out/)
 npm run build
+
+# Servir el sitio compilado localmente (equivalente al despliegue)
 npm start
 
 # Pruebas automatizadas (requiere bun)
@@ -203,9 +215,36 @@ bun test tests/planex/
 npm run lint
 ```
 
-La aplicación corre en el navegador: una vez iniciada, funciona sin conexión, no requiere
-servidores externos y no envía información a ningún servicio remoto (los planes se guardan
-en `localStorage` y viajan solo cuando el usuario exporta JSON/PDF/Excel).
+La aplicación es un sitio estático (`output: export`): `npm run build` genera la carpeta
+`out/` con HTML/CSS/JS autocontenidos. La ruta base se controla con la variable
+`NEXT_PUBLIC_BASE_PATH` (vacía por defecto; el despliegue de GitHub Pages usa
+`/PlanNegocios`). Una vez cargada, funciona sin conexión, no requiere servidores externos
+y no envía información a ningún servicio remoto (los planes se guardan en `localStorage`
+y viajan solo cuando el usuario exporta JSON/PDF/Excel).
+
+## Despliegue
+
+### GitHub Pages (configurado, automático)
+
+El repositorio incluye el workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
+cada push a `main` construye el sitio estático con Bun y lo publica en
+**https://nardian90.github.io/PlanNegocios/** mediante GitHub Actions. No se necesita Vercel
+ni ningún otro proveedor: la app no requiere servidor, base de datos ni funciones en la nube.
+
+Configuración necesaria (ya aplicada en este repositorio):
+
+1. **Settings → Pages → Source**: `GitHub Actions`.
+2. El workflow adjunto se dispara en cada push a `main` (también manualmente desde la
+   pestaña **Actions → Deploy to GitHub Pages → Run workflow**).
+
+### Otros alojamientos
+
+Al ser un sitio estático, `out/` puede servirse desde cualquier hosting:
+
+- **Vercel** (opcional): importar el repositorio; detecta Next.js automáticamente. No
+  requiere configuración adicional. Útil si se desea dominio propio o entornos de vista previa.
+- **Netlify / Cloudflare Pages**: comando de build `npm run build`, carpeta a publicar `out/`.
+- **Servidor propio**: `npm run build` y copiar `out/` a cualquier servidor web.
 
 ## Guía de uso rápido
 

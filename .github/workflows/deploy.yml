@@ -1,0 +1,62 @@
+# ============================================================================
+# PLANEX Cuba — Despliegue automático en GitHub Pages
+#
+# Cada push a la rama main construye el sitio estático (next build → out/) y
+# lo publica en: https://nardian90.github.io/PlanNegocios/
+#
+# Requisitos (ya configurados):
+#   - Repositorio → Settings → Pages → Source: "GitHub Actions"
+#   - La aplicación es 100% estática, no requiere servidor.
+# ============================================================================
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Construir sitio estático
+        run: bun run build
+        env:
+          # GitHub Pages sirve el sitio bajo /PlanNegocios/
+          NEXT_PUBLIC_BASE_PATH: /PlanNegocios
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
