@@ -22,7 +22,7 @@
 
 import { PlanexProject, ComputedModel } from '../types';
 import { generarAnalisis, CLAVES_ANALISIS } from '../engine/analisis';
-import { fmtK, fmtAnios } from '../format';
+import { fmtK, fmtAnios, fmtPct } from '../format';
 
 export type NivelHallazgo = 'error_bloqueante' | 'advertencia_importante' | 'informacion_pendiente' | 'observacion_calidad';
 
@@ -117,7 +117,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
     hallazgos.push({
       nivel: 'error_bloqueante',
       codigo: 'CONCILIACION_INVERSION',
-      mensaje: `La inversión total (${inv.toFixed(1)} kUSD) no concilia con gastos previos + inversión fija + capital de trabajo (${sumaComponentes.toFixed(1)} kUSD).`,
+      mensaje: `La inversión total (${fmtK(inv)} kUSD) no concilia con gastos previos + inversión fija + capital de trabajo (${fmtK(sumaComponentes)} kUSD).`,
       partida: 'inversion_total_k',
       origen: 'gastos_previos_k + inversion_fija_k + capital_trabajo_k',
       consecuencia: 'Las cifras de inversión y financiación dejarían de ser interpretables.',
@@ -133,7 +133,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'error_bloqueante',
         codigo: 'DEP_EXCESO',
-        mensaje: `El activo «${a.concepto}» acumula ${a.acumulada.toFixed(1)} kUSD de depreciación, por encima de su base depreciable (${a.baseDepreciableKUSD.toFixed(1)} kUSD).`,
+        mensaje: `El activo «${a.concepto}» acumula ${fmtK(a.acumulada)} kUSD de depreciación, por encima de su base depreciable (${fmtK(a.baseDepreciableKUSD)} kUSD).`,
         partida: a.id,
         consecuencia: 'Sobredepreciación: resultados y flujos inválidos.',
         correccion: 'Revise vida útil, residual y año de disponibilidad del activo.',
@@ -149,7 +149,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'error_bloqueante',
         codigo: 'DEUDA_CONCILIACION',
-        mensaje: `El saldo del año ${f.anio} no concilia (esperado ${esperado.toFixed(1)}, obtenido ${f.saldoFinal.toFixed(1)}).`,
+        mensaje: `El saldo del año ${f.anio} no concilia (esperado ${fmtK(esperado)}, obtenido ${fmtK(f.saldoFinal)}).`,
         partida: 'calendario de deuda',
         consecuencia: 'Intereses y amortizaciones inválidos.',
         correccion: 'Revise la configuración del crédito en 4.7.',
@@ -176,7 +176,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
     hallazgos.push({
       nivel: 'error_bloqueante',
       codigo: 'BENEFICIOS_DESCUADRE',
-      mensaje: `El acumulado de beneficios al país del resumen (${m.indicadores.beneficiosPaisAcumulados.toFixed(1)} kUSD) difiere del total de la tabla (${totalTabla.toFixed(1)} kUSD).`,
+      mensaje: `El acumulado de beneficios al país del resumen (${fmtK(m.indicadores.beneficiosPaisAcumulados)} kUSD) difiere del total de la tabla (${fmtK(totalTabla)} kUSD).`,
       partida: '4.11 / resumen ejecutivo',
       consecuencia: 'Contradicción entre apartados del documento.',
       correccion: 'Regenere las exportaciones desde el mismo estado del modelo.',
@@ -193,9 +193,9 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
     hallazgos.push({
       nivel: 'advertencia_importante',
       codigo: 'PARTICIPACION_INCOHERENTE',
-      mensaje: `La participación cubana parametrizada (${(pctParam * 100).toFixed(1)} %) difiere de la composición real de las aportaciones (${(pctReal * 100).toFixed(1)} %). Los dividendos se reparten con el parámetro, no con la composición.`,
+      mensaje: `La participación cubana parametrizada (${fmtPct(pctParam)}) difiere de la composición real de las aportaciones (${fmtPct(pctReal)}). Los dividendos se reparten con el parámetro, no con la composición.`,
       partida: 'pct_parte_cubana / aportaciones',
-      origen: `aportaciones nacionales ${aportNac.toFixed(1)} de ${aportTot.toFixed(1)} kUSD`,
+      origen: `aportaciones nacionales ${fmtK(aportNac)} de ${fmtK(aportTot)} kUSD`,
       consecuencia: 'El reparto de dividendos puede no corresponder al capital social realmente aportado.',
       correccion: 'Ajuste el parámetro o la tabla de aportaciones para que coincidan.',
       afectaConclusiones: true,
@@ -210,7 +210,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'advertencia_importante',
         codigo: 'FLUJO_REGLA_MOTOR',
-        mensaje: `El acumulado del proyecto según la regla (${(fcffAcumRegla[N] ?? 0).toFixed(1)}) difiere del motor (${(m.indicadores.fcffAcumulado[N] ?? 0).toFixed(1)}): la regla editable fue modificada y ya no refleja el flujo estándar.`,
+        mensaje: `El acumulado del proyecto según la regla (${fmtK(fcffAcumRegla[N] ?? 0)}) difiere del motor (${fmtK(m.indicadores.fcffAcumulado[N] ?? 0)}): la regla editable fue modificada y ya no refleja el flujo estándar.`,
         partida: 'flujo_acumulado_proyecto_k',
         consecuencia: 'La recuperación puede no corresponder al flujo de caja del modelo.',
         correccion: 'Restaure la regla o documente la desviación deliberada.',

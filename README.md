@@ -12,7 +12,7 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
-![Pruebas](https://img.shields.io/badge/Pruebas-58%2B53%2B28_pass-brightgreen?style=flat-square)
+![Pruebas](https://img.shields.io/badge/Pruebas-176%2B53%2B28_pass-brightgreen?style=flat-square)
 [![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
 
 ### Aplicación en línea
@@ -181,11 +181,17 @@ exportaciones avisan antes de continuar.
 
 ## Plantillas incluidas
 
-- **Clínica Estomatológica** — ejemplo completo con datos ficticios coherentes: 9 servicios
-  (ingresos año 1 = 967,8 kUSD), inversión de 1.480,0 kUSD (aportaciones 1.180 + crédito 300
-  al 8 %, gracia 1, amortización 5), 27 trabajadores en operación, depreciación 117,125
-  kUSD/año, horizonte de 10 años ≥ recuperación ≈ 4,0 + 1, y beneficios al país acumulados
-  ≈ 4.078 kUSD.
+- **Clínica Estomatológica «Sonrisa Habana»** — ejemplo completo con datos ficticios coherentes: 9 servicios
+  (ingresos año 1 = 967,8 kUSD), inversión de 1.480,0 kUSD (aportaciones 1.180,0 + crédito 300,0
+  al 8 %, gracia de principal 1, amortización 5), UAI año 1 = 369,2 e impuesto 129,2 (35 % demo),
+  depreciación por activo 117,125 kUSD/año, horizonte de 10 años ≥ recuperación (3,5 años por
+  FCFF y 3,3 por FCFE) + 1, dividendos limitados por la caja acumulada y beneficios al país
+  acumulados 4.399,6 kUSD (período completo) conciliados resumen↔tabla.
+- **Centro de Diagnóstico «Imagen Habana» (generalización)** — segundo ejemplo de la prueba de
+  generalización: otra actividad, horizonte de 8 años, sin crédito (FCFF = FCFE), escenario A
+  (capacidad constante), tasa de demostración 30 %, un aporte en CUP y un activo con
+  disponibilidad diferida (deprecia desde el año 3). Construido con las MISMAS reglas de
+  fábrica: cero fórmulas de negocio nuevas. Inversión 2.265,0 kUSD, recuperación 4,6 años.
 - **Default** — estructura metodológica completa con formularios vacíos, ayudas
   metodológicas por apartado (texto fiel de la GOC-2026-O57) y reglas activas. Sin datos
   emite avisos de pendiente en lugar de presentar resultados con datos inexistentes.
@@ -197,9 +203,9 @@ restaurar su plantilla de origen en cualquier momento.
 
 | Formato | Características |
 |---|---|
-| **PDF** (jsPDF + autoTable) | 16 páginas en el ejemplo, portada, índice con numeración a doble pasada, encabezados repetidos en tablas, pies paginados, texto seleccionable y advertencia de datos ficticios |
-| **Excel** (xlsx-js-style) | 18 hojas con fórmulas reales: el impuesto es `=MAX(0;(D$22*Parametros!$C$3))`; proyecciones referencian Servicios/Personal/Inversiones/Financiacion mediante `SUMIFS`/`SUMPRODUCT`/`SUM`; entradas en ámbar y fórmulas en verde; `fullCalcOnLoad` inyectado para recalcular al abrir; hoja «Reglas» documenta cada traducción y las no traducibles se exportan como valor con aviso explícito |
-| **JSON** | Esquema versionado (`planex.schemaVersion` 1.0.0) con validación e importación segura sin ejecución de código del archivo; conserva reglas y parámetros del usuario; las reglas desconocidas quedan deshabilitadas y marcadas |
+| **PDF** (jsPDF + autoTable) | Doble pasada con índice de numeración real, secciones 4.1–4.12, encabezados repetidos en tablas, pies paginados, texto seleccionable, cifras del modelo en formato es-ES y advertencia de datos ficticios |
+| **Excel** (xlsx-js-style) | 22 hojas con fórmulas reales (Depreciacion por activo, calendario de Deuda, FlujosCaja, Dividendos, Capacidad, BeneficiosPais…): el impuesto es `MAX(0; D$×Parametros!$C$)`; recálculo al abrir (`fullCalcOnLoad`, zip auditable); Controles con los cuatro niveles del diagnóstico; hoja «Reglas» documenta cada traducción y las no traducibles se exportan como valor con aviso explícito |
+| **JSON** | Esquema versionado (`planex.schemaVersion` 2.0.0) con validación e importación segura sin ejecución de código del archivo; conserva recursos, deuda, escenarios, reglas, parámetros y análisis editados con autoría y huellas; las reglas desconocidas quedan deshabilitadas y marcadas |
 
 ## Colaboración multiusuario con Supabase
 
@@ -253,13 +259,16 @@ src/
     planex/
       types.ts               Modelo de datos único (proyecto 4.1–4.12, params, reglas, issues)
       engine/                Motor: tokenizer → parser (AST) → evaluator + grafo y orden topológico
+                             + módulos estructurales: depreciacion, deuda, capacidad (recursos
+                             compartidos y escenarios), dividendos, flujos/recuperación
+                             (§4.3) y analisis (textos dinámicos con huellas §12.13)
       excel/traductor.ts     AST → fórmulas Excel (SUMIFS/SUMPRODUCT/SUM, LAG → columna anterior)
-      templates/             reglas.ts (23 parámetros + 40 reglas), clinica.ts, default.ts
-      model/                 Normalización/creación y % de cumplimentación
-      io/                    jsonio (JSON validado), xlsx (18 hojas), pdf (índice paginado), persistence
+      templates/             reglas.ts (23 parámetros + 40 reglas), clinica.ts, centro.ts, default.ts
+      model/                 Normalización/creación, % de cumplimentación y controles (diagnóstico §15)
+      io/                    jsonio (JSON validado), xlsx (22 hojas), pdf (índice paginado), persistence
       store.ts               Estado global tipado (zustand)
-tests/planex/                58 pruebas: motor (35) + XLSX (16) + PDF (7)
-docs/                        Informe de implementación, capturas y ejemplos de salida
+tests/planex/                176 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7)
+docs/                        Informe de implementación, entregables de la auditoría y capturas
 ```
 
 ## Requisitos e instalación
@@ -356,8 +365,9 @@ La suite automatizada cubre el motor de cálculo, los exportadores y el intercam
 
 | Suite | Casos | Cobertura |
 |---|---|---|
-| Motor | 35 | Valores esperados manuales, recálculo por parámetro, cambio de fórmula, sintaxis inválida, variables inexistentes, ciclos, división por cero, insuficiencia de financiación, horizonte, capacidad, round-trip JSON |
-| Excel | 16 | Fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas (926+ fórmulas) |
+| Motor | 44 | Valores esperados manuales, recálculo por parámetro, cambio de fórmula, sintaxis inválida, variables inexistentes, ciclos, división por cero, insuficiencia de financiación, horizonte, capacidad, flujos y caja de dividendos, round-trip JSON |
+| Auditoría AUDIT-001 | 109 | Ocho suites espejo de la misión: regresión sobre cifras originales (§16.1/§3.1), depreciación por activo (§16.2), flujos y recuperación (§4.3/§16.3), capacidad derivada de recursos (§16.4), cascada tributaria 35 %→30 % (§16.5), reacción de los textos analíticos y trazabilidad (§16.6/§12.13), exportaciones PDF/XLSX/JSON (§16.7) y generalización con el Centro (§17) |
+| Excel | 16 | Estructura (22 hojas), fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas |
 | PDF | 7 | Contenido, índice, cifras del modelo activo y advertencias |
 | Colaboración E2E (dos navegadores reales) | 53 | Las 23 pruebas de la misión PLANEX-SUPABASE-001: login con ambos alias y rechazo de credenciales inválidas, sesión restaurada, espacio compartido en dos sesiones, creación/apertura en vivo, edición recibida sin recargar con autor identificado, ediciones simultáneas de secciones distintas, conflicto de la misma sección con resolución explícita, preservación de ediciones no guardadas, persistencia de parámetros con recálculo en vivo, autoguardado tras recarga, reconexión, RLS efectiva, tercero denegado, secretos fuera del bundle, historial y restauración, exportaciones PDF/Excel/JSON desde el estado compartido, despliegue estático, consola — detalle en [`docs/supabase/EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) |
 | RLS/REST con JWT reales | 28 | Visibilidad por pertenencia, concurrencia optimista (versión caducada → 0 filas), denegaciones (anónimo, autoconcesión de membresía/roles, espacios ajenos, alias inmutable, mover secciones, borrar historial) — [`e2e/REPORTE-RLS-REST.txt`](e2e/REPORTE-RLS-REST.txt) |
@@ -395,6 +405,10 @@ y ausencia de errores en consola. El detalle completo está en
 
 ## Documentación adicional
 
+- [`docs/AUDIT001_ENTREGABLES.md`](docs/AUDIT001_ENTREGABLES.md) — Entregables de la auditoría
+  integral (misión PLANEX-AUDIT-001, §19 A–G): informe de defectos con causas y correcciones,
+  modelo financiero documentado, plantillas finales, evidencias de las 176 pruebas,
+  demostración de generalización, estado de las exportaciones y limitaciones.
 - [`docs/supabase/`](docs/supabase/) — Integración de colaboración (misión PLANEX-SUPABASE-001):
   - [`ESQUEMA_DE_DATOS.md`](docs/supabase/ESQUEMA_DE_DATOS.md) — modelo relacional, secciones
     sincronizables, triggers y Realtime.

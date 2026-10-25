@@ -44,7 +44,7 @@ import {
 import { parsear, Nodo, extraerVariables, extraerLags } from './parser';
 import { evalNodo, EvalContexto, Valor } from './evaluator';
 import { FormulaError } from './tokenizer';
-import { fmtK } from '../format';
+import { fmtK, fmtPct } from '../format';
 import { calcularDepreciacion } from './depreciacion';
 import { calcularDeuda } from './deuda';
 import { capacidadAnio, ampliacionesActivas } from './capacidad';
@@ -999,7 +999,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'CAPACIDAD',
-        mensaje: `El servicio «${svc.nombre}» no puede atender ${pctPerdido.toFixed(1)} % de la demanda prevista en los años ${svc.capacidadesExcedidas.join(', ')} con la capacidad activa. La proyección se ha limitado a la demanda atendible; para servir toda la demanda se requiere ampliar recursos (escenario B) o revisar precios o volúmenes.`,
+        mensaje: `El servicio «${svc.nombre}» no puede atender ${fmtPct(pctPerdido)} de la demanda prevista en los años ${svc.capacidadesExcedidas.join(', ')} con la capacidad activa. La proyección se ha limitado a la demanda atendible; para servir toda la demanda se requiere ampliar recursos (escenario B) o revisar precios o volúmenes.`,
         seccion: 'tecnico',
         objetivoId: svc.id,
       });
@@ -1024,7 +1024,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'supuesto',
         codigo: 'UTILIZACION_ALTA',
-        mensaje: `El recurso «${r.nombre}» alcanza una utilización máxima de ${(util * 100).toFixed(0)} % (umbral de referencia: ${(umbralUtil * 100).toFixed(0)} %). Verifique la combinación de servicios y los tiempos de procedimiento: una utilización tan alta deja poco margen para imprevistos y mantenimiento.`,
+        mensaje: `El recurso «${r.nombre}» alcanza una utilización máxima de ${fmtPct(util, 0)} (umbral de referencia: ${fmtPct(umbralUtil, 0)}). Verifique la combinación de servicios y los tiempos de procedimiento: una utilización tan alta deja poco margen para imprevistos y mantenimiento.`,
         seccion: 'tecnico',
         objetivoId: r.id,
       });
@@ -1044,7 +1044,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'FINANCIACION_EXCESO',
-        mensaje: `Exceso de financiación sin asignar: ${dif.toFixed(1)} kUSD por encima de la inversión total. Verifique si corresponde a capital de trabajo adicional o ajuste las fuentes.`,
+        mensaje: `Exceso de financiación sin asignar: ${fmtK(dif)} kUSD por encima de la inversión total. Verifique si corresponde a capital de trabajo adicional o ajuste las fuentes.`,
         seccion: 'financiero',
       });
     }
@@ -1062,7 +1062,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'HORIZONTE_CORTO',
-        mensaje: `El horizonte de análisis (${N} años) es inferior al período de recuperación del proyecto (${recuperacionProyecto.anios.toFixed(1)} años) más un año, como exige la metodología. Amplíe el horizonte.`,
+        mensaje: `El horizonte de análisis (${N} años) es inferior al período de recuperación del proyecto (${fmtK(recuperacionProyecto.anios)} años) más un año, como exige la metodología. Amplíe el horizonte.`,
         seccion: 'financiero',
       });
     }
@@ -1129,7 +1129,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       issues.push({
         tipo: 'documental',
         codigo: 'DIVIDENDOS_RESTRINGIDOS',
-        mensaje: `En el año ${d.anio} los dividendos propuestos (${d.propuestos.toFixed(1)} kUSD) superan la caja disponible (${d.cajaAcumulada.toFixed(1)} kUSD): solo se consideran pagables ${d.pagables.toFixed(1)} kUSD. La política de distribución está limitada por la liquidez modelada.`,
+        mensaje: `En el año ${d.anio} los dividendos propuestos (${fmtK(d.propuestos)} kUSD) superan la caja disponible (${fmtK(d.cajaAcumulada)} kUSD): solo se consideran pagables ${fmtK(d.pagables)} kUSD. La política de distribución está limitada por la liquidez modelada.`,
         seccion: 'financiero',
       });
       break;
@@ -1149,7 +1149,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     issues.push({
       tipo: 'supuesto',
       codigo: 'CT_RECUPERACION',
-      mensaje: `El modelo incorpora la recuperación del ${(pctRecuperacionCT * 100).toFixed(0)} % del capital de trabajo en el último año del horizonte (regla parametrizada). Debe justificarse documentalmente que esa fracción es realmente recuperable al final del período.`,
+      mensaje: `El modelo incorpora la recuperación del ${fmtPct(pctRecuperacionCT, 0)} del capital de trabajo en el último año del horizonte (regla parametrizada). Debe justificarse documentalmente que esa fracción es realmente recuperable al final del período.`,
       seccion: 'financiero',
       parametroId: 'pct_recuperacion_capital_trabajo',
     });
@@ -1172,7 +1172,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     issues.push({
       tipo: 'supuesto',
       codigo: 'TASA_DEMO',
-      mensaje: `La tasa de impuesto sobre utilidades (${(tasaDemo.valor * 100).toFixed(1)} %) es un supuesto de demostración editable. No constituye la tasa legal aplicable: documente la fuente normativa antes de un uso oficial.`,
+      mensaje: `La tasa de impuesto sobre utilidades (${fmtPct(tasaDemo.valor)}) es un supuesto de demostración editable. No constituye la tasa legal aplicable: documente la fuente normativa antes de un uso oficial.`,
       parametroId: 'tasa_impuesto_utilidades',
       seccion: 'config',
     });
