@@ -179,7 +179,7 @@ const TUTORIAL: ArticuloAyuda[] = [
             accion:
               'Lea el estado de resultados proyectado, los flujos de caja (FCFF del proyecto y FCFE de los socios), la recuperación de la inversión y los beneficios acumulados al país. Abra el panel de diagnóstico y recorra los cuatro niveles de hallazgos; pulse un hallazgo para ir a su sección.',
             resultado:
-              'Con la plantilla clínica y tasa 743: utilidad antes de impuestos del año 1 = 386,9 kUSD, impuesto 135,4, utilidad neta 251,5, recuperación de la inversión 3,4 años (proyecto) y 3,2 (socios). Sin errores bloqueantes.',
+              'Con la plantilla clínica y tasa 743: utilidad antes de impuestos del año 1 = 386,9 kUSD, impuesto 135,4, utilidad neta 251,5, recuperación de la inversión 3,5 años (proyecto) y 3,2 (socios). Sin errores bloqueantes: el estado general es «Borrador de demostración».',
             evitar: 'Tratar el «100 % de cumplimentación» como prueba de calidad: la completitud formal no valida supuestos; lea el diagnóstico.',
           },
           {
@@ -396,7 +396,7 @@ const GUIAS: ArticuloAyuda[] = [
         pasos: [
           { titulo: '1. Abrir la regla del impuesto', donde: 'Editor → «Configuración de cálculos» → reglas.', accion: 'Localice «impuesto_utilidades_k» y lea su expresión: MAX(0, utilidad_antes_impuestos_k × tasa_impuesto_utilidades).', resultado: 'MAX(0, …) significa que años con pérdidas no generan impuesto negativo.' },
           { titulo: '2. Revisar depreciación y amortización', donde: 'Reglas de depreciación + tabla de inversiones (vida útil, año de disponibilidad, valor residual).', accion: 'La depreciación es lineal sobre la base depreciable, solo desde el año de disponibilidad, con tope depreciable.', resultado: 'Ejemplo clínica: la depreciación del año 1 es 117,125 kUSD con los activos disponibles ese año; los activos del año 3 no deprecian antes.', evitar: 'Dejar vidas útiles en 0 para activos depreciables.' },
-          { titulo: '3. Entender la recuperación', donde: 'Sección 4.7 → indicadores de recuperación.', accion: 'Lea los DOS valores: recuperación de la inversión total (flujo del proyecto, FCFF) y del capital aportado (flujo de socios, FCFE).', resultado: 'Clínica con tasa 743: 3,4 años (proyecto) y 3,2 años (socios), interpolados dentro del año de cruce.', evitar: 'Comparar la recuperación del proyecto con la de los socios esperando que coincidan: difieren por el crédito (desembolsos e intereses).' },
+          { titulo: '3. Entender la recuperación', donde: 'Sección 4.7 → indicadores de recuperación.', accion: 'Lea los DOS valores: recuperación de la inversión total (flujo del proyecto, FCFF) y del capital aportado (flujo de socios, FCFE).', resultado: 'Clínica con tasa 743: 3,5 años (proyecto) y 3,2 años (socios), interpolados dentro del año de cruce (recuperación simple, sin descontar).', evitar: 'Comparar la recuperación del proyecto con la de los socios esperando que coincidan: difieren por el crédito (desembolsos e intereses).' },
         ],
       },
       { tipo: 'formula', expresion: 'impuesto = MAX(0, UAI × tasa)', variables: [{ nombre: 'UAI', significado: 'utilidad antes de impuestos del año', unidad: 'kUSD' }, { nombre: 'tasa', significado: 'tasa de impuesto sobre utilidades (parámetro)', unidad: 'decimal (0,35 = 35 %)' }], ejemplo: `Clínica, año 1, tasa 743: 386,86 × 0,35 = 135,40 kUSD. ${AVISO_DIDACTICO}` },
@@ -677,21 +677,22 @@ const REFERENCIA: ArticuloAyuda[] = [
       },
       {
         tipo: 'formula',
-        expresion: 'FCFF = utilidad neta + intereses devengados + depreciación − CAPEX de ampliaciones   ·   FCFE = FCFF − intereses pagados + desembolsos del crédito − amortizaciones',
+        expresion: 'FCFF = utilidad neta + (intereses devengados − escudo fiscal) + depreciación − CAPEX de ampliaciones   ·   FCFE = FCFF − intereses pagados + escudo fiscal + desembolsos del crédito − amortizaciones   ·   escudo fiscal = impuesto(sin intereses) − impuesto(regla activa) = intereses × tasa con la regla plana',
         variables: [
-          { nombre: 'FCFF', significado: 'flujo de caja del proyecto (financiador): mide la recuperación de la INVERSIÓN TOTAL', unidad: 'kUSD' },
-          { nombre: 'FCFE', significado: 'flujo de los socios: mide la recuperación del CAPITAL APORTADO', unidad: 'kUSD' },
+          { nombre: 'FCFF', significado: 'flujo de caja del proyecto (financiador): mide la recuperación de la INVERSIÓN TOTAL. La utilidad neta ya descuenta el interés CON su efecto tributario, por eso solo se reincorpora el interés DESPUÉS de impuestos', unidad: 'kUSD' },
+          { nombre: 'FCFE', significado: 'flujo de los socios: mide la recuperación del CAPITAL APORTADO; el escudo se restituye porque los socios sí lo disfrutan (pagan menos impuesto)', unidad: 'kUSD' },
+          { nombre: 'escudo fiscal', significado: 'porción de interés que el impuesto absorbió; con intereses corrientes la identidad es FCFF − FCFE = intereses pagados − escudo − desembolsos + amortizaciones', unidad: 'kUSD' },
         ],
-        ejemplo: `Clínica, año 0 (tasa 743): FCFF = −(1 480 + 0,78) = −1 480,78 kUSD (inversión total más pérdida de montaje); FCFE = −(1 180 + 0,78) kUSD (aportaciones más pérdida). ${AVISO_DIDACTICO}`,
+        ejemplo: `Clínica, año 1 (tasa 743): interés 24,0; escudo 24,0 × 35 % = 8,4; FCFF = utilidad neta 251,5 + (24,0 − 8,4) + depreciación 117,1 = 384,2 kUSD (no 392,6: el interés completo sobreestimaría el flujo). Año 0: FCFF = −(1 480 + 0,78) y FCFE = −(1 180 + 0,78) kUSD. ${AVISO_DIDACTICO}`,
       },
       {
         tipo: 'formula',
-        expresion: 'recuperación = (t−1) + |acumulado anterior| / (acumulado del año t − acumulado anterior)',
+        expresion: 'recuperación (simple, sin descontar) = (t−1) + |acumulado anterior| / (acumulado del año t − acumulado anterior)',
         variables: [
           { nombre: 't', significado: 'primer año en que el acumulado cruza cero', unidad: 'año' },
           { nombre: 'acumulado', significado: 'flujo acumulado del proyecto (FCFF) o de los socios (FCFE)', unidad: 'kUSD' },
         ],
-        ejemplo: `Clínica (tasa 743): el proyecto recupera en 3,4 años (interpolación dentro del año 4) y los socios en 3,2. El capital de trabajo no se recupera dentro del modelo (parámetro de recuperación en 0 %: tratamiento conservador). ${AVISO_DIDACTICO}`,
+        ejemplo: `Clínica (tasa 743): el proyecto recupera en 3,5 años (interpolación dentro del año 4; sin tasa de descuento alguna) y los socios en 3,2. El capital de trabajo no se recupera dentro del modelo (parámetro de recuperación en 0 %: tratamiento conservador). ${AVISO_DIDACTICO}`,
       },
       {
         tipo: 'formula',
@@ -879,7 +880,7 @@ const CONCEPTOS: ArticuloAyuda[] = [
     relacionados: ['ref-indicadores', 'con-proyeccion-no-viabilidad'],
     bloques: [
       { tipo: 'p', texto: 'El período de recuperación expresa cuántos años tarda el flujo acumulado en devolver el dinero puesto. PLANEX calcula DOS: la recuperación de la inversión total (con el flujo del proyecto, FCFF) y la del capital aportado (con el flujo de los socios, FCFE). Suelen diferir: el crédito adelanta caja a cambio de servicio posterior.' },
-      { tipo: 'p', texto: 'El número es interpolado dentro del año en que el acumulado cruza cero: 3,4 años significa que en algún punto del cuarto año se completa la recuperación. También es sensible al supuesto conservador del modelo: el capital de trabajo no se recupera dentro del horizonte (parámetro en 0 %), lo que retrasa el cruce respecto de modelos más optimistas.' },
+      { tipo: 'p', texto: 'El número es interpolado dentro del año en que el acumulado cruza cero: 3,5 años significa que en algún punto del cuarto año se completa la recuperación, y es una recuperación simple, SIN descontar (no es un VAN ni una TIR). También es sensible al supuesto conservador del modelo: el capital de trabajo no se recupera dentro del horizonte (parámetro en 0 %), lo que retrasa el cruce respecto de modelos más optimistas.' },
       { tipo: 'p', texto: 'Lo que NO dice: nada sobre lo que ocurre después de recuperar (un plan que recupera en 3 años y luego se funde vale menos que otro que recupera en 5 y sostiene 15 años de beneficios), nada sobre el riesgo de los supuestos, y nada sobre requisitos normativos. Úselo como termómetro, no como veredicto.' },
       { tipo: 'aviso', texto: AVISO_DIDACTICO },
     ],

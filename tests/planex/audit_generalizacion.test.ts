@@ -92,7 +92,12 @@ describe('MISIÓN §17 — Segundo proyecto: Centro de Diagnóstico «Imagen Hab
     expect(mCentro.ok).toBe(true);
     const d = diagnosticar(centro, mCentro);
     expect(d.resumen.conteo.error_bloqueante).toBe(0);
-    expect(d.resumen.conteo.advertencia_importante).toBe(0);
+    // DOC-002 §4.2: la conciliación del desembolso inicial detecta que los
+    // gastos de montaje del año 0 no están cubiertos por las fuentes: es un
+    // hallazgo REAL de la plantilla (advertencia importante FINANCIACION_ANO0).
+    expect(d.resumen.conteo.advertencia_importante).toBe(1);
+    expect(d.hallazgos.some((h) => h.codigo === 'FINANCIACION_ANO0')).toBe(true);
+    expect(d.resumen.estadoGeneral.estado).toBe('borrador_demostracion');
     // La resonancia NO factura en años 1-2 (recurso disponible en el año 3).
     const rm = mCentro.servicios.find((s) => s.id === 'dz-4')!;
     expect(rm.valores[1]['srv_ingreso_anual']).toBeCloseTo(0, 6);
@@ -140,10 +145,20 @@ describe('MISIÓN §17 — Segundo proyecto: Centro de Diagnóstico «Imagen Hab
 
   test('el diagnóstico del centro evalúa las dimensiones con datos propios', () => {
     const d = diagnosticar(centro, mCentro);
-    const integridad = d.resumen.dimensiones.find((x) => x.id === 'integridad_matematica')!;
+    // DOC-002 §5: las SEIS dimensiones independientes.
+    const integridad = d.resumen.dimensiones.find((x) => x.id === 'integridad_aritmetica')!;
     expect(integridad.estado).toBe('ok');
-    const coherencia = d.resumen.dimensiones.find((x) => x.id === 'coherencia_financiera')!;
+    const coherencia = d.resumen.dimensiones.find((x) => x.id === 'coherencia_financiera_contable')!;
     expect(coherencia.detalle).toContain('2.188,8');
+    expect(d.resumen.dimensiones.length).toBe(6);
+    expect(d.resumen.dimensiones.map((x) => x.id)).toEqual([
+      'integridad_aritmetica',
+      'coherencia_financiera_contable',
+      'evidencia_trazabilidad',
+      'estructura_metodologica',
+      'validacion_normativa_comercial',
+      'calidad_documental',
+    ]);
   });
 
   test('exporta PDF y Excel desde el estado del centro (coherentes con su modelo)', async () => {

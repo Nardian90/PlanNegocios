@@ -29,11 +29,15 @@ export function crearProyectoClinica(): PlanexProject {
     denominacionPropuesta: 'Constitución de una empresa mixta para la prestación de servicios estomatológicos integrales en La Habana',
   };
   p.general = {
-    elaboradoPor: '【Nombre y apellidos de quien elabora】',
+    // Misión DOC-002 §3.4: los campos obligatorios sin completar se marcan
+    // como PENDIENTES con un rótulo profesional y legible (nunca marcadores
+    // corruptos). El borrador de demostración NO presenta una declaración de
+    // responsabilidad como firmada: queda «Pendiente de aceptar».
+    elaboradoPor: '[Pendiente: nombre y apellidos de quien elabora]',
     cargo: 'Especialista de inversiones (ejemplo ilustrativo)',
     firmaIdentificacion: '',
     fecha: '2026-10-25',
-    declaracionResponsabilidad: true,
+    declaracionResponsabilidad: false,
   };
 
   // ------------------------------------------------------------- 4.4
@@ -167,15 +171,15 @@ export function crearProyectoClinica(): PlanexProject {
   // cada procedimiento. capacidadMaxMensual = 0: sin tope técnico directo;
   // el límite real lo imponen los recursos compartidos del escenario activo.
   p.servicios = [
-    { id: 'sv-1', nombre: 'Consulta estomatológica', precioBase: 25, cantidadBaseMensual: 400, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 6, duracionMinutos: 30, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio (estudio de precios ilustrativo)' },
-    { id: 'sv-2', nombre: 'Odontología preventiva (profilaxis y sellado)', precioBase: 35, cantidadBaseMensual: 160, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 10, duracionMinutos: 40, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-3', nombre: 'Restauraciones (obturaciones)', precioBase: 60, cantidadBaseMensual: 220, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 18, duracionMinutos: 45, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-4', nombre: 'Endodoncia', precioBase: 150, cantidadBaseMensual: 70, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 40, duracionMinutos: 60, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-5', nombre: 'Periodoncia', precioBase: 120, cantidadBaseMensual: 60, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 30, duracionMinutos: 50, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-6', nombre: 'Cirugía oral', precioBase: 180, cantidadBaseMensual: 35, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 45, duracionMinutos: 60, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-7', nombre: 'Prótesis estomatológica', precioBase: 400, cantidadBaseMensual: 28, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 120, duracionMinutos: 90, recursoIds: ['re-lab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-8', nombre: 'Ortodoncia', precioBase: 1200, cantidadBaseMensual: 9, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 300, duracionMinutos: 90, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio' },
-    { id: 'sv-9', nombre: 'Imagenología dental', precioBase: 45, cantidadBaseMensual: 130, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 8, duracionMinutos: 20, recursoIds: ['re-img', 're-prof'], fuente: 'Supuesto ficticio' },
+    { id: 'sv-1', nombre: 'Consulta estomatológica', precioBase: 25, cantidadBaseMensual: 400, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 6, duracionMinutos: 30, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio (estudio de precios ilustrativo)', canal: 'plaza' },
+    { id: 'sv-2', nombre: 'Odontología preventiva (profilaxis y sellado)', precioBase: 35, cantidadBaseMensual: 160, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 10, duracionMinutos: 40, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-3', nombre: 'Restauraciones (obturaciones)', precioBase: 60, cantidadBaseMensual: 220, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 18, duracionMinutos: 45, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-4', nombre: 'Endodoncia', precioBase: 150, cantidadBaseMensual: 70, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 40, duracionMinutos: 60, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-5', nombre: 'Periodoncia', precioBase: 120, cantidadBaseMensual: 60, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 30, duracionMinutos: 50, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-6', nombre: 'Cirugía oral', precioBase: 180, cantidadBaseMensual: 35, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 45, duracionMinutos: 60, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-7', nombre: 'Prótesis estomatológica', precioBase: 400, cantidadBaseMensual: 28, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 120, duracionMinutos: 90, recursoIds: ['re-lab', 're-prof'], fuente: 'Supuesto ficticio (canal exportación: pacientes internacionales)', canal: 'exportacion' },
+    { id: 'sv-8', nombre: 'Ortodoncia', precioBase: 1200, cantidadBaseMensual: 9, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 300, duracionMinutos: 90, recursoIds: ['re-gab', 're-prof'], fuente: 'Supuesto ficticio', canal: 'plaza' },
+    { id: 'sv-9', nombre: 'Imagenología dental', precioBase: 45, cantidadBaseMensual: 130, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 8, duracionMinutos: 20, recursoIds: ['re-img', 're-prof'], fuente: 'Supuesto ficticio (canal plataformas con pagos desde el exterior)', canal: 'plataformas_exterior' },
   ];
 
   p.consumos = [
@@ -230,6 +234,8 @@ export function crearProyectoClinica(): PlanexProject {
     consumoEstimado: 'Costo variable unitario por servicio precargado en la tabla de servicios (supuestos ficticios).',
     demandaAparente: 'Supuesto ilustrativo: población servida estimada de 240 000 habitantes y prevalencia de necesidad de tratamiento del 60 % de adultos. Estimación NO verificada: una propuesta real debe aportar fuentes con fecha.',
     demandaSolvente: 'Supuesto ilustrativo: 38 000 personas con capacidad de pago en el área de influencia; captación objetivo del año 1 en torno al 12 %. Supuesto NO verificado.',
+    demandaSolventePersonas: 38000,
+    captacionPrevistaPct: 0.12,
     metodoEstimacion: 'Método ilustrativo por referencias públicas y supuestos de captación. La aplicación exige documentar fuentes y fechas; no simula investigación de mercado real.',
     fuentesConsulta: 'Fuentes ficticias de demostración: proyecciones demográficas ilustrativas y referencias sectoriales no verificadas.',
     ventasExportacion: 'Atención a pacientes internacionales (turismo de salud): supuesto ilustrativo, crecimiento a partir del tercer año, incluido dentro de los precios en USD de la tabla de servicios (los ingresos en divisas deben desglosarse por canales sin duplicar operaciones).',

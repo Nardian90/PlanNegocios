@@ -1,29 +1,47 @@
 // ============================================================================
-// Motor estructural — Flujos de caja y recuperación (misión §4).
+// Motor estructural — Flujos de caja y recuperación (misión §4, revisada por
+// PLANEX-DOC-002 §4.1).
 //
 // El plan anterior mezclaba la utilidad neta con la amortización del crédito
 // y comparaba el resultado contra la INVERSIÓN TOTAL del proyecto. Esa mezcla
 // no permite interpretar la recuperación. Se reconstruyen DOS indicadores:
 //
 // 1) FLUJO DEL PROYECTO (FCFF) — decisiones de inversión, excluidas las de
-//    financiación:
-//    FCFF_t = UDI_t + intereses_t + depreciación_t − CAPEX_t − ΔCT_t (+ CT recup.)
-//    (UDI ya descuenta intereses e impuestos; los intereses se reincorporan
-//     por ser un flujo del financiador y no del proyecto; los impuestos son
-//     los de la regla activa — tratamiento documentado.)
+//    financiación. La utilidad neta (UDI) ya descuenta el gasto por intereses
+//    CON SU EFECTO TRIBUTARIO (escudo fiscal): los intereses reducen el
+//    impuesto a pagar. Por eso al FCFF solo se reincorpora el interés DESPUÉS
+//    DE IMPUESTOS, no el interés completo:
+//    FCFF_t = UDI_t + (intereses_devengados_t − escudo_fiscal_t) + depreciación_t
+//             − CAPEX_t − ΔCT_t (+ CT recup.)
+//    El escudo se DERIVA de la propia regla de impuestos del proyecto:
+//      escudo_t = impuesto(sin deducir intereses)_t − impuesto(regla activa)_t
+//    Con la regla plana vigente (MAX(0, UAI × tasa)) equivale a
+//    intereses × tasa cuando la base es positiva. Si la regla de impuestos
+//    no depende de la base después de intereses, el escudo es cero y la
+//    fórmula coincide con la reincorporación completa (coherente con el
+//    tratamiento fiscal real del modelo).
 //    FCFF_0 = UDI_0 − inversiónTotal  (el efecto de montaje del año 0 queda
 //     incluido; el CAPEX inicial es la inversión total).
 //    Recuperación de la INVERSIÓN TOTAL: primer instante en que el flujo
 //    acumulado del proyecto cruza el cero.
 //
 // 2) FLUJO DE LOS SOCIOS (FCFE) — perspectiva del capital aportado:
-//    FCFE_t = FCFF_t − intereses_t + desembolsoDeuda_t − amortización_t
+//    FCFE_t = FCFF_t − (intereses_pagados_t − escudo_fiscal_t)
+//             + desembolsoDeuda_t − amortización_t
 //    FCFE_0 = −aportacionesTotales + UDI_0 + desembolso_0
-//    (equivale a UDI + depreciación − amortización + desembolsos − CAPEX − ΔCT)
+//    (equivale a UDI + depreciación − amortización + desembolsos − CAPEX − ΔCT
+//     cuando los intereses se pagan corrientes; si la gracia es TOTAL, la
+//     porción capitalizada no es salida de caja y se reincorpora íntegra)
 //    Recuperación del CAPITAL APORTADO: cruce del acumulado FCFE.
 //
-// RECUPERACIÓN (§4.3): interpolación lineal intranual explícita
-//    payback = (t−1) + |acum_{t−1}| / (acum_t − acum_{t−1})
+// RECONCILIACIÓN ALGEBRAICA (probada en tests):
+//    FCFF_t − FCFE_t = intereses_pagados_t − escudo_t − desembolsos_t + amortización_t
+//    Con intereses corrientes: FCFE_t = UDI + depreciación − CAPEX + recup. CT
+//      + desembolsos − amortizaciones (definición estándar del flujo al accista).
+//
+// RECUPERACIÓN (§4.3): interpolación lineal intranual explícita. Es una
+// RECUPERACIÓN SIMPLE, SIN DESCONTAR: no se aplica tasa de descuento alguna
+// a los flujos (no es un VAN ni una TIR).    payback = (t−1) + |acum_{t−1}| / (acum_t − acum_{t−1})
 //  cuando acum_{t−1} < 0 ≤ acum_t. Se distingue:
 //    - recuperación dentro del horizonte,
 //    - recuperación posterior al horizonte (no recuperado en N años),
@@ -33,13 +51,15 @@
 // CAPITAL DE TRABAJO (§4.4): el desembolso inicial forma parte de la inversión
 // total. Su recuperación al final del horizonte NO se supone: solo entra si
 // el parámetro `pct_recuperacion_capital_trabajo` lo indica (regla explícita,
-// documentada y configurable).
+// documentada y configurable; el 0 % por defecto es una HIPÓTESIS conservadora
+// del modelo, no una regla universal).
 // ============================================================================
 
 import { Recuperacion, FlujoIndicador } from '../types';
 
-/** Período de recuperación por interpolación lineal sobre el acumulado.
- *  Devuelve también los cambios de signo para calificar el indicador. */
+/** Período de recuperación (SIMPLE, SIN DESCONTAR) por interpolación lineal
+ *  sobre el acumulado. Devuelve también los cambios de signo para calificar
+ *  el indicador. */
 export function calcularRecuperacion(
   indicador: FlujoIndicador,
   acumulado: Record<number, number>,
@@ -47,8 +67,8 @@ export function calcularRecuperacion(
 ): Recuperacion {
   const motivoBase =
     indicador === 'proyecto'
-      ? 'Acumulado del flujo de caja del proyecto (FCFF) frente a la inversión total.'
-      : 'Acumulado del flujo de caja de los socios (FCFE) frente al capital aportado.';
+      ? 'Acumulado del flujo de caja del proyecto (FCFF) frente a la inversión total. Recuperación simple, sin descontar: los flujos no se actualizan con tasa de descuento alguna.'
+      : 'Acumulado del flujo de caja de los socios (FCFE) frente al capital aportado. Recuperación simple, sin descontar: los flujos no se actualizan con tasa de descuento alguna.';
 
   const valores = years.map((t) => acumulado[t] ?? 0);
   // Cambios de signo en el acumulado a partir del primer valor negativo.

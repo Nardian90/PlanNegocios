@@ -27,7 +27,8 @@ const ayuda = (clave: string) => AYUDAS_METODOLOGICAS.find((a) => a.clave === cl
 export function SeccionMercado({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
-  const campos: [string, keyof typeof p.mercado, number][] = [
+  type CampoTextoMercado = Exclude<keyof typeof p.mercado, 'demandaSolventePersonas' | 'captacionPrevistaPct'>;
+  const campos: [string, CampoTextoMercado, number][] = [
     ['Caracterización de productos y servicios', 'caracterizacion', 3],
     ['Requisitos regulatorios y registros necesarios', 'requisitosRegulatorios', 3],
     ['Materias primas y materiales auxiliares', 'materiasPrimas', 3],
@@ -49,12 +50,62 @@ export function SeccionMercado({ modelo }: { modelo: ComputedModel }) {
           <Campo
             key={clave}
             etiqueta={etiqueta}
-            valor={p.mercado[clave]}
+            valor={p.mercado[clave] as string}
             onChange={(v) => actualizar((x) => void ((x.mercado[clave] as string) = v))}
             filas={filas}
           />
         ))}
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="size-4 text-amber-600" aria-hidden />
+            Conciliación demanda solvente → captación → volumen (metodología 4.8)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            Declare la demanda solvente cuantificada y la captación objetivo del año 1: el modelo las usa para conciliar el
+            volumen previsto de servicios (hipótesis de pacientes recurrentes y servicios por paciente) en los análisis y en
+            el documento exportado. Son supuestos: documente su fuente real.
+          </p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Demanda solvente (personas)</span>
+              <NumInput
+                valor={Number.isFinite(p.mercado.demandaSolventePersonas) ? (p.mercado.demandaSolventePersonas as number) : NaN}
+                onChange={(v) => actualizar((x) => void (x.mercado.demandaSolventePersonas = v))}
+                decimales={0}
+                min={0}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Captación objetivo año 1 (%)</span>
+              <NumInput
+                valor={Number.isFinite(p.mercado.captacionPrevistaPct) ? (p.mercado.captacionPrevistaPct as number) * 100 : NaN}
+                onChange={(v) => actualizar((x) => void (x.mercado.captacionPrevistaPct = v / 100))}
+                min={0}
+              />
+            </label>
+            <div className="rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
+              {(() => {
+                const personas = p.mercado.demandaSolventePersonas;
+                const pctCapt = p.mercado.captacionPrevistaPct;
+                const hayVolumen = (modelo.servicios ?? []).some((x) => Object.keys(x.cantidades ?? {}).length > 0);
+                const volAnual1 = hayVolumen
+                  ? (modelo.servicios ?? []).reduce((s, x) => s + (x.cantidades?.[1] ?? 0), 0) * 12
+                  : null;
+                if (!Number.isFinite(personas) || !(personas as number > 0) || !Number.isFinite(pctCapt) || volAnual1 === null) {
+                  return 'Complete ambos datos para que el modelo concilie captación y volumen.';
+                }
+                const captados = (personas as number) * (pctCapt as number);
+                const porPaciente = volAnual1 / Math.max(1, captados);
+                return `Personas captadas año 1 ≈ ${fmtK(captados)} · servicios previstos año 1 ≈ ${fmtK(volAnual1)} · ≈ ${fmtK(porPaciente)} servicios por paciente captado (hipótesis de recurrencia a validar).`;
+              })()}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <PanelAnalisis titulo="Lectura de los datos de mercado" clave="mercado" modelo={modelo} />
     </Seccion>
   );

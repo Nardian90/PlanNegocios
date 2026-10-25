@@ -213,16 +213,24 @@ function analisisCapacidad(p: PlanexProject, m: ComputedModel, pres: Presentacio
   }
 
   const recursosSaturados = m.recursosCalculados
-    .map((r) => ({ r, util: Math.max(...Object.values(r.utilizacion)) }))
+    .map((r) => {
+      const utils = Object.values(r.utilizacion);
+      const util = Math.max(...utils);
+      const anioUtil = Number(Object.entries(r.utilizacion).sort((a, b) => b[1] - a[1])[0][0]);
+      return { r, util, anioUtil, horasDisp: r.horasDisponibles[anioUtil] ?? 0, horasDem: r.horasDemandadas[anioUtil] ?? 0 };
+    })
     .filter((x) => x.util > umbral)
     .sort((x, y) => y.util - x.util);
   if (recursosSaturados.length) {
     frases.push(
-      `Recursos con mayor utilización: ${recursosSaturados.slice(0, 3).map((x) => `«${x.r.nombre}» llega a ${fmtPct(x.util)}`).join(', ')} (umbral de referencia ${fmtPct(umbral)}); la combinación de servicios deja poco margen para mantenimiento e imprevistos en esos recursos compartidos.`
+      `Recursos con mayor utilización: ${recursosSaturados.slice(0, 3).map((x) => `«${x.r.nombre}» llega a ${fmtPct(x.util)} en el año ${x.anioUtil} (${fmtK(x.horasDem)} horas demandadas de ${fmtK(x.horasDisp)} disponibles)`).join(', ')} (umbral de referencia ${fmtPct(umbral)}); la combinación de servicios deja poco margen para mantenimiento e imprevistos en esos recursos compartidos. La utilización de cada recurso y año puede reproducirse desde la tabla de utilización de recursos del apartado 4.6 (horas-mes demandadas ÷ horas-mes disponibles).`
     );
   } else if (m.recursosCalculados.length) {
-    const maxRecurso = m.recursosCalculados.map((r) => ({ r, util: Math.max(...Object.values(r.utilizacion)) })).sort((x, y) => y.util - x.util)[0];
-    frases.push(`Ningún recurso supera el umbral de utilización de referencia (${fmtPct(umbral)}); el más cargado es «${maxRecurso?.r.nombre ?? '—'}» con ${fmtPct(maxRecurso?.util ?? 0)}.`);
+    const maxRecurso = m.recursosCalculados.map((r) => {
+      const utils = Object.values(r.utilizacion);
+      return { r, util: Math.max(...utils), anioUtil: Number(Object.entries(r.utilizacion).sort((a, b) => b[1] - a[1])[0][0]) };
+    }).sort((x, y) => y.util - x.util)[0];
+    frases.push(`Ningún recurso supera el umbral de utilización de referencia (${fmtPct(umbral)}); el más cargado es «${maxRecurso?.r.nombre ?? '—'}» con ${fmtPct(maxRecurso?.util ?? 0)} en el año ${maxRecurso?.anioUtil ?? '—'}.`);
   } else {
     frases.push('No hay recursos operativos definidos: la capacidad no está siendo verificada contra gabinetes, equipos ni personal, lo que impide validar la operatividad del plan (complétela en 4.6).');
   }
@@ -280,7 +288,23 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel, pres:
     return acc;
   }, []);
   if (porAnio.some((v) => v > 0)) {
-    frases.push(`Calendario de desembolsos de aportaciones: ${porAnio.map((v, i) => `año ${i + 1}: ${pres.k(v)} ${pres.corto}`).join('; ')}.`);
+    frases.push(
+      `Calendario de desembolsos de aportaciones (misma convención de años 0/1/2 que las tablas de financiación y flujos): ${porAnio.map((v, i) => `año ${i} (${i === 0 ? 'montaje/arranque — financia la inversión total del año 0' : 'operación'}): ${pres.k(v)} ${pres.corto}`).join('; ')}.`
+    );
+  }
+  // Conciliación del desembolso inicial (DOC-002 §4.2): los gastos de montaje
+  // del año 0 son salidas de caja adicionales a la inversión total.
+  {
+    const udi0 = m.valores['utilidad_despues_impuestos_k']?.[0];
+    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
+    if (gastoAnio0 > 0.005) {
+      const finT = m.valores['financiacion_disponible_k']?.[0] ?? 0;
+      const necesidad = inv + gastoAnio0;
+      const brecha = finT - necesidad;
+      frases.push(
+        `Conciliación del desembolso inicial: la inversión total (${pres.k(inv)} ${pres.corto}) más los gastos de la fase de montaje del año 0 (${pres.k(gastoAnio0)} ${pres.corto}: nómina de montaje y otros costos no capitalizables, registrados como gasto del período y NO incluidos en la inversión total) exigen una necesidad total de arranque de ${pres.k(necesidad)} ${pres.corto}; las fuentes declaradas suman ${pres.k(finT)} ${pres.corto}${brecha < -0.05 ? `, de modo que queda una BRECHA de ${pres.k(Math.abs(brecha))} ${pres.corto} que debe financiarse (mayor capital de trabajo o aporte adicional) o declararse expresamente como supuesto pendiente` : ' y cubren la necesidad total del arranque'}. Los desembolsos del año 0 y del año 1 conservan el mismo significado en todas las tablas.`
+      );
+    }
   }
   return { texto: lista(frases), huella: huellaDe({ inv, previos, fija, ct, aport, otras, credito, dif, porAnio, mayores: mayores.map((x) => x.id) }) };
 }
@@ -353,8 +377,15 @@ function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel, pres: Pre
     const maxServicio = Math.max(...servicio.slice(1));
     const anioMax = servicio.indexOf(maxServicio);
     frases.push(
-      `El servicio máximo de la deuda (interés pagado + amortización) es ${pres.k(maxServicio)} ${pres.largo} en el año ${anioMax}: compárelo con el flujo de caja del proyecto del mismo año (${pres.k(m.indicadores.fcff[anioMax] ?? 0)} ${pres.corto}) para valorar el margen de cobertura.`
+      `El servicio máximo de la deuda (interés pagado + amortización) es ${pres.k(maxServicio)} ${pres.corto} en el año ${anioMax}: compárelo con el flujo de caja del proyecto del mismo año (${pres.k(m.indicadores.fcff[anioMax] ?? 0)} ${pres.corto}) para valorar el margen de cobertura.`
     );
+    const escudoTotal = Object.values(m.indicadores.escudoFiscal).reduce((s, v) => s + v, 0);
+    if (escudoTotal > 0.001) {
+      const intTotalDesp = interesTotal - escudoTotal;
+      frases.push(
+        `Los flujos del proyecto reincorporan el interés DESPUÉS DE IMPUESTOS: del interés devengado total (${pres.k(interesTotal)} ${pres.corto}), el escudo fiscal deducido del impuesto asciende a ${pres.k(escudoTotal)} ${pres.corto} y solo ${pres.k(intTotalDesp)} ${pres.corto} vuelven al FCFF. El FCFE restituye ese escudo (los socios sí lo disfrutan vía menor impuesto), de modo que FCFF y FCFE reconcilian: FCFF − FCFE = intereses pagados − escudo − desembolsos + amortizaciones.`
+      );
+    }
   }
 
   const activos = m.depreciacion;
@@ -387,7 +418,7 @@ function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel, pres: Pre
   const frases: string[] = [];
 
   frases.push(
-    `El modelo calcula DOS indicadores separados. La recuperación de la INVERSIÓN TOTAL se mide con el flujo de caja del proyecto (FCFF = utilidad neta + intereses devengados + depreciación − CAPEX de ampliaciones, con la inversión total como desembolso del año 0). La recuperación del CAPITAL APORTADO se mide con el flujo de los socios (FCFE = flujo del proyecto − intereses pagados + desembolsos del crédito − amortizaciones, con las aportaciones como desembolso inicial).`
+    'El modelo calcula DOS indicadores separados. La recuperación de la INVERSIÓN TOTAL se mide con el flujo de caja del proyecto (FCFF = utilidad neta + intereses DESPUÉS DE IMPUESTOS + depreciación − CAPEX de ampliaciones; el interés devengado se reincorpora neto de su escudo fiscal — la porción de interés que el impuesto ya absorbe —, con la inversión total como desembolso del año 0). La recuperación del CAPITAL APORTADO se mide con el flujo de los socios (FCFE = FCFF − intereses pagados + escudo fiscal + desembolsos del crédito − amortizaciones, con las aportaciones como desembolso inicial). Ambas recuperaciones son SIMPLES y SIN DESCONTAR: no se aplica tasa de descuento alguna a los flujos.'
   );
   if (recP.anios !== null && !recP.indeterminado) {
     frases.push(
@@ -402,7 +433,7 @@ function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel, pres: Pre
   }
   if (recS.anios !== null && !recS.indeterminado) {
     frases.push(
-      `El capital aportado por los socios (${pres.k(m.indicadores.aportacionesTotalesKUSD)} ${pres.corto}) se recupera en ${fmtAnios(recS.anios)} (cruce en el año ${recS.anioCruce}), más ${recS.anios !== null && recP.anios !== null && recS.anios >= recP.anios ? 'tardío que' : 'temprano que'} la recuperación de la inversión total: la diferencia procede del crédito (desembolsos) y de su servicio (intereses y amortizaciones).`
+      `El capital aportado por los socios (${pres.k(m.indicadores.aportacionesTotalesKUSD)} ${pres.corto}) se recupera en ${fmtAnios(recS.anios)} (cruce en el año ${recS.anioCruce}), ${recS.anios !== null && recP.anios !== null && recS.anios >= recP.anios ? 'más tardía que' : 'más temprana que'} la recuperación de la inversión total: la diferencia procede del crédito (desembolsos) y de su servicio (intereses y amortizaciones).`
     );
   } else if (recS.indeterminado) {
     frases.push(`La recuperación del capital aportado no puede emitirse como una cifra única fiable: ${recS.motivo}`);
@@ -446,6 +477,52 @@ function analisisMercado(p: PlanexProject, m: ComputedModel, pres: PresentacionM
       ? 'Las fuentes consultadas no están documentadas (o están marcadas como ficticias de demostración): el análisis de mercado del plan es un SUPUESTO de demostración. Una propuesta real exige investigaciones de demanda, precios de referencia y competidores con fecha y fuente.'
       : 'Las fuentes consultadas figuran documentadas: verifique que incluyan fecha de consulta y que la demanda solvente sea coherente con el volumen modelado.'
   );
+  // Conciliación demanda solvente → captación → volumen (DOC-002 §7):
+  // la relación entre personas captadas y servicios previstos debe declararse
+  // como hipótesis explícita de recurrencia (frecuencia de visita y servicios
+  // por paciente), no darse por supuesto.
+  {
+    const personas = p.mercado.demandaSolventePersonas;
+    const pctCapt = p.mercado.captacionPrevistaPct;
+    const volAnual1 = (m.servicios ?? []).reduce((s, x) => s + (x.cantidades?.[1] ?? 0), 0) * 12;
+    if (Number.isFinite(personas) && Number.isFinite(pctCapt) && (personas as number) > 0 && volAnual1 > 0) {
+      const captados = (personas as number) * (pctCapt as number);
+      const porPaciente = volAnual1 / Math.max(1, captados);
+      frases.push(
+        `Conciliación demanda → captación → volumen: la demanda solvente declarada (${fmtNum(personas as number)} personas) con la captación objetivo (${fmtPct(pctCapt as number)}) implica unas ${fmtNum(captados)} personas captadas en el año 1, mientras que el volumen previsto de servicios asciende a ${fmtNum(volAnual1)} servicios anuales en todas las líneas: el modelo lo reconcilia mediante la HIPÓTESIS EXPLÍCITA de pacientes recurrentes con ≈ ${fmtK(porPaciente)} servicios por paciente captado al año (frecuencia de visita y servicios por paciente a validar con la práctica clínica real; es un supuesto, no un dato).`
+      );
+    } else {
+      frases.push(
+        'La demanda solvente cuantificada y la captación objetivo no están declaradas: no es posible conciliar personas captadas con el volumen de servicios previsto (hipótesis de recurrencia pendiente). Complételas en 4.8.'
+      );
+    }
+  }
+  // Desglose por canales (DOC-002 §6): exportaciones / plataformas / plaza.
+  {
+    const canales = new Map<string, { anual: number; nombres: string[] }>();
+    for (const s of p.servicios) {
+      const clave = s.canal ?? 'plaza';
+      const v = (m.servicios.find((x) => x.id === s.id)?.valores[1]?.['srv_ingreso_anual'] ?? 0) / 1000;
+      const e = canales.get(clave) ?? { anual: 0, nombres: [] };
+      e.anual += v;
+      e.nombres.push(s.nombre);
+      canales.set(clave, e);
+    }
+    const sinCanal = p.servicios.filter((s) => !s.canal);
+    const etiqueta: Record<string, string> = {
+      exportacion: 'exportaciones',
+      plataformas_exterior: 'ventas en plataformas con pagos desde el exterior',
+      plaza: 'ventas en plaza',
+    };
+    const total = [...canales.values()].reduce((s, x) => s + x.anual, 0);
+    if (total > 0) {
+      frases.push(
+        `Desglose de ingresos del año 1 por canal (metodología 4.8, sin duplicar operaciones): ${[...canales.entries()]
+          .map(([k, x]) => `${etiqueta[k] ?? k}: ${pres.k(x.anual)} ${pres.corto} (${fmtPct(total > 0 ? x.anual / total : 0)})`)
+          .join(', ')}.${sinCanal.length ? ` ATENCIÓN: ${sinCanal.length} servicio(s) sin canal declarado se computan en plaza por defecto; asigne el canal correcto en la tabla de servicios.` : ''}`
+      );
+    }
+  }
   if (p.mercado.ventasExportacion?.trim()) {
     frases.push(
       `La estrategia de comercialización contempla ventas al exterior («${p.mercado.ventasExportacion.slice(0, 120)}…»): los ingresos en divisas deben identificarse por separado en la estructura de ingresos (exportaciones / plataformas con pagos desde el exterior / venta en plaza) sin duplicar operaciones.`
@@ -454,7 +531,7 @@ function analisisMercado(p: PlanexProject, m: ComputedModel, pres: PresentacionM
   frases.push(
     `Supuestos de mayor impacto en los resultados de mercado: precios unitarios (crecimiento ${fmtPct(parametro(p, 'crecimiento_precios'))} anual), demanda (crecimiento ${fmtPct(parametro(p, 'crecimiento_volumen'))} anual) y tope de capacidad del escenario activo. Un error de ±10 % en la demanda del año 1 desplaza los ingresos del año 1 en ±${pres.k(ing1 * 0.1)} ${pres.largo}.`
   );
-  return { texto: lista(frases), huella: huellaDe({ ing1, sinFuente, exp: p.mercado.ventasExportacion, da: p.mercado.demandaAparente, ds: p.mercado.demandaSolvente, cp: parametro(p, 'crecimiento_precios'), cv: parametro(p, 'crecimiento_volumen') }) };
+  return { texto: lista(frases), huella: huellaDe({ ing1, sinFuente, exp: p.mercado.ventasExportacion, da: p.mercado.demandaAparente, ds: p.mercado.demandaSolvente, cp: parametro(p, 'crecimiento_precios'), cv: parametro(p, 'crecimiento_volumen'), personas: p.mercado.demandaSolventePersonas, pct: p.mercado.captacionPrevistaPct, canales: p.servicios.map((s) => s.canal ?? null) }) };
 }
 
 function analisisFuerzaTrabajo(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
@@ -542,30 +619,39 @@ function analisisResumenEjecutivo(p: PlanexProject, m: ComputedModel, pres: Pres
   const recS = ind.recuperacionSocios;
   const excesoCapacidad = m.servicios.some((s) => s.capacidadesExcedidas.length > 0);
   const insuficiente = (m.valores['diferencia_financiacion_k']?.[0] ?? 0) < -0.05;
+  const tasaDemo = p.parametros.find((x) => x.id === 'tasa_impuesto_utilidades')?.demo ?? false;
+  const brechaAnio0 = m.issues.some((i) => i.codigo === 'FINANCIACION_ANO0');
 
   const frases = [
     `${p.titulo.nombreProyecto || p.nombre} es una propuesta de ${p.negocio.modalidad || 'inversión extranjera'} con una inversión total calculada de ${pres.k(ind.inversionTotalKUSD)} ${pres.largo}, financiada con ${pres.k(ind.aportacionesTotalesKUSD)} ${pres.corto} de aportaciones de los socios${parametro(p, 'credito_monto_k') > 0 && p.financiero.deuda.habilitada ? ` y un crédito de ${pres.k(parametro(p, 'credito_monto_k'))} ${pres.corto}` : ''}, sobre un horizonte de análisis de ${N} años.`,
     `Con los supuestos activos, el modelo proyecta ingresos del año 1 por ${pres.k(ind.ingresosTotales[1] ?? 0)} ${pres.largo}, utilidad después de impuestos de ${pres.k(ind.utilidadNeta[1] ?? 0)} ${pres.corto} y una plantilla de ${fmtNum(ind.totalTrabajadores)} trabajadores en operación.`,
     recP.anios !== null && !recP.indeterminado
-      ? `La inversión total se recupera en ${fmtAnios(recP.anios)} por el flujo de caja del proyecto; el capital aportado por los socios, en ${recS.anios !== null && !recS.indeterminado ? fmtAnios(recS.anios) : 'plazo no determinado'}.`
+      ? `La inversión total se recupera en ${fmtAnios(recP.anios)} (recuperación simple, sin descontar) por el flujo de caja del proyecto; el capital aportado por los socios, en ${recS.anios !== null && !recS.indeterminado ? fmtAnios(recS.anios) : 'plazo no determinado'}.`
       : `La inversión total NO se recupera dentro del horizonte de ${N} años con el flujo del proyecto: el plan debe declararlo expresamente.`,
     `Los beneficios directos al país acumulan ${pres.k(ind.beneficiosPaisAcumulados)} ${pres.largo} en el período completo (explotación: ${pres.k(ind.beneficiosPaisExplotacion)} ${pres.corto}), con impuestos sobre utilidades por ${pres.k(ind.impuestosTotales)} ${pres.corto} y dividendos de la parte cubana por ${pres.k(Object.values(m.valores['dividendos_parte_cubana_k'] ?? {}).reduce((s, v) => s + v, 0))} ${pres.corto}.`,
   ];
   const riesgos: string[] = [];
   if (errores.length) riesgos.push(`errores de cálculo sin resolver (${errores.length})`);
   if (insuficiente) riesgos.push('financiación insuficiente');
+  if (brechaAnio0) riesgos.push('gastos del año 0 sin cobertura financiera declarada');
   if (excesoCapacidad) riesgos.push('demanda no atendible con la capacidad activa');
   if (recP.anios === null) riesgos.push('recuperación de la inversión fuera del horizonte');
   if (N < Math.ceil((recP.anios ?? 0) + 1)) riesgos.push('horizonte menor que recuperación + 1');
   if (!p.mercado.fuentesConsulta?.trim()) riesgos.push('fuentes de mercado sin documentar');
+  if (tasaDemo) riesgos.push('tasa tributaria de demostración que condiciona las conclusiones económicas');
   frases.push(
     riesgos.length
       ? `Riesgos y advertencias activas: ${riesgos.join('; ')}. Mientras no se corrijan, el resumen no puede presentarse como una evaluación favorable.`
       : 'El diagnóstico no arroja errores de cálculo ni advertencias críticas bajo los supuestos vigentes; ello no equivale a una validación legal, de mercado ni sanitaria.'
   );
+  if (tasaDemo) {
+    frases.push(
+      `ADVERTENCIA ECONÓMICA: la tasa de impuesto aplicada (${fmtPct(parametro(p, 'tasa_impuesto_utilidades'))}) es un SUPUESTO DE DEMOSTRACIÓN no validado normativamente: la utilidad neta, los flujos FCFF/FCFE, las recuperaciones, los dividendos y los beneficios al país dependen de ella, por lo que las conclusiones económicas quedan CONDICIONADAS a la validación de la tasa legal aplicable.`
+    );
+  }
   frases.push('Datos pendientes de verificar: tasa tributaria aplicable, tipo de cambio oficial vigente, licencias y autorizaciones, certificaciones de aportes y demanda solvente documentada.');
 
-  return { texto: lista(frases), huella: huellaDe({ inv: ind.inversionTotalKUSD, ap: ind.aportacionesTotalesKUSD, ing: ind.ingresosTotales[1], udi: ind.utilidadNeta[1], recP, recS, bp: ind.beneficiosPaisAcumulados, bpE: ind.beneficiosPaisExplotacion, riesgos, N }) };
+  return { texto: lista(frases), huella: huellaDe({ inv: ind.inversionTotalKUSD, ap: ind.aportacionesTotalesKUSD, ing: ind.ingresosTotales[1], udi: ind.utilidadNeta[1], recP, recS, bp: ind.beneficiosPaisAcumulados, bpE: ind.beneficiosPaisExplotacion, riesgos, tasaDemo, brechaAnio0, N }) };
 }
 
 function analisisConclusiones(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
@@ -576,6 +662,7 @@ function analisisConclusiones(p: PlanexProject, m: ComputedModel, pres: Presenta
   const advertencias = m.issues.filter((i) => i.tipo === 'inconsistencia');
   const insuficiente = (m.valores['diferencia_financiacion_k']?.[0] ?? 0) < -0.05;
   const excesoCapacidad = m.servicios.some((s) => s.capacidadesExcedidas.length > 0);
+  const tasaDemo = p.parametros.find((x) => x.id === 'tasa_impuesto_utilidades')?.demo ?? false;
 
   const frases: string[] = [];
   frases.push(
@@ -583,7 +670,7 @@ function analisisConclusiones(p: PlanexProject, m: ComputedModel, pres: Presenta
   );
   frases.push(
     recP.anios !== null && !recP.indeterminado
-      ? `El flujo de caja del proyecto recupera la inversión total en ${fmtAnios(recP.anios)}${ind.recuperacionSocios.anios !== null && !ind.recuperacionSocios.indeterminado ? `, y el flujo de los socios recupera el capital aportado en ${fmtAnios(ind.recuperacionSocios.anios)}` : ''}. Estos períodos derivan de los flujos vigentes y pueden cambiar al cambiar cualquier supuesto.`
+      ? `El flujo de caja del proyecto recupera la inversión total en ${fmtAnios(recP.anios)} (recuperación simple, sin descontar)${ind.recuperacionSocios.anios !== null && !ind.recuperacionSocios.indeterminado ? `, y el flujo de los socios recupera el capital aportado en ${fmtAnios(ind.recuperacionSocios.anios)}` : ''}. Estos períodos derivan de los flujos vigentes y pueden cambiar al cambiar cualquier supuesto.`
       : 'El flujo de caja del proyecto NO recupera la inversión total dentro del horizonte: la propuesta, tal como está modelada, no puede presentarse como recuperada.'
   );
   const bloqueantes: string[] = [];
@@ -597,9 +684,9 @@ function analisisConclusiones(p: PlanexProject, m: ComputedModel, pres: Presenta
       : 'Con los supuestos vigentes, el modelo no presenta errores de cálculo ni insuficiencias operativas conocidas; las advertencias restantes figuran en el panel de diagnóstico.'
   );
   frases.push(
-    `Estas conclusiones se generan desde el estado actual del modelo de cálculo. ${advertencias.length ? `Persisten ${advertencias.length} advertencia(s) de consistencia` : 'No persisten advertencias de consistencia'}; en todo caso, la viabilidad jurídica, sanitaria y de mercado de la propuesta queda sujeta a validaciones externas que este documento no sustituye.`
+    `Estas conclusiones se generan desde el estado actual del modelo de cálculo. ${advertencias.length ? `Persisten ${advertencias.length} advertencia(s) de consistencia` : 'No persisten advertencias de consistencia'}${tasaDemo ? '; además, la tasa de impuesto es un supuesto de demostración que CONDICIONA estas conclusiones: debe validarse normativamente antes de cualquier uso oficial' : ''}. En todo caso, la viabilidad jurídica, sanitaria y de mercado de la propuesta queda sujeta a validaciones externas que este documento no sustituye.`
   );
-  return { texto: lista(frases), huella: huellaDe({ inv: ind.inversionTotalKUSD, ing: ind.ingresosTotales[1], udi: ind.utilidadNeta[1], bp: ind.beneficiosPaisAcumulados, recP, recS: ind.recuperacionSocios, bloqueantes, advertencias: advertencias.length, N }) };
+  return { texto: lista(frases), huella: huellaDe({ inv: ind.inversionTotalKUSD, ing: ind.ingresosTotales[1], udi: ind.utilidadNeta[1], bp: ind.beneficiosPaisAcumulados, recP, recS: ind.recuperacionSocios, bloqueantes, advertencias: advertencias.length, tasaDemo, N }) };
 }
 
 // ---------------------------------------------------------------------------

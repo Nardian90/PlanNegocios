@@ -41,10 +41,19 @@ import {
   PageNumber,
   TableOfContents,
   TabStopType,
+  ImageRun,
 } from 'docx';
 import { PlanexProject, ComputedModel } from '../types';
 import { construirDocumentoPlanex, OpcionesDocumento } from '../doc/construir';
 import { DocumentoPlanex, ElementoDoc, TablaDoc, etiquetaAnalisis } from '../doc/modelo';
+import { asegurarTexto } from '../doc/texto';
+import { rasterizarPNG } from '../doc/figuras';
+
+/** Texto canónico WinAnni-seguro compartido con el PDF (misión §8: el
+ *  contenido de ambos formatos coincide carácter a carácter). */
+function T(texto: string | null | undefined): string {
+  return asegurarTexto(texto);
+}
 
 // Anchos de contenido en DXA (twips): A4 = 11906 × 16838 DXA con márgenes 1440.
 const CONTENT_PORTRAIT = 11906 - 1440 * 2;
@@ -98,7 +107,7 @@ function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, anch
           alignment: alinear,
           children: [
             new TextRun({
-              text: celda === null ? '' : celda,
+              text: celda === null ? '' : T(celda),
               bold: esEncabezado,
               color: esEncabezado ? 'FFFFFF' : TINTA,
               size: esEncabezado ? size : size,
@@ -149,21 +158,26 @@ function tablaWord(tabla: TablaDoc, ancho: number): Table {
   });
 }
 
-function tituloTabla(texto: string): Paragraph {
+function tituloTabla(texto: string, _numero?: number): Paragraph {
   return new Paragraph({
     style: 'NotaTabla',
     spacing: { before: 200, after: 80 },
-    children: [new TextRun({ text: texto, bold: true, size: 18, color: AZUL, font: 'Calibri' })],
+    keepNext: true, // evita títulos de tabla huérfanos al final de página (§3.2)
+    keepLines: true,
+    children: [new TextRun({ text: T(texto), bold: true, size: 18, color: AZUL, font: 'Calibri' })],
   });
 }
 
-function parrafoSimple(texto: string, opts?: { italica?: boolean; pequeno?: boolean }): Paragraph {
+/** Párrafo narrativo JUSTIFICADO (§3.1): convención editorial de PLANEX para
+ *  el cuerpo; títulos, etiquetas y celdas NO se justifican. */
+function parrafoSimple(texto: string, opts?: { italica?: boolean; pequeno?: boolean; justificado?: boolean }): Paragraph {
   return new Paragraph({
     style: opts?.pequeno ? 'NotaTexto' : undefined,
-    spacing: { before: 60, after: 60 },
+    spacing: { before: 60, after: 60, line: 276 },
+    alignment: (opts?.justificado ?? true) ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
     children: [
       new TextRun({
-        text: texto,
+        text: T(texto),
         italics: opts?.italica,
         size: opts?.pequeno ? 16 : 20,
         color: TINTA,
@@ -181,21 +195,77 @@ function bloqueAnalisis(el: Extract<ElementoDoc, { tipo: 'analisis' }>): Paragra
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: AMBAR_CLARO },
       border: { left: { style: BorderStyle.SINGLE, size: 18, color: AMBAR, space: 4 } },
       children: [
-        new TextRun({ text: el.bloque.titulo, bold: true, size: 18, color: AMBAR, font: 'Calibri' }),
-        new TextRun({ text: '  ·  ' + etiquetaAnalisis(el.bloque.estado), size: 14, color: el.bloque.estado === 'desactualizado' ? 'B91C1C' : '8C6428', font: 'Calibri' }),
+        new TextRun({ text: T(el.bloque.titulo), bold: true, size: 18, color: AMBAR, font: 'Calibri' }),
+        new TextRun({ text: '  ·  ' + T(etiquetaAnalisis(el.bloque.estado)), size: 14, color: el.bloque.estado === 'desactualizado' ? 'B91C1C' : '8C6428', font: 'Calibri' }),
       ],
     }),
     new Paragraph({
       style: 'AnalisisCuerpo',
       spacing: { before: 0, after: 160 },
+      alignment: AlignmentType.JUSTIFIED,
       shading: { type: ShadingType.CLEAR, color: 'auto', fill: AMBAR_CLARO },
       border: {
         left: { style: BorderStyle.SINGLE, size: 18, color: AMBAR, space: 4 },
         bottom: { style: BorderStyle.SINGLE, size: 2, color: AMBAR_CLARO, space: 1 },
       },
-      children: [new TextRun({ text: el.bloque.texto, size: 18, color: TINTA, font: 'Calibri' })],
+      children: [new TextRun({ text: T(el.bloque.texto), size: 18, color: TINTA, font: 'Calibri' })],
     }),
   ];
+}
+
+/** Bloque de figura (§9): título APA, imagen PNG rasterizada localmente con
+ *  el MISMO modelo de datos del PDF, leyenda con muestras de color y nota. */
+function bloqueFigura(el: Extract<ElementoDoc, { tipo: 'figura' }>): (Paragraph | Table)[] {
+  const f = el.figura;
+  const { png } = rasterizarPNG(f, { ancho: 640, alto: 320 });
+  const salida: (Paragraph | Table)[] = [];
+  salida.push(
+    new Paragraph({
+      style: 'NotaTabla',
+      spacing: { before: 240, after: 80 },
+      keepNext: true,
+      keepLines: true,
+      children: [new TextRun({ text: T(f.titulo), bold: true, size: 18, color: AZUL, font: 'Calibri' })],
+    })
+  );
+  salida.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      keepLines: true,
+      spacing: { after: 80 },
+      children: [
+        new ImageRun({
+          type: 'png',
+          data: png,
+          transformation: { width: 580, height: 290 },
+        }),
+      ],
+    })
+  );
+  // Leyenda con muestras de color (texto del documento, no dentro del gráfico)
+  salida.push(
+    new Paragraph({
+      spacing: { before: 40, after: 40 },
+      children: f.leyenda.flatMap((item, idx) => {
+        const runs: TextRun[] = [];
+        if (idx > 0) runs.push(new TextRun({ text: '   ·   ', size: 14, color: GRIS_TEXTO, font: 'Calibri' }));
+        runs.push(new TextRun({ text: '—— ', size: 16, color: item.color.replace('#', '').toUpperCase(), font: 'Calibri' }));
+        runs.push(new TextRun({ text: T(item.etiqueta), size: 16, color: GRIS_TEXTO, font: 'Calibri' }));
+        return runs;
+      }),
+    })
+  );
+  salida.push(
+    new Paragraph({
+      style: 'NotaTexto',
+      spacing: { before: 20, after: 60 },
+      children: [
+        new TextRun({ text: `Unidades del eje vertical: ${T(f.unidad)}. Eje horizontal: ${T(f.ejeX)}. `, size: 16, color: GRIS_TEXTO, font: 'Calibri' }),
+        new TextRun({ text: `Nota. ${T(f.nota)}`, italics: true, size: 16, color: GRIS_TEXTO, font: 'Calibri' }),
+      ],
+    })
+  );
+  return salida;
 }
 
 function bloqueAviso(texto: string): Table {
@@ -208,7 +278,7 @@ function bloqueAviso(texto: string): Table {
             children: [
               new Paragraph({
                 spacing: { before: 60, after: 60 },
-                children: [new TextRun({ text: texto, size: 16, color: '92400E', font: 'Calibri' })],
+                children: [new TextRun({ text: T(texto), size: 16, color: '92400E', font: 'Calibri' })],
               }),
             ],
             shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'FFF3CD' },
@@ -241,9 +311,10 @@ function hijosElementos(elementos: ElementoDoc[], salida: (Paragraph | Table)[])
           salida.push(
             new Paragraph({
               spacing: { before: 40, after: 40 },
+              alignment: AlignmentType.LEFT,
               children: [
-                new TextRun({ text: `${item.etiqueta}: `, bold: true, size: 19, color: AZUL, font: 'Calibri' }),
-                new TextRun({ text: item.valor || '—', size: 19, color: TINTA, font: 'Calibri' }),
+                new TextRun({ text: `${T(item.etiqueta)}: `, bold: true, size: 19, color: AZUL, font: 'Calibri' }),
+                new TextRun({ text: T(item.valor) || '—', size: 19, color: TINTA, font: 'Calibri' }),
               ],
             })
           );
@@ -254,12 +325,12 @@ function hijosElementos(elementos: ElementoDoc[], salida: (Paragraph | Table)[])
           new Paragraph({
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 220, after: 80 },
-            children: [new TextRun({ text: el.texto, size: 24, bold: true, color: AZUL, font: 'Calibri' })],
+            children: [new TextRun({ text: T(el.texto), size: 24, bold: true, color: AZUL, font: 'Calibri' })],
           })
         );
         break;
       case 'tabla':
-        if (el.tabla.titulo) salida.push(tituloTabla(el.tabla.titulo));
+        if (el.tabla.titulo) salida.push(tituloTabla(el.tabla.titulo, el.tabla.numero));
         salida.push(tablaWord(el.tabla, CONTENT_PORTRAIT));
         break;
       case 'analisis':
@@ -267,6 +338,9 @@ function hijosElementos(elementos: ElementoDoc[], salida: (Paragraph | Table)[])
         break;
       case 'aviso':
         salida.push(bloqueAviso(el.texto));
+        break;
+      case 'figura':
+        salida.push(...bloqueFigura(el));
         break;
     }
   }
@@ -297,7 +371,7 @@ function encabezadoDocumento(documento: DocumentoPlanex): Header {
         border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: AZUL, space: 2 } },
         children: [
           new TextRun({ text: 'PLAN DE NEGOCIOS', bold: true, size: 15, color: AZUL, font: 'Calibri' }),
-          new TextRun({ text: `\t${documento.meta.nombreProyecto}`, size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
+          new TextRun({ text: `\t${T(documento.meta.nombreProyecto)}`, size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
         ],
       }),
     ],
@@ -325,7 +399,7 @@ export async function exportarDOCX(
   const doc = await construirDOCX(documento);
   const datos = await Packer.toBlob(doc);
   const sufijo = documento.meta.moneda === 'CUP' ? ' CUP' : ' USD';
-  const nombre = `${(documento.meta.nombreProyecto || proyecto.nombre).slice(0, 40)}${sufijo}.docx`;
+  const nombre = `${T((documento.meta.nombreProyecto || proyecto.nombre).slice(0, 40))}${sufijo}.docx`;
   return { datos, nombre, documento };
 }
 
@@ -339,28 +413,28 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 120 },
-      children: [new TextRun({ text: documento.portada.titulo, bold: true, size: 52, color: AZUL, font: 'Calibri' })],
+      children: [new TextRun({ text: T(documento.portada.titulo), bold: true, size: 52, color: AZUL, font: 'Calibri' })],
     })
   );
   portada.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 80 },
-      children: [new TextRun({ text: documento.portada.subtitulo, size: 22, color: TINTA, font: 'Calibri' })],
+      children: [new TextRun({ text: T(documento.portada.subtitulo), size: 22, color: TINTA, font: 'Calibri' })],
     })
   );
   portada.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 400 },
-      children: [new TextRun({ text: documento.portada.marca, size: 17, color: GRIS_TEXTO, font: 'Calibri' })],
+      children: [new TextRun({ text: T(documento.portada.marca), size: 17, color: GRIS_TEXTO, font: 'Calibri' })],
     })
   );
   portada.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 120 },
-      children: [new TextRun({ text: documento.portada.nombreProyecto, bold: true, size: 34, color: TINTA, font: 'Calibri' })],
+      children: [new TextRun({ text: T(documento.portada.nombreProyecto), bold: true, size: 34, color: TINTA, font: 'Calibri' })],
     })
   );
   if (documento.portada.denominacion) {
@@ -368,7 +442,7 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 300 },
-        children: [new TextRun({ text: documento.portada.denominacion, size: 21, color: GRIS_TEXTO, font: 'Calibri' })],
+        children: [new TextRun({ text: T(documento.portada.denominacion), size: 21, color: GRIS_TEXTO, font: 'Calibri' })],
       })
     );
   }
@@ -378,8 +452,8 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
         alignment: AlignmentType.CENTER,
         spacing: { after: 50 },
         children: [
-          new TextRun({ text: `${cifra.etiqueta}: `, bold: true, size: 19, color: TINTA, font: 'Calibri' }),
-          new TextRun({ text: cifra.valor, size: 19, color: TINTA, font: 'Calibri' }),
+          new TextRun({ text: `${T(cifra.etiqueta)}: `, bold: true, size: 19, color: TINTA, font: 'Calibri' }),
+          new TextRun({ text: T(cifra.valor), size: 19, color: TINTA, font: 'Calibri' }),
         ],
       })
     );
@@ -415,7 +489,7 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
         pageBreakBefore: true,
-        children: [new TextRun({ text: seccion.titulo, size: 30, bold: true, color: AZUL, font: 'Calibri' })],
+        children: [new TextRun({ text: T(seccion.titulo), size: 30, bold: true, color: AZUL, font: 'Calibri' })],
       })
     );
 
@@ -429,14 +503,14 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
           grupos.push({ orientacion: 'apaisado', hijos: [] });
         }
         const g = grupos[grupos.length - 1];
-        if (el.tabla.titulo) g.hijos.push(tituloTabla(el.tabla.titulo));
+        if (el.tabla.titulo) g.hijos.push(tituloTabla(el.tabla.titulo, el.tabla.numero));
         g.hijos.push(tablaWord(el.tabla, CONTENT_LANDSCAPE));
         i++;
         // Las tablas estrechas contiguas se quedan también en apaisado para
         // evitar dos saltos de orientación innecesarios.
         while (i < seccion.elementos.length && seccion.elementos[i].tipo === 'tabla') {
           const t = seccion.elementos[i] as Extract<ElementoDoc, { tipo: 'tabla' }>;
-          if (t.tabla.titulo) g.hijos.push(tituloTabla(t.tabla.titulo));
+          if (t.tabla.titulo) g.hijos.push(tituloTabla(t.tabla.titulo, t.tabla.numero));
           g.hijos.push(tablaWord(t.tabla, CONTENT_LANDSCAPE));
           i++;
         }
@@ -471,7 +545,7 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
 
   const doc = new Document({
     creator: 'PLANEX Cuba',
-    title: `${documento.meta.nombreProyecto} — Plan de Negocios`,
+    title: `${T(documento.meta.nombreProyecto)} — Plan de Negocios`,
     description: `Documento generado por PLANEX Cuba. Moneda de presentación: ${meta.moneda}.`,
     features: { updateFields: true },
     styles: {

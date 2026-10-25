@@ -31,10 +31,15 @@ describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => 
     expect(modelo.ok).toBe(true);
   });
 
-  test('sin advertencias importantes en el diagnóstico de la plantilla demostrativa', () => {
-    const { resumen } = diagnosticar(crearProyectoClinica(), modelo);
+  test('la plantilla demo presenta los hallazgos REALES de la conciliación del arranque (DOC-002 §4.2)', () => {
+    const { resumen, hallazgos } = diagnosticar(crearProyectoClinica(), modelo);
     expect(resumen.conteo.error_bloqueante).toBe(0);
-    expect(resumen.conteo.advertencia_importante).toBe(0);
+    // DOC-002 §4.2: el gasto de montaje del año 0 (576,0 kCUP en presentación
+    // CUP) queda SIN cobertura de las fuentes declaradas: la plantilla muestra
+    // honestamente esa brecha como advertencia importante (no la oculta).
+    expect(resumen.conteo.advertencia_importante).toBe(1);
+    expect(hallazgos.some((h) => h.codigo === 'FINANCIACION_ANO0')).toBe(true);
+    expect(resumen.estadoGeneral.estado).toBe('borrador_demostracion');
   });
 
   test('ingresos por servicios del año 1 = 967,8 kUSD (ancla manual)', () => {

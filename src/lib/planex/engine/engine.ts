@@ -329,8 +329,13 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   const fcffCache: Record<number, number> = {};
   const fcfeCache: Record<number, number> = {};
   const fcfeAcumCache: Record<number, number> = {};
+  const escudoCache: Record<number, number> = {};
   const dividendosPasos: Record<number, DividendosAnio> = {};
   let dividendosHasta = -1;
+  // Contexto de evaluación del año en curso: permite derivar el escudo fiscal
+  // reevaluando la PROPIA regla de impuestos del proyecto con una base
+  // hipotética sin intereses (misión DOC-002 §4.1).
+  let ctxEvaluacionAnio: EvalContexto | null = null;
 
   const udiDe = (t: number, pos: number): number => {
     const r = reglaMap.get('utilidad_despues_impuestos_k');
@@ -347,12 +352,57 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     return v;
   };
 
+  /** Escudo fiscal del interés devengado en el año t (misión DOC-002 §4.1).
+   *
+   *  escudo_t = impuesto(sin deducir intereses)_t − impuesto(regla activa)_t
+   *
+   *  Se DERIVA de la propia regla «impuesto_utilidades_k» del proyecto:
+   *  se reevalúa con la base hipotética (UAI + intereses devengados) para no
+   *  imponer una forma tributaria ajena al modelo. Si la regla no depende de
+   *  la base después de intereses, o no puede reevaluarse, el escudo es 0 y
+   *  el FCFF reincorpora el interés completo (coherente con el tratamiento
+   *  fiscal real del modelo). */
+  const escudoFiscalDe = (t: number): number => {
+    if (t in escudoCache) return escudoCache[t];
+    let escudo = 0;
+    const astImp = asts.get('impuesto_utilidades_k');
+    const uai = valores['utilidad_antes_impuestos_k']?.[t];
+    const impuestoReal = valores['impuesto_utilidades_k']?.[t];
+    const interes = motorAnio['mtr_interes_devengado_k'][t] ?? 0;
+    if (astImp && Number.isFinite(uai) && Number.isFinite(impuestoReal) && interes > 0) {
+      const base = ctxEvaluacionAnio && ctxEvaluacionAnio.periodo === t ? ctxEvaluacionAnio : null;
+      if (base) {
+        try {
+          const impuestoSinDeuda = evaluarRegla(astImp, {
+            ...base,
+            resolver: (nombre: string, pos: number): Valor =>
+              nombre === 'utilidad_antes_impuestos_k' ? uai + interes : base.resolver(nombre, pos),
+          });
+          escudo = Math.max(0, impuestoSinDeuda - impuestoReal);
+        } catch {
+          escudo = 0;
+        }
+      } else {
+        // Fuera del ciclo de reglas: aproximación plana de la regla por defecto
+        // (MAX(0, UAI × tasa)). Solo se alcanña como respaldo defensivo.
+        const tasa = valorParam('tasa_impuesto_utilidades') ?? 0;
+        if (Number.isFinite(tasa) && tasa > 0) {
+          escudo = Math.max(0, Math.max(0, (uai + interes) * (tasa as number)) - Math.max(0, uai * (tasa as number)));
+        }
+      }
+    }
+    escudoCache[t] = escudo;
+    return escudo;
+  };
+
   const fcffDe = (t: number, pos: number): number => {
     if (t in fcffCache) return fcffCache[t];
     const udi = udiDe(t, pos);
+    const escudo = escudoFiscalDe(t);
     const v =
       udi +
-      (motorAnio['mtr_interes_devengado_k'][t] ?? 0) +
+      (motorAnio['mtr_interes_devengado_k'][t] ?? 0) -
+      escudo +
       (motorAnio['mtr_depreciacion_k'][t] ?? 0) -
       (motorAnio['mtr_capex_ampliaciones_k'][t] ?? 0) +
       (motorAnio['mtr_recuperacion_ct_k'][t] ?? 0) -
@@ -367,9 +417,11 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   const fcfeDe = (t: number, pos: number): number => {
     if (t in fcfeCache) return fcfeCache[t];
     const fcff = fcffDe(t, pos);
+    const escudo = escudoFiscalDe(t);
     const v =
       fcff -
       (motorAnio['mtr_interes_pagado_k'][t] ?? 0) +
+      escudo +
       (motorAnio['mtr_desembolso_credito_k'][t] ?? 0) -
       (motorAnio['mtr_amortizacion_k'][t] ?? 0);
     fcfeCache[t] = v;
@@ -819,6 +871,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
           sumaInversiones: sumaInversionesFn,
           sumaAportaciones: sumaAportacionesFn,
         };
+        ctxEvaluacionAnio = ctx;
         const v = evaluarRegla(asts.get(id)!, ctx);
         valores[id] ??= {};
         valores[id][t] = v;
@@ -834,6 +887,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
         falla(r, e);
       }
     }
+    ctxEvaluacionAnio = null;
   };
 
   for (const t of years) {
@@ -872,9 +926,11 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   // Series de flujos (desde el motor, con caché; los años sin UDI quedan en 0).
   const fcff: Record<number, number> = {};
   const fcfe: Record<number, number> = {};
+  const escudoFiscal: Record<number, number> = {};
   for (const t of years) {
     fcff[t] = fcffCache[t] ?? 0;
     fcfe[t] = fcfeCache[t] ?? 0;
+    escudoFiscal[t] = escudoCache[t] ?? 0;
   }
   const fcffAcum = acumular(fcff, years);
   const fcfeAcum = acumular(fcfe, years);
@@ -985,6 +1041,7 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     fcffAcumulado: fcffAcum,
     fcfe,
     fcfeAcumulado: fcfeAcum,
+    escudoFiscal,
     capexAmpliaciones: capexAmp,
   };
 
@@ -1047,6 +1104,27 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
         mensaje: `Exceso de financiación sin asignar: ${fmtK(dif)} kUSD por encima de la inversión total. Verifique si corresponde a capital de trabajo adicional o ajuste las fuentes.`,
         seccion: 'financiero',
       });
+    }
+  }
+  // Conciliación del desembolso inicial (misión DOC-002 §4.2): los gastos de
+  // la fase de montaje (año 0) son salidas de caja NO incluidas en la
+  // inversión total; si las fuentes declaradas no los cubren, existe una
+  // brecha de financiación del año 0 que el plan debe resolver o declarar.
+  {
+    const udi0 = valores['utilidad_despues_impuestos_k']?.[0];
+    const gastoAnio0 = Number.isFinite(udi0) ? Math.max(0, -(udi0 as number)) : 0;
+    const finDisp0 = valores['financiacion_disponible_k']?.[0];
+    const invTotal0 = valores['inversion_total_k']?.[0];
+    if (gastoAnio0 > 0.005 && Number.isFinite(finDisp0) && Number.isFinite(invTotal0)) {
+      const brecha = (finDisp0 as number) - (invTotal0 as number) - gastoAnio0;
+      if (brecha < -0.05) {
+        issues.push({
+          tipo: 'inconsistencia',
+          codigo: 'FINANCIACION_ANO0',
+          mensaje: `Los gastos de la fase de montaje del año 0 (${fmtK(gastoAnio0)} kUSD: nómina de montaje y otros costos no capitalizables) NO están incluidos en la inversión total y quedan SIN cobertura: las fuentes declaradas cubren la inversión total, pero la necesidad total del arranque (inversión + gastos del año 0) excede la financiación disponible en ${fmtK(Math.abs(brecha))} kUSD. Financie esa brecha (mayor capital de trabajo o aporte adicional) o declárela expresamente como supuesto pendiente.`,
+          seccion: 'financiero',
+        });
+      }
     }
   }
   // Recuperación y horizonte (indicador del proyecto)

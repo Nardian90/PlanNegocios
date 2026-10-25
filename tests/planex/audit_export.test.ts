@@ -80,9 +80,9 @@ describe('MISIÓN §16.7 — PDF: composición, índice y coherencia', () => {
     expect(texto).toContain(fmtK(m.indicadores.inversionTotalKUSD));
     expect(texto).toContain('1.480,0'); // inversión total (formato es-ES)
     expect(texto).toContain('1.180,0'); // aportaciones
-    // Recuperaciones duales con un decimal (tasa 743: FCFF 3,4 / FCFE 3,2;
-    // no la cifra vieja de 4,0).
-    expect(texto).toContain('3,4 años'); // FCFF
+    // Recuperaciones duales con un decimal (tasa 743, FCFF corregido con
+    // interés después de impuestos: FCFF 3,5 / FCFE 3,2; no la cifra vieja).
+    expect(texto).toContain('3,5 años'); // FCFF (3,46 con escudo fiscal)
     expect(texto).toContain('3,2 años'); // FCFE
     expect(texto).not.toContain('cuatro años');
   });
@@ -217,14 +217,14 @@ describe('MISIÓN §16.7 — XLSX: fórmulas reales, referencias y recálculo co
     expect(textos.some((t) => t === 'advertencia_importante')).toBe(true);
     expect(textos.some((t) => t === 'informacion_pendiente')).toBe(true);
     expect(textos.some((t) => t === 'observacion_calidad')).toBe(true);
-    // Y el resumen de las 7 dimensiones.
-    expect(textos.some((t) => t.includes('Integridad matemática'))).toBe(true);
-    expect(textos.some((t) => t.includes('Coherencia financiera'))).toBe(true);
-    expect(textos.some((t) => t.includes('Consistencia operativa'))).toBe(true);
-    expect(textos.some((t) => t.includes('Cumplimiento estructural'))).toBe(true);
-    expect(textos.some((t) => t.includes('Calidad y trazabilidad'))).toBe(true);
+    // Y el resumen de las SEIS dimensiones independientes (DOC-002 §5).
+    expect(textos.some((t) => t.includes('Integridad aritmética'))).toBe(true);
+    expect(textos.some((t) => t.includes('Coherencia financiera y contable'))).toBe(true);
+    expect(textos.some((t) => t.includes('Evidencia y trazabilidad'))).toBe(true);
+    expect(textos.some((t) => t.includes('Cumplimiento de la estructura metodológica'))).toBe(true);
+    expect(textos.some((t) => t.includes('Estado de validación normativa y comercial'))).toBe(true);
     expect(textos.some((t) => t.includes('Calidad documental'))).toBe(true);
-    expect(textos.some((t) => t.includes('validación legal'))).toBe(true);
+    expect(textos.some((t) => t.includes('Borrador de demostración'))).toBe(true); // estado general
   });
 
   test('el libro se marca con recálculo automático al abrir (fullCalcOnLoad)', async () => {
@@ -238,9 +238,11 @@ describe('MISIÓN §16.7 — XLSX: fórmulas reales, referencias y recálculo co
     const wb = XLSX.read(datos, { type: 'array' });
     const res = wb.Sheets['Resumen'] as Record<string, { v?: unknown }>;
     const textos = Object.values(res).map((c) => String(c?.v ?? ''));
-    // La recuperación del proyecto ya NO es la cifra vieja de 4,0.
+    // La recuperación del proyecto ya NO es la cifra vieja de 4,0 ni la del
+    // FCFF con interés completo (3,4): el FCFF corregido da 3,5 (DOC-002 §4.1).
     expect(textos.some((t) => t === '4,0')).toBe(false);
-    expect(textos.some((t) => t === '3,4')).toBe(true); // tasa 743
+    expect(textos.some((t) => t === '3,4')).toBe(false);
+    expect(textos.some((t) => t === '3,5')).toBe(true); // tasa 743, escudo fiscal
     // Los beneficios al país del resumen = los del modelo (conciliados).
     const valores = Object.values(res).map((c) => (typeof c?.v === 'number' ? c.v : 0));
     expect(valores).toContain(m.indicadores.beneficiosPaisAcumulados);
