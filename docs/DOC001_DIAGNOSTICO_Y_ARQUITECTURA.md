@@ -20,7 +20,7 @@
 | D5 | **Defecto de navegación reproducido**: «Previsualizar plan» desde el editor llamaba `navegar('/preview')` sin `?plan=`, y la vista redirigía a `/proyectos` por no tener identificador | `PlanexApp.tsx:374` + guardia de `VistaPreviaDoc` (`if (!planRuta) navegar('/proyectos')`) | El parámetro de URL se introdujo para compartir enlaces y el menú no se actualizó |
 | D6 | Los textos analíticos incrustaban cifras con `fmtK` y unidades kUSD fijas (57 usos en `analisis.ts`, 8 en `controles.ts`) | `engine/analisis.ts` | El narrador dinámico se creó en AUDIT-001 antes de existir moneda de presentación |
 | D7 | El workflow `deploy.yml` mostraba un filtro aparentemente corrupto (`branches: ain]`) | Verificación byte a byte: **artefacto de lectura del entorno** (el filtro de salida elimina la secuencia `[m`); el archivo real contiene `branches: [main]` y los despliegues disparaban correctamente | Sanitización de escapes ANSI en las herramientas de la sesión |
-| D8 | El `tipo_cambio` ya existía como **parámetro Nivel A** (400 CUP/USD, fecha 2026-10-01, fuente documentada, editable) y el motor ya convertía CUP→USD una sola vez | `templates/reglas.ts` (`tipo_cambio`), reglas `inversion_fija_cup_k` y `costo_laboral_k` | Diseño correcto de AUDIT-001 reutilizable como fuente única de la tasa |
+| D8 | El `tipo_cambio` ya existía como **parámetro Nivel A** (400 CUP/USD, fecha 2026-10-01, fuente documentada, editable; actualizado a **743 CUP/USD** en UX-002 por indicación del propietario) y el motor ya convertía CUP→USD una sola vez | `templates/reglas.ts` (`tipo_cambio`), reglas `inversion_fija_cup_k` y `costo_laboral_k` | Diseño correcto de AUDIT-001 reutilizable como fuente única de la tasa |
 
 ### 1.2 Solución seleccionada (misión §3)
 

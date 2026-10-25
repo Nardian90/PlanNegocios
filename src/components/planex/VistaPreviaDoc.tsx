@@ -49,6 +49,7 @@ import {
   useSync,
 } from '@/lib/supabase/sync';
 import { EstadoSincronizacion } from './Colaboracion';
+import { EnlaceAyuda } from './comunes';
 import { navegar, parametrosDesdeHash } from './navegacion';
 import VisorPdf from './VisorPdf';
 import { cn } from '@/lib/utils';
@@ -294,6 +295,8 @@ export default function VistaPreviaDoc() {
               </button>
             ))}
           </div>
+
+          <EnlaceAyuda articulo="guia-monedad-presentacion" etiqueta="Cómo funciona la moneda" />
 
           {/* Estado del documento: actualizado / pendiente / regenerando */}
           <div className="flex items-center gap-1.5 text-xs">

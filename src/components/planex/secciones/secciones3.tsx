@@ -13,7 +13,7 @@ import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, BENEFICIOS_PAIS, ETIQUETAS_GRUPO } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
 import { fmtK, fmtCUP, fmtAnios, mesAnio } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, PanelAnalisis } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { generarAnalisis } from '@/lib/planex/engine/analisis';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { PersonalRow, VehiculoRow, CronogramaRow } from '@/lib/planex/types';
@@ -96,7 +96,8 @@ export function SeccionFuerza({ modelo }: { modelo: ComputedModel }) {
   const grupos = Object.keys(ETIQUETAS_GRUPO) as (keyof typeof ETIQUETAS_GRUPO)[];
 
   return (
-    <Seccion num="4.9" titulo="Fuerza de trabajo" descripcion="Cubanos y extranjeros, directivos y otros trabajadores, subtotales, salario promedio anual en CUP y costo laboral vinculado al modelo financiero.">
+    <Seccion num="4.9" titulo="Fuerza de trabajo" descripcion="Cubanos y extranjeros, directivos y otros trabajadores, subtotales, salario promedio anual en CUP y costo laboral vinculado al modelo financiero."
+      acciones={<EnlaceAyuda articulo="ref-monedas-unidades" etiqueta="Monedas y unidades" />}>
       <Ayuda titulo={ayuda('fuerza')?.titulo ?? ''} texto={ayuda('fuerza')?.texto ?? ''} />
       <CampoTexto etiqueta="Entidad autorizada a contratar la fuerza de trabajo" valor={p.fuerza.entidadContratante} onChange={(v) => actualizar((x) => void (x.fuerza.entidadContratante = v))} />
       <TablaEditor
@@ -188,7 +189,8 @@ export function SeccionInversiones({ modelo }: { modelo: ComputedModel }) {
   ];
 
   return (
-    <Seccion num="4.10" titulo="Inversiones" descripcion="Las partidas de inversión (construcción y montaje, maquinaria y equipos, otros e inducidas) se gestionan en 4.7; aquí se completa el desglose de vehículos y el cronograma inversionista.">
+    <Seccion num="4.10" titulo="Inversiones" descripcion="Las partidas de inversión (construcción y montaje, maquinaria y equipos, otros e inducidas) se gestionan en 4.7; aquí se completa el desglose de vehículos y el cronograma inversionista."
+      acciones={<EnlaceAyuda articulo="con-inversion-vs-gasto" etiqueta="Inversión vs gasto" />}>
       <Ayuda titulo={ayuda('inversiones')?.titulo ?? ''} texto={ayuda('inversiones')?.texto ?? ''} />
       <TablaEditor titulo="Desglose de vehículos por tipo, cantidad y monto estimado" columnas={columnasVeh} filas={p.financiero.vehiculos} onAdd={addVehiculo} onDel={(id) => delFila('vehiculos', id)} addLabel="Añadir vehículo" />
       <TablaEditor
@@ -244,7 +246,8 @@ export function SeccionBeneficios({ modelo }: { modelo: ComputedModel }) {
   const N = p.ajustes.horizonteAnios;
 
   return (
-    <Seccion num="4.11" titulo="Indicadores de beneficios directos al país" descripcion="Por año: impuestos, dividendos de la parte cubana, aranceles, pagos por fuerza de trabajo, canon, royalties y otros. Cada partida declara su período; el total del período completo concilia con resumen y conclusiones.">
+    <Seccion num="4.11" titulo="Indicadores de beneficios directos al país" descripcion="Por año: impuestos, dividendos de la parte cubana, aranceles, pagos por fuerza de trabajo, canon, royalties y otros. Cada partida declara su período; el total del período completo concilia con resumen y conclusiones."
+      acciones={<EnlaceAyuda articulo="ref-indicadores" etiqueta="Cómo leer los indicadores" />}>
       <Ayuda titulo={ayuda('beneficios')?.titulo ?? ''} texto={ayuda('beneficios')?.texto ?? ''} />
       <Card>
         <CardContent className="px-2">

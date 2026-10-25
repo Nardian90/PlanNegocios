@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { supabase } from './cliente';
-import type { ActividadRow, ComentarioRow, PlanRow, SeccionRow, VersionRow } from './tipos';
+import type { ActividadRow, ComentarioRow, MembresiaRow, PlanRow, SeccionRow, VersionRow } from './tipos';
 import { CLAVES_SECCION, extraerSecciones, type ClaveSeccion } from '@/lib/planex/secciones-sync';
 import type { PlanexProject } from '@/lib/planex/types';
 import { SCHEMA_VERSION } from '@/lib/planex/types';
@@ -272,4 +272,36 @@ export async function agregarComentario(planId: string, claveSeccion: ClaveSecci
 export async function eliminarComentario(id: string): Promise<boolean> {
   const { error } = await supabase().from('plan_comments').delete().eq('id', id);
   return !error;
+}
+
+// ----------------------------------------------------------------------------
+// Miembros del espacio compartido (Colaboración → Colaboradores y permisos)
+// ----------------------------------------------------------------------------
+
+/** Membresía con el perfil resuelto cuando RLS lo permite (mismo espacio). */
+export type MiembroWorkspace = MembresiaRow & {
+  perfil?: { id: string; username: string; display_name: string } | null;
+};
+
+export async function listarMiembrosWorkspace(workspaceId: string): Promise<MiembroWorkspace[]> {
+  const sb = supabase();
+  // workspace_members.user_id referencia a auth.users (no hay FK directa a
+  // profiles), así que los perfiles se resuelven en una SEGUNDA consulta;
+  // la política profiles_select permite ver los perfiles de los miembros
+  // de los espacios a los que pertenezco.
+  const { data, error } = await sb
+    .from('workspace_members')
+    .select('workspace_id,user_id,role,created_at,workspaces(id,name,description)')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`No se pudieron leer los colaboradores del espacio: ${error.message}`);
+  const filas = data ?? [];
+  if (filas.length === 0) return [];
+  const { data: perfiles, error: errPerfiles } = await sb
+    .from('profiles')
+    .select('id,username,display_name')
+    .in('id', filas.map((m) => m.user_id));
+  if (errPerfiles) return filas.map((m) => ({ ...m, perfil: null }));
+  const mapa = new Map((perfiles ?? []).map((p) => [p.id, p]));
+  return filas.map((m) => ({ ...m, perfil: mapa.get(m.user_id) ?? null }));
 }

@@ -20,6 +20,8 @@ import { ADVERTENCIA_DATOS_FICTICIOS } from '@/lib/planex/types';
 import { usePlanex } from '@/lib/planex/store';
 import { generarAnalisis, estadoAnalisis, ClaveAnalisis } from '@/lib/planex/engine/analisis';
 import type { ComputedModel } from '@/lib/planex/types';
+import { abrirAyuda } from './navegacion';
+import { capaDeArticulo } from '@/lib/planex/ayuda/contenido';
 
 export function Seccion({ num, titulo, descripcion, children, acciones }: { num: string; titulo: string; descripcion?: string; children: React.ReactNode; acciones?: React.ReactNode }) {
   return (
@@ -437,5 +439,38 @@ export function PanelAnalisis({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Enlace contextual al Centro de ayuda (misión UX-002 §2.3)
+// ----------------------------------------------------------------------------
+
+/**
+ * Chip de ayuda contextual: abre el artículo indicado del Centro de ayuda
+ * EN OTRA PESTAÑA, directo al contenido (no a la portada). El formulario y los
+ * cambios sin guardar de la pestaña de trabajo permanecen intactos.
+ */
+export function EnlaceAyuda({ articulo, etiqueta, compacto = false }: { articulo: string; etiqueta?: string; compacto?: boolean }) {
+  const existe = capaDeArticulo(articulo) !== undefined;
+  if (!existe) {
+    // No se muestran iconos de interrogación sin contenido real (misión §2.3).
+    return null;
+  }
+  const alPulsar = () => {
+    const capa = capaDeArticulo(articulo);
+    abrirAyuda(capa, articulo);
+  };
+  return (
+    <button
+      type="button"
+      onClick={alPulsar}
+      title={etiqueta ? `Ayuda: ${etiqueta}` : 'Ayuda y guía de trabajo (se abre en otra pestaña)'}
+      aria-label={etiqueta ? `Ayuda: ${etiqueta} (abre en otra pestaña)` : 'Ayuda y guía de trabajo (abre en otra pestaña)'}
+      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
+    >
+      <HelpCircle className="size-3" />
+      {!compacto && (etiqueta ?? 'Ayuda')}
+    </button>
   );
 }

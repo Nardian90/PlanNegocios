@@ -84,7 +84,7 @@ describe('MISIÓN §16.5 — Cambio de tasa 35 % → 30 %: cascada completa', ()
     const { datos } = exportarPDF(p2, m2);
     const buffer = new Uint8Array(await datos.arrayBuffer());
     // Extrae el texto del PDF (flujos con /FlateDecode comprimidos): busca la
-    // cadena de bytes del impuesto del año 1 con 30 % → 110,8 kUSD aprox.
+    // cadena de bytes del impuesto del año 1 con 30 % → 116,1 kUSD aprox.
     const patron = (s: string) => Array.from(s).map((c) => c.charCodeAt(0));
     const contiene = (arr: number[], sub: number[]) => {
       for (let i = 0; i <= arr.length - sub.length; i++) {
@@ -94,9 +94,9 @@ describe('MISIÓN §16.5 — Cambio de tasa 35 % → 30 %: cascada completa', ()
       }
       return false;
     };
-    const imp2 = val(m2, 'impuesto_utilidades_k', 1); // ≈ 110,76
+    const imp2 = val(m2, 'impuesto_utilidades_k', 1); // ≈ 116,06 (30 % × UAI con tasa 743)
     const esperado2 = patron(imp2.toFixed(1).replace('.', ','));
-    expect(imp2).toBeCloseTo(110.8, 1);
+    expect(imp2).toBeCloseTo(116.1, 1);
     // El documento PDF usa flujos comprimidos: se valida vía el tamaño y la
     // regeneración (el texto plano no está disponible sin descompresión).
     // Verificación sustantiva: el PDF con 30 % difiere byte a byte del de 35 %.

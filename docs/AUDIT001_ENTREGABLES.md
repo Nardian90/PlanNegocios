@@ -66,7 +66,7 @@ Defectos detectados, su causa, el riesgo económico y la corrección implementad
 
 ### Monedas y redondeo (§3.2)
 
-- CUP y USD nunca se suman sin convertir: las partidas en CUP (p. ej. costo laboral, inversiones del Centro) se convierten UNA vez con `tipo_cambio` (400 CUP/USD, supuesto documentado). Precisión interna completa; redondeo únicamente en presentación (es-ES, un decimal, miles con punto).
+- CUP y USD nunca se suman sin convertir: las partidas en CUP (p. ej. costo laboral, inversiones del Centro) se convierten UNA vez con `tipo_cambio` (supuesto documentado; 400 CUP/USD en el momento de la auditoría, actualizado a 743 CUP/USD en UX-002 por indicación del propietario). Precisión interna completa; redondeo únicamente en presentación (es-ES, un decimal, miles con punto).
 
 ---
 
@@ -135,7 +135,7 @@ Segundo proyecto con estructura de negocio DISTINTA, construido con las mismas r
 Ninguna parte de la aplicación valida cumplimiento legal, tributario, sanitario ni de inversión; la estructura documental NO equivale a validación normativa. Pendientes de validación externa antes de un uso oficial:
 
 1. **Tasa del impuesto sobre utilidades**: 35 % (clínica) y 30 % (centro) son supuestos de demostración editables; documentar la tasa legal aplicable con su fuente normativa vigente.
-2. **Tipo de cambio**: 400 CUP/USD, supuesto editable; documentar tipo de cambio oficial y fecha.
+2. **Tipo de cambio**: 743 CUP/USD (tasa ilustrativa pendiente de validación oficial), supuesto editable; documentar tipo de cambio oficial y fecha.
 3. **Licencias y autorizaciones**: licencia sanitaria (MINSAP), registro de la empresa (Registro Mercantil), autorizaciones ambientales, CEPEC/DAMN según la modalidad; la app exige completar los campos pero no verifica documentos.
 4. **Mercado**: demanda aparente/solvente y captación son supuestos ilustrativos sin fuente verificada; una propuesta real exige investigación primaria con fecha.
 5. **Avalúos**: activos aportados (fijos, circulantes, derechos) requieren certificación (Dirección de Patrimonio del MFP cuando corresponda) y conciliación documental con el inventario de inversiones.

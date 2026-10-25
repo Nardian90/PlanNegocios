@@ -10,7 +10,7 @@
 [PASA] 4a. Sesión restaurada tras recarga completa
 [PASA] 5a. Colaborador2 crea un plan desde la plantilla Clínica (secciones+parámetros+reglas en Supabase)
 [PASA] 5b. Contenido inicial guardado en Supabase (indicador «Guardado»)
-       plan creado: 02fbb7af-7eba-4c9f-b3c2-b9b5a3654892
+       plan creado: f88f7983-f982-421b-b663-661982a6c1c9
 [PASA] 7a. Colaborador1 ve el plan creado por Colaborador2 sin recargar (Realtime)
 [PASA] 7b. Colaborador1 abre el mismo plan desde su sesión
 [PASA] 8a. Colaborador1 edita «Mercado» y el cambio queda confirmado en el servidor
@@ -20,7 +20,7 @@
 [PASA] 9a. Ambos editan secciones distintas y cada guardado se confirma
 [PASA] 9b. Colaborador1 recibe la sección de Colaborador2 sin conflicto
 [PASA] 12a. Tasa del impuesto 35 → 30 % guardada en Supabase (parámetros del proyecto)
-[PASA] 12b. Colaborador2 ve el impuesto recalculado (110,8) en vivo tras el cambio de tasa
+[PASA] 12b. Colaborador2 ve el impuesto recalculado (116,1) en vivo tras el cambio de tasa
 [PASA] 12c. Tras recarga, el parámetro y el recálculo persisten desde el servidor
 [PASA] 13. Autoguardado + recuperación tras recarga
 [PASA] 14a. Aviso visible de pérdida de conexión
@@ -36,9 +36,19 @@
 [PASA] 18c. El contenido activo corresponde a la versión restaurada
 [PASA] 18d. El historial NO se borró: la versión posterior sigue registrada
 [PASA] 18e. Existe la copia de seguridad automática previa a la restauración
+[PASA] 23a. Comparar versiones muestra la diferencia REAL campo a campo
+[PASA] 23b. La comparación queda en la URL (?a/?b) y es reproducible
+[PASA] 23c. Recargar la URL de comparación restaura exactamente la misma vista
+[PASA] 23d. Historial/comparación/permisos viven en la vista, no en modales
+[PASA] 23e. La pestaña Colaboradores muestra los roles reales del espacio
+[PASA] 24a. Enlace directo al artículo de ayuda reproduce el contenido pertinente
+[PASA] 24b. La búsqueda de la ayuda encuentra la guía de versiones
+[PASA] 24c. Las CUATRO capas de Diátaxis son navegables por pestañas
+[PASA] 24d. El icono propio responde en la ruta servida (/icon.svg)
+[PASA] 24e. Los metadatos referencian el icono nuevo (SVG+ICO, sin el antiguo)
 [PASA] 19a. La vista de documento es una página completa, no un modal
 [PASA] 19c. PDF descargado y válido (428 kB)
-[PASA] 19b. El PDF del visor refleja el estado compartido actualizado (impuesto 110,8)
+[PASA] 19b. El PDF del visor refleja el estado compartido actualizado (impuesto 116,1 con tasa 743)
 [PASA] 19d. Excel con hoja Parametros y tasa exportada (0.3)
 [PASA] 19e. Excel con fórmula real del impuesto (=MAX(0,(C$22*Parametros!$C$3))…)
 [PASA] 20a. JSON con reglas (52) y parámetros (28)
@@ -57,4 +67,4 @@
 [PASA] 22. Sin errores de consola relevantes en ambas sesiones
 
 == Resumen ==
-Comprobaciones: 53 · Fallidas: 0
+Comprobaciones: 63 · Fallidas: 0

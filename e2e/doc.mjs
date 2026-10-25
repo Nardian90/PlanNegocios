@@ -184,7 +184,8 @@ const run = async () => {
     if (paginasPdfCup === numPaginas) ok(10, `Descarga CUP: el PDF tiene las mismas ${numPaginas} páginas que el visor`);
     else falla(10, 'El PDF descargado no coincide con el visor', `visor=${numPaginas} pdf=${paginasPdfCup}`);
     const partesCup = [...pdfCup.matchAll(/\((.*?)\) Tj/g)].map((m) => m[1]).join(' ').replace(/\\(\(|\))/g, (x) => x.slice(1));
-    if (partesCup.includes('Miles de CUP (kCUP)') && partesCup.includes('592.000,0')) ok(11, 'Descarga CUP: unidades kCUP e importe convertido (592.000,0) presentes');
+    // Tasa 743: 1 480 kUSD × 743 = 1.099.640,0 kCUP.
+    if (partesCup.includes('Miles de CUP (kCUP)') && partesCup.includes('1.099.640,0')) ok(11, 'Descarga CUP: unidades kCUP e importe convertido (1.099.640,0) presentes');
     else falla(11, 'El PDF en CUP no contiene las unidades o cifras esperadas');
 
     // ------------------------------------------- volver a USD y descarga

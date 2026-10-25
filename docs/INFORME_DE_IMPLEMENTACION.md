@@ -106,7 +106,7 @@ tests/planex/               58 pruebas: motor (35) + XLSX (16) + PDF (7)
 ## 6. Requisitos legales, tributarios, sanitarios y de mercado pendientes de validación por el usuario
 
 - **Tasa del impuesto sobre utilidades** (35 % es supuesto demostrativo editable): confirmar régimen tributario aplicable, exenciones y base legal vigente.
-- **Tipo de cambio CUP/USD** (400 como referencia ficticia): tasa oficial, fecha y fuente.
+- **Tipo de cambio CUP/USD** (743 como referencia ficticia, pendiente de validación oficial): tasa oficial, fecha y fuente.
 - Certificación de la **Dirección de Patrimonio del MFP** para aportes de derechos reales; avalúos de activos aportados.
 - Licencia sanitaria (MINSAP), registros y autorizaciones (ONEI/Registro Mercantil, CEPEC/DAMN según corresponda), ambientales y de residuos biomédicos.
 - Regulación laboral y de la entidad empleadora autorizada para contratar la fuerza de trabajo; tratamiento de cargas y contribuciones sobre salarios (factor 1,0 de fábrica).

@@ -77,7 +77,7 @@ describe('MISIÓN §16.6 — Los análisis reaccionan a los cambios de datos', (
     expect(a).not.toContain('se recupera en');
     const c = generarAnalisis(p, m).conclusiones.texto;
     expect(c).toContain('NO recupera');
-    expect(c).not.toMatch(/recupera la inversión total en \d/);
+    expect(/recupera la inversión total en \d/.test(c)).toBe(false);
   });
 
   test('si faltan FUENTES de mercado, el análisis indica la limitación; si se documentan, cambia', () => {
@@ -120,9 +120,10 @@ describe('MISIÓN §16.6 — Los análisis reaccionan a los cambios de datos', (
     const a2 = generarAnalisis(p2, m2).ingresos_costos.texto;
     expect(a1).toContain('35,0 %');
     expect(a2).toContain('30,0 %');
-    // El impuesto del año 1 mencionado cambia de 129,2 a 110,8.
-    expect(a1).toContain('129,2');
-    expect(a2).toContain('110,8');
+    // El impuesto del año 1 mencionado cambia de 135,4 (35 % × UAI con tasa 743)
+    // a 116,1 (30 % × la misma UAI).
+    expect(a1).toContain('135,4');
+    expect(a2).toContain('116,1');
   });
 
   test('el resumen ejecutivo NUNCA se presenta como viable si hay errores o advertencias críticas', () => {
