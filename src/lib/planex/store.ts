@@ -47,6 +47,7 @@ interface EstadoPlanex {
   restaurarRegla: (id: string) => void;
   restaurarReglas: () => void;
   setHorizonte: (n: number) => void;
+  setMonedaPresentacion: (moneda: 'CUP' | 'USD') => void;
   addAportacion: () => void;
   addServicio: () => void;
   addConsumo: () => void;
@@ -199,6 +200,14 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
       const h = Math.max(1, Math.min(30, Math.trunc(n) || 10));
       p.ajustes.horizonteAnios = h;
       p.financiero.otrosIngresos = normalizarSerie(p.financiero.otrosIngresos, h);
+      return { proyecto: p, sucio: true };
+    }),
+
+  setMonedaPresentacion: (moneda) =>
+    set((st) => {
+      const p = clonar(st.proyecto);
+      // Solo presentación: NO toca importes ni cálculos (misión DOC-001 §5.2).
+      p.ajustes.monedaPresentacion = moneda === 'CUP' ? 'CUP' : 'USD';
       return { proyecto: p, sucio: true };
     }),
 

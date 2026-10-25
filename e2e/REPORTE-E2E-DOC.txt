@@ -1,0 +1,24 @@
+[PASA] 1. Inicio de sesión con Supabase real (colaborador 1)
+[PASA] 2. Plan demo creado (id b140bea5…)
+[PASA] 3. El visor muestra el PDF real con 21 páginas (worker de pdf.js activo)
+[PASA] 4. El lienzo del visor está renderizado (no en blanco)
+[PASA] 5. Navegación: «Página siguiente» pasa a la página 2
+[PASA] 6. Zoom: el lienzo cambia de tamaño al ampliar
+[PASA] 7. Búsqueda: «Inversión» con contador de coincidencias (1/53)
+[PASA] 8. Búsqueda: 4 resaltado(s) dibujados sobre la página
+[PASA] 9. Selector CUP: el documento se regeneró y el chip muestra «· CUP»
+[PASA] 10. Descarga CUP: el PDF tiene las mismas 21 páginas que el visor
+[PASA] 11. Descarga CUP: unidades kCUP e importe convertido (592.000,0) presentes
+[PASA] 12. Descarga USD: unidades kUSD e importe nativo (1.480,0) presentes
+[PASA] 13. Word descargado (78 KB, OOXML ZIP válido)
+[PASA] 14. Escenario G: la moneda CUP persiste al cerrar y reabrir el plan (guardada en el plan)
+[PASA] 15. Escenario H/UX: sin desbordamiento horizontal en pantalla pequeña (390 px)
+[PASA] 16. Los controles del visor siguen utilizables en pantalla pequeña
+[PASA] 17. Cambio de tema claro/oscuro aplicado sobre el visor sin interrumpirlo
+[PASA] 18. Captura del visor guardada en docs/capturas/captura-doc001-visor.png
+[PASA] 19. Sin errores de consola relevantes en toda la sesión (worker, visor, exportadores)
+
+Resultado E2E DOC-001: 19 comprobaciones contabilizadas.
+
+Errores de consola (0):
+

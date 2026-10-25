@@ -25,7 +25,7 @@ import { useTheme } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CloudOff, Eye, FileDown, FileSpreadsheet,
+  AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CloudOff, Eye, FileDown, FileSpreadsheet, FileText,
   FolderOpen, HardDriveDownload, History, LayoutTemplate, ListChecks, LogOut, MessageSquare, Moon,
   Save, ScrollText, Stethoscope, Sun, TriangleAlert, Upload, Activity,
 } from 'lucide-react';
@@ -194,6 +194,22 @@ export function PlanexApp() {
       toast.success('PDF generado con la versión vigente de datos y reglas');
     } catch (e) {
       toast.error('No se pudo generar el PDF', { description: (e as Error).message });
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const exportarWord = async () => {
+    if (errores.length > 0 && !confirm(`Hay ${errores.length} error(es) de cálculo. El Word se generará con las partidas afectadas marcadas. ¿Continuar?`)) return;
+    if (!(await preparadoParaExportar())) return;
+    setExportando(true);
+    try {
+      const { exportarDOCX } = await import('@/lib/planex/io/docx');
+      const { datos, nombre } = await exportarDOCX(proyecto, modelo);
+      descargarArchivo(nombre.replace(/[^\w.\- áéíóúÁÉÍÓÚñÑ]/g, ''), datos, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      toast.success('Documento Word generado con el mismo modelo documental que el PDF');
+    } catch (e) {
+      toast.error('No se pudo generar el documento Word', { description: (e as Error).message });
     } finally {
       setExportando(false);
     }
@@ -371,11 +387,14 @@ export function PlanexApp() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Intercambio y documentos</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => navegar('/preview')} className="gap-2">
-                  <Eye className="size-4" /> Previsualizar plan (vista dedicada)
+                <DropdownMenuItem onClick={() => navegar(planId ? `/preview?plan=${planId}` : '/proyectos')} className="gap-2">
+                  <Eye className="size-4" /> Previsualizar documento (PDF real)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void exportarPdf()} disabled={exportando} className="gap-2">
                   <ArrowDownToLine className="size-4" /> Exportar PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void exportarWord()} disabled={exportando} className="gap-2">
+                  <FileText className="size-4" /> Exportar Word (.docx)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void exportarExcel()} disabled={exportando} className="gap-2">
                   <FileSpreadsheet className="size-4" /> Exportar libro Excel (.xlsx)

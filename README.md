@@ -12,7 +12,7 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
-![Pruebas](https://img.shields.io/badge/Pruebas-176%2B53%2B28_pass-brightgreen?style=flat-square)
+![Pruebas](https://img.shields.io/badge/Pruebas-222%2B53%2B28%2B19_pass-brightgreen?style=flat-square)
 [![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
 
 ### Aplicación en línea
@@ -99,6 +99,9 @@ demostración son **supuestos editables**, no tasas legales vigentes.
   coherentes) y plantilla **Default** general con ayudas metodológicas textuales de la Gaceta.
 - **Exportaciones profesionales**:
   - **PDF** documental con portada, índice paginado, encabezados repetidos y texto seleccionable.
+  - **Word (.docx) real y editable** con el mismo modelo documental que el PDF: estilos de
+    Word, índice actualizable, tablas editables con encabezado repetido, pie «Página X de Y»
+    y orientación apaisada solo en las tablas financieras anchas.
   - **Excel con fórmulas reales y referencias entre hojas** (no valores estáticos): 18 hojas,
     celdas de entrada y fórmulas diferenciadas, y recálculo automático al abrir el libro.
   - **JSON** con esquema versionado para guardar, intercambiar y reabrir proyectos.
@@ -113,8 +116,16 @@ demostración son **supuestos editables**, no tasas legales vigentes.
   verdad y la UI nunca marca un cambio como guardado sin confirmación real. Temas claro/oscuro
   persistentes.
 - **Vistas diferenciadas**: landing de presentación premium, acceso con alias de colaborador
-  (Supabase Auth), panel de proyectos compartidos, editor protegido y previsualización
-  documental como vista de página completa (no modal).
+  (Supabase Auth), panel de proyectos compartidos, editor protegido y **vista de documento con
+  visor PDF real integrado** (pdf.js con worker propio): paginación, zoom, ajuste a
+  ancho/página, búsqueda con resaltados, pantalla completa y descarga idéntica a lo mostrado
+  (nunca un modal, nunca una aproximación visual).
+- **Moneda de presentación del documento (CUP o USD)**: seleccionada desde la propia vista de
+  documento, se guarda en el plan y afecta al visor, al PDF y al Word por igual. La tasa se
+  lee del parámetro `tipo_cambio` existente (con fecha y fuente); la conversión se aplica una
+  sola vez desde la moneda de origen, los porcentajes y cantidades no se convierten, los
+  salarios permanecen en CUP conforme a la metodología 4.9 y los datos originales nunca se
+  modifican.
 - **Validación y consistencia**: alertas clasificadas (error, inconsistencia, pendiente,
   supuesto, documental, legal) con navegación al apartado afectado; control de capacidad de
   servicios, insuficiencia/exceso de financiación, horizonte ≥ recuperación + 1 año y más.
@@ -203,7 +214,9 @@ restaurar su plantilla de origen en cualquier momento.
 
 | Formato | Características |
 |---|---|
-| **PDF** (jsPDF + autoTable) | Doble pasada con índice de numeración real, secciones 4.1–4.12, encabezados repetidos en tablas, pies paginados, texto seleccionable, cifras del modelo en formato es-ES y advertencia de datos ficticios |
+| **PDF** (jsPDF + autoTable) | Doble pasada con índice de numeración real, secciones 4.1–4.12, encabezados repetidos en tablas, pies paginados, texto seleccionable, cifras del modelo en formato es-ES y advertencia de datos ficticios. Se genera desde el **modelo documental canónico** y en la **moneda de presentación** (USD/CUP) elegida |
+| **Word** (docx) | Documento real y editable desde el mismo modelo canónico: portada, campo TOC actualizable (`updateFields`), estilos Heading1/2, tablas editables con encabezado repetido (`tblHeader`) y filas sin cortar (`cantSplit`), pie «Página X de Y», encabezado/pie en todas las secciones y **orientación apaisada solo donde hay tablas financieras anchas**. Sin imágenes ni rasterizados |
+| **Visor integrado** (pdf.js) | Muestra el PDF real (mismos bytes que la descarga) con paginación, zoom, búsqueda con resaltado y pantalla completa; regeneración por huella con indicador de «actualizado / pendiente» y selector de moneda |
 | **Excel** (xlsx-js-style) | 22 hojas con fórmulas reales (Depreciacion por activo, calendario de Deuda, FlujosCaja, Dividendos, Capacidad, BeneficiosPais…): el impuesto es `MAX(0; D$×Parametros!$C$)`; recálculo al abrir (`fullCalcOnLoad`, zip auditable); Controles con los cuatro niveles del diagnóstico; hoja «Reglas» documenta cada traducción y las no traducibles se exportan como valor con aviso explícito |
 | **JSON** | Esquema versionado (`planex.schemaVersion` 2.0.0) con validación e importación segura sin ejecución de código del archivo; conserva recursos, deuda, escenarios, reglas, parámetros y análisis editados con autoría y huellas; las reglas desconocidas quedan deshabilitadas y marcadas |
 
@@ -267,7 +280,7 @@ src/
       model/                 Normalización/creación, % de cumplimentación y controles (diagnóstico §15)
       io/                    jsonio (JSON validado), xlsx (22 hojas), pdf (índice paginado), persistence
       store.ts               Estado global tipado (zustand)
-tests/planex/                176 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7)
+tests/planex/                222 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7) + documento DOC-001 (46)
 docs/                        Informe de implementación, entregables de la auditoría y capturas
 ```
 
@@ -369,6 +382,8 @@ La suite automatizada cubre el motor de cálculo, los exportadores y el intercam
 | Auditoría AUDIT-001 | 109 | Ocho suites espejo de la misión: regresión sobre cifras originales (§16.1/§3.1), depreciación por activo (§16.2), flujos y recuperación (§4.3/§16.3), capacidad derivada de recursos (§16.4), cascada tributaria 35 %→30 % (§16.5), reacción de los textos analíticos y trazabilidad (§16.6/§12.13), exportaciones PDF/XLSX/JSON (§16.7) y generalización con el Centro (§17) |
 | Excel | 16 | Estructura (22 hojas), fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas |
 | PDF | 7 | Contenido, índice, cifras del modelo activo y advertencias |
+| Documento DOC-001 (moneda/Word/consistencia) | 46 | Escenarios A–F de la misión: conversión USD/CUP con integridad de datos y huellas, nota documental de la tasa, salarios en CUP con equivalente, DOCX válido/actualizable/apaisado, consistencia modelo↔PDF↔Word, tablas multipágina con encabezados repetidos, inconsistencias visibles y sincronía del worker — [`docs/DOC001_EVIDENCIAS.md`](docs/DOC001_EVIDENCIAS.md) |
+| Documento E2E (navegador real) | 19 | Visor PDF real con worker bajo el basePath, paginación, zoom, búsqueda con resaltados, selector de moneda con regeneración, descarga idéntica al visor (21 = 21 páginas), Word válido, persistencia de la moneda, móvil, temas y consola limpia — [`e2e/REPORTE-E2E-DOC.txt`](e2e/REPORTE-E2E-DOC.txt) |
 | Colaboración E2E (dos navegadores reales) | 53 | Las 23 pruebas de la misión PLANEX-SUPABASE-001: login con ambos alias y rechazo de credenciales inválidas, sesión restaurada, espacio compartido en dos sesiones, creación/apertura en vivo, edición recibida sin recargar con autor identificado, ediciones simultáneas de secciones distintas, conflicto de la misma sección con resolución explícita, preservación de ediciones no guardadas, persistencia de parámetros con recálculo en vivo, autoguardado tras recarga, reconexión, RLS efectiva, tercero denegado, secretos fuera del bundle, historial y restauración, exportaciones PDF/Excel/JSON desde el estado compartido, despliegue estático, consola — detalle en [`docs/supabase/EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) |
 | RLS/REST con JWT reales | 28 | Visibilidad por pertenencia, concurrencia optimista (versión caducada → 0 filas), denegaciones (anónimo, autoconcesión de membresía/roles, espacios ajenos, alias inmutable, mover secciones, borrar historial) — [`e2e/REPORTE-RLS-REST.txt`](e2e/REPORTE-RLS-REST.txt) |
 | Vistas y acceso (enmienda) | 20 | Landing sin sesión, protección y redirección de vistas, cierre de sesión sin pérdida, previsualización dedicada, Atrás/Adelante, recargas sin 404, subruta, responsive, movimiento reducido — [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) |
