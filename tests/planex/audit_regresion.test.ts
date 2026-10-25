@@ -138,30 +138,31 @@ describe('MISIÓN §16.1 — Regresión sobre las cifras visibles originales', (
     expect(v('costos_variables_k', 1)).toBeCloseTo(254.8, 1);
   });
 
-  test('si los costos y partidas del año 1 permanecen como en el documento: UAI = 369,2 kUSD', () => {
-    // costos_variables 254,8 + laboral 38,28 + canon 30 + mant 36 (3 % de 1 200)
-    // + públicos 40 + admin 48,39 (5 % de 967,8) + otros 10 + dep 117,125 + int 24
-    expect(v('costo_laboral_k', 1)).toBeCloseTo(38.28, 2);
+  test('si los costos y partidas del año 1 permanecen como en el documento: UAI = 386,9 kUSD', () => {
+    // costos_variables 254,8 + laboral 20,61 (15 312 000 CUP / 743 / 1000) + canon 30
+    // + mant 36 (3 % de 1 200) + públicos 40 + admin 48,39 (5 % de 967,8)
+    // + otros 10 + dep 117,125 + int 24. La tasa 743 baja el costo laboral
+    // expresado en kUSD respecto de la tasa 400 (38,28 → 20,61) y la UAI sube.
+    expect(v('costo_laboral_k', 1)).toBeCloseTo(15312000 / 743 / 1000, 2);
     expect(v('mantenimiento_k', 1)).toBeCloseTo(36, 1);
     expect(v('gastos_admin_k', 1)).toBeCloseTo(48.39, 1);
     expect(v('depreciacion_anual_k', 1)).toBeCloseTo(117.125, 3);
     expect(v('interes_k', 1)).toBeCloseTo(24, 1);
-    expect(v('utilidad_antes_impuestos_k', 1)).toBeCloseTo(369.2, 1);
+    expect(v('utilidad_antes_impuestos_k', 1)).toBeCloseTo(369.185 + (38.28 - 15312000 / 743 / 1000), 1);
   });
 
-  test('con la regla simplificada demostrativa del 35 %: impuesto año 1 = 129,22 kUSD', () => {
-    // El ancla del documento es la cifra PUBLICADA (129,22, redondeada del
-    // 35 % × 369,185 = 129,21475 exacto). El motor calcula con precisión
-    // completa: se verifica a UN decimal del ancla redondeada (129,2) y se
-    // documenta el valor exacto.
-    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(129.22, 1);
-    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(369.185 * 0.35, 4);
+  test('con la regla simplificada demostrativa del 35 %: impuesto año 1 = 135,40 kUSD', () => {
+    // Con la tasa 743 el exacto es el 35 % × UAI año 1 (UAI = 369,185 + 38,28 −
+    // 15 312 000 / 743 / 1000 = 386,8567): 135,39983 exacto. El motor calcula
+    // con precisión completa: se verifica a UN decimal (135,4) y el valor exacto.
+    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo(135.4, 1);
+    expect(v('impuesto_utilidades_k', 1)).toBeCloseTo((369.185 + (38.28 - 15312000 / 743 / 1000)) * 0.35, 4);
   });
 
-  test('utilidad después de impuestos del año 1 bajo esas mismas premisas: 239,98 kUSD', () => {
-    // Ancla publicada: 239,98 (el exacto es 369,185 × 0,65 = 239,97025).
-    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(239.98, 1);
-    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(369.185 * 0.65, 4);
+  test('utilidad después de impuestos del año 1 bajo esas mismas premisas: 251,46 kUSD', () => {
+    // El exacto es UAI × 0,65 = 251,45683 (tasa 743).
+    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo(251.46, 1);
+    expect(v('utilidad_despues_impuestos_k', 1)).toBeCloseTo((369.185 + (38.28 - 15312000 / 743 / 1000)) * 0.65, 4);
   });
 
   test('los resultados CORREGIDOS difieren donde el modelo viejo era defectuoso (documentación del cambio)', () => {
@@ -179,9 +180,9 @@ describe('MISIÓN §16.1 — Regresión sobre las cifras visibles originales', (
     expect(rec!).toBeLessThan(5);
     // El flujo del año 1 bajo la metodología FCFF (incluye intereses añadidos
     // por ser flujo del financiador, excluye amortización por no ser gasto).
-    // Ancla publicada: 239,98 + 24 + 117,125 = 381,105 (exacto 381,09525).
-    expect(m.indicadores.fcff[1]).toBeCloseTo(239.98 + 24 + 117.125, 1);
-    expect(m.indicadores.fcff[1]).toBeCloseTo(369.185 * 0.65 + 24 + 117.125, 4);
+    // Con la tasa 743: UDI 251,45683 + int 24 + dep 117,125 = 392,58183 exacto.
+    expect(m.indicadores.fcff[1]).toBeCloseTo(251.46 + 24 + 117.125, 1);
+    expect(m.indicadores.fcff[1]).toBeCloseTo((369.185 + (38.28 - 15312000 / 743 / 1000)) * 0.65 + 24 + 117.125, 4);
   });
 });
 

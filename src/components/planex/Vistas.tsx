@@ -3,11 +3,13 @@
 // ============================================================================
 // PLANEX — shell de vistas (navegación por hash + protección de acceso).
 //
-//   #/             → Landing de presentación        (pública)
-//   #/login        → Acceso (alias + contraseña)    (pública)
+//   #/               → Landing de presentación        (pública)
+//   #/login          → Acceso (alias + contraseña)    (pública)
 //   #/proyectos    → Proyectos compartidos          (protegida)
 //   #/editor?plan= → Editor del plan                (protegida)
 //   #/preview?plan=→ Vista documental                (protegida)
+//   #/colaboracion?plan=&tab= → Colaboración/versiones (protegida)
+//   #/ayuda?capa=&articulo=   → Centro de ayuda       (pública)
 //
 // La sesión la gestiona Supabase Auth (persistida por supabase-js). Las
 // vistas protegidas esperan a que el estado de sesión se restaure antes de
@@ -16,8 +18,8 @@
 // proyectos.
 //
 // División de paquetes: landing y login son ligeras y van en el paquete
-// inicial; el panel, el editor (motor, plantillas, secciones) y la vista
-// documental se cargan en diferido.
+// inicial; el panel, el editor (motor, plantillas, secciones), la vista
+// documental, la colaboración y la ayuda se cargan en diferido.
 // ============================================================================
 
 import * as React from 'react';
@@ -46,6 +48,16 @@ const Editor = dynamic(() => import('./PlanexApp').then((m) => ({ default: m.Pla
 const Previsualizacion = dynamic(() => import('./VistaPreviaDoc'), {
   ssr: false,
   loading: () => <Cargando texto="Cargando la vista documental…" />,
+});
+
+const ColaboracionVista = dynamic(() => import('./VistaColaboracion').then((m) => ({ default: m.VistaColaboracion })), {
+  ssr: false,
+  loading: () => <Cargando texto="Cargando la colaboración del plan…" />,
+});
+
+const AyudaVista = dynamic(() => import('./Ayuda').then((m) => ({ default: m.Ayuda })), {
+  ssr: false,
+  loading: () => <Cargando texto="Cargando la ayuda…" />,
 });
 
 function NoConfigurado() {
@@ -98,7 +110,7 @@ export function Vistas() {
   // destino solicitado para volver a él tras autenticarse correctamente.
   React.useEffect(() => {
     if (!montado) return;
-    const protegida = vista === 'proyectos' || vista === 'editor' || vista === 'preview';
+    const protegida = vista === 'proyectos' || vista === 'editor' || vista === 'preview' || vista === 'colaboracion';
     if (!protegida) return;
     if (estado === 'anonimo' || estado === 'no_configurado') {
       guardarDestino(window.location.hash || '#/proyectos');
@@ -132,6 +144,10 @@ export function Vistas() {
       return estado === 'autenticado' ? <Editor /> : <Cargando texto="Se requiere acceso…" />;
     case 'preview':
       return estado === 'autenticado' ? <Previsualizacion /> : <Cargando texto="Se requiere acceso…" />;
+    case 'colaboracion':
+      return estado === 'autenticado' ? <ColaboracionVista /> : <Cargando texto="Se requiere acceso…" />;
+    case 'ayuda':
+      return <AyudaVista />;
     default:
       return <Landing />;
   }

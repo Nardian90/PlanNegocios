@@ -28,27 +28,27 @@ describe('DOC-001 §5 — Contexto de conversión', () => {
   const p = crearProyectoClinica();
   const ctxUsd = crearContextoMoneda(p, 'USD');
   const ctxCup = crearContextoMoneda(p, 'CUP');
-  const tasa = 400; // parámetro demo tipo_cambio
+  const tasa = 743; // parámetro demo tipo_cambio (tasa ilustrativa, pendiente de validación oficial)
 
   test('la tasa se lee del parámetro existente tipo_cambio (fuente única)', () => {
     const t = tasaCambioDe(p);
     expect(t.tasa).toBe(tasa);
-    expect(t.fecha).toBe('2026-10-01');
+    expect(t.fecha).toBe('2026-10-26');
     expect(t.fuente.length).toBeGreaterThan(0);
     expect(t.demo).toBe(true);
   });
 
   test('USD: kUSD identidad; CUP completos → miles de USD vía tasa', () => {
     expect(ctxUsd.kUSDaK(1480)).toBe(1480);
-    expect(ctxUsd.cupAK(400_000)).toBe(1); // 400 000 CUP = 1000 USD = 1 kUSD
-    expect(ctxUsd.cupAUsd(400_000)).toBe(1000);
-    expect(ctxUsd.montoFilaAK({ id: 'x', concepto: '', categoria: 'inversion_fija', moneda: 'CUP', monto: 100, vidaUtilAnios: 5, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '' })).toBeCloseTo(0.25, 10);
+    expect(ctxUsd.cupAK(743_000)).toBe(1); // 743 000 CUP = 1000 USD = 1 kUSD
+    expect(ctxUsd.cupAUsd(743_000)).toBe(1000);
+    expect(ctxUsd.montoFilaAK({ id: 'x', concepto: '', categoria: 'inversion_fija', moneda: 'CUP', monto: 100, vidaUtilAnios: 5, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '' })).toBeCloseTo(100 / 743, 10); // 100 kCUP / 743 = 0,1346 kUSD
   });
 
   test('CUP: kUSD → kCUP multiplicando por la tasa; CUP → kCUP / 1000; fila USD → kCUP', () => {
-    expect(ctxCup.kUSDaK(1480)).toBe(592_000);
+    expect(ctxCup.kUSDaK(1480)).toBe(1480 * 743); // 1.099.640,0
     expect(ctxCup.cupAK(400_000)).toBe(400);
-    expect(ctxCup.montoFilaAK({ id: 'x', concepto: '', categoria: 'inversion_fija', moneda: 'USD', monto: 100, vidaUtilAnios: 5, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '' })).toBe(40_000);
+    expect(ctxCup.montoFilaAK({ id: 'x', concepto: '', categoria: 'inversion_fija', moneda: 'USD', monto: 100, vidaUtilAnios: 5, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '' })).toBe(100 * 743); // 74 300,0
   });
 
   test('las etiquetas de unidad distinguen kUSD de kCUP (misión §5.1)', () => {
@@ -97,8 +97,8 @@ describe('DOC-001 Escenario A — Presentación en USD', () => {
 
   test('la nota del documento documenta tasa, fecha y fuente (misión §5.2.10)', () => {
     expect(doc.meta.notaMoneda).toContain('USD');
-    expect(doc.meta.notaMoneda).toContain('400,0 CUP por USD');
-    expect(doc.meta.notaMoneda).toContain('2026-10-01');
+    expect(doc.meta.notaMoneda).toContain('743,0 CUP por USD');
+    expect(doc.meta.notaMoneda).toContain('2026-10-26');
     expect(doc.meta.notaMoneda.toLowerCase()).toContain('una sola vez');
   });
 
@@ -118,14 +118,14 @@ describe('DOC-001 Escenario B — Presentación en CUP', () => {
   const p = crearProyectoClinica();
   const original = JSON.parse(JSON.stringify(p)) as typeof p;
   const m = computeProject(p);
-  const tasa = 400;
+  const tasa = 743;
   const doc = construirDocumentoPlanex(p, m, { moneda: 'CUP' });
 
   test('los importes convertibles se escalan a kCUP (= kUSD × tasa) exactamente', () => {
     const cifras = tablaPorTitulo(doc, 'Cifras clave');
     const invKUSD = m.indicadores.inversionTotalKUSD;
     const esperado = fmtK(invKUSD * tasa);
-    expect(cifras!.filas[0][1]).toBe(esperado); // 592.000,0
+    expect(cifras!.filas[0][1]).toBe(esperado); // 1.099.640,0
     expect(cifras!.filas[0][0]).toContain('miles de CUP');
   });
 

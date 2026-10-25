@@ -27,7 +27,7 @@ import {
 } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
 import { fmtK, fmtPct, fmtAnios } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, GraficoFlujo, PanelAnalisis } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, GraficoFlujo, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { ServicioRow, ConsumoRow, InversionRow, RecursoRow } from '@/lib/planex/types';
 
@@ -161,7 +161,8 @@ export function SeccionTecnico({ modelo }: { modelo: ComputedModel }) {
   const capacidadExcedida = modelo.servicios.filter((s) => s.capacidadesExcedidas.length > 0);
 
   return (
-    <Seccion num="4.6" titulo="Aspectos técnicos y operativos" descripcion="Caracterización, capacidad DERIVADA de recursos operativos (escenarios A/B), tecnologías, localización, infraestructura y consumos.">
+    <Seccion num="4.6" titulo="Aspectos técnicos y operativos" descripcion="Caracterización, capacidad DERIVADA de recursos operativos (escenarios A/B), tecnologías, localización, infraestructura y consumos."
+      acciones={<EnlaceAyuda articulo="guia-advertencia-capacidad" etiqueta="Cómo interpretar la capacidad" />}>
       <Ayuda titulo={ayuda('tecnico')?.titulo ?? ''} texto={ayuda('tecnico')?.texto ?? ''} />
       <div className="grid gap-4 md:grid-cols-2">
         <Campo etiqueta="Caracterización de bienes y servicios" valor={p.tecnico.caracterizacion} onChange={(v) => actualizar((x) => void (x.tecnico.caracterizacion = v))} filas={4} />
@@ -356,7 +357,8 @@ export function SeccionFinanciero({ modelo }: { modelo: ComputedModel }) {
   const dif = val('diferencia_financiacion_k', 0);
 
   return (
-    <Seccion num="4.7" titulo="Análisis financiero" descripcion="Inversión inicial, financiación, calendario de deuda, depreciación por activo, proyecciones, flujos FCFF/FCFE, recuperación e dividendos. Todas las celdas verdes provienen del motor.">
+    <Seccion num="4.7" titulo="Análisis financiero" descripcion="Inversión inicial, financiación, calendario de deuda, depreciación por activo, proyecciones, flujos FCFF/FCFE, recuperación e dividendos. Todas las celdas verdes provienen del motor."
+      acciones={<EnlaceAyuda articulo="guia-plan-financiado" etiqueta="¿Cómo sé si el plan está financiado?" />}>
       <Ayuda titulo={ayuda('financiero')?.titulo ?? ''} texto={ayuda('financiero')?.texto ?? ''} />
 
       {/* --- Inversión inicial --- */}

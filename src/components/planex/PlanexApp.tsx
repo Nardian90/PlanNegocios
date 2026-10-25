@@ -19,15 +19,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useTheme } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CloudOff, Eye, FileDown, FileSpreadsheet, FileText,
-  FolderOpen, HardDriveDownload, History, LayoutTemplate, ListChecks, LogOut, MessageSquare, Moon,
-  Save, ScrollText, Stethoscope, Sun, TriangleAlert, Upload, Activity,
+  Activity, AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CircleHelp, CloudOff, Eye, FileDown, FileSpreadsheet, FileText,
+  FolderOpen, HardDriveDownload, LayoutTemplate, ListChecks, LogOut, Moon,
+  Save, Stethoscope, Sun, TriangleAlert, Upload, Users, X,
 } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { computeProject } from '@/lib/planex/engine/engine';
@@ -46,10 +45,10 @@ import {
   useSync,
 } from '@/lib/supabase/sync';
 import type { PlanRow } from '@/lib/supabase/tipos';
-import { navegar, parametrosDesdeHash } from './navegacion';
+import { navegar, parametrosDesdeHash, abrirAyuda } from './navegacion';
 import { nombreSeccion } from '@/lib/planex/secciones-sync';
 // import { EtiquetaIssue } from './comunes'; // sustituido por el panel de diagnóstico (misión §15)
-import { EstadoSincronizacion, DialogoConflictos, DialogoHistorial, DialogoActividad, DialogoComentarios } from './Colaboracion';
+import { EstadoSincronizacion } from './Colaboracion';
 import { SeccionGeneral, SeccionResumen, SeccionNegocio } from './secciones/secciones1';
 import { SeccionTecnico, SeccionFinanciero } from './secciones/secciones2';
 import { SeccionMercado, SeccionFuerza, SeccionInversiones, SeccionBeneficios, SeccionConclusiones } from './secciones/secciones3';
@@ -93,10 +92,6 @@ export function PlanexApp() {
   const [montado, setMontado] = React.useState(false);
   const [planRuta, setPlanRuta] = React.useState<string | null>(() => parametrosDesdeHash().plan ?? null);
   const [verAlertas, setVerAlertas] = React.useState(false);
-  const [verConflictos, setVerConflictos] = React.useState(false);
-  const [verHistorial, setVerHistorial] = React.useState(false);
-  const [verActividad, setVerActividad] = React.useState(false);
-  const [verComentarios, setVerComentarios] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
 
   React.useEffect(() => setMontado(true), []);
@@ -144,10 +139,14 @@ export function PlanexApp() {
   const listaConflictos = resumenConflictos();
 
   // ------------------------------------------------------------------ acciones
+  const irAConflictos = () => {
+    if (planId) navegar(`/colaboracion?plan=${planId}&tab=conflictos`);
+  };
+
   const guardar = async () => {
     const r = await sincronizarAhora();
     if (r.conflictos > 0) {
-      setVerConflictos(true);
+      irAConflictos();
       return;
     }
     if (r.errores > 0) {
@@ -170,7 +169,7 @@ export function PlanexApp() {
   const preparadoParaExportar = async (): Promise<boolean> => {
     const r = await sincronizarAhora();
     if (r.conflictos > 0) {
-      setVerConflictos(true);
+      irAConflictos();
       return confirm(
         'Hay conflictos de edición sin resolver. La exportación usaría sus datos locales vigentes, que pueden no coincidir con la última versión confirmada en el servidor. ¿Exportar de todos modos?',
       );
@@ -249,12 +248,6 @@ export function PlanexApp() {
     await salir();
     navegar('/');
   };
-
-  const irAAlerta = (issue: (typeof modelo.issues)[number]) => {
-    if (issue.seccion) store.setSeccion(issue.seccion);
-    setVerAlertas(false);
-  };
-  void irAAlerta;
 
   /** Lleva al editor de la sección asociada a un hallazgo del diagnóstico. */
   const irAHallazgo = (partida?: string) => {
@@ -406,25 +399,27 @@ export function PlanexApp() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1.5">
-                  <MessageSquare className="size-3.5" /> <span className="hidden lg:inline">Colaboración</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Espacio compartido · {usuario?.perfil?.display_name ?? usuario?.alias}</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => setVerHistorial(true)} className="gap-2">
-                  <History className="size-4" /> Historial de versiones
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerActividad(true)} className="gap-2">
-                  <ScrollText className="size-4" /> Actividad del plan
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerComentarios(true)} className="gap-2">
-                  <MessageSquare className="size-4" /> Comentarios
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => navegar(planId ? `/colaboracion?plan=${planId}` : '/proyectos')}
+              aria-label="Colaboración, historial de versiones y permisos del plan"
+              title="Colaboración, historial de versiones, comparación y permisos (vista integrada)"
+            >
+              <Users className="size-3.5" /> <span className="hidden lg:inline">Colaboración</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => abrirAyuda()}
+              aria-label="Ayuda y guía de trabajo (se abre en otra pestaña)"
+              title="Ayuda y guía de trabajo: tutoriales, guías, referencia y conceptos (otra pestaña)"
+            >
+              <CircleHelp className="size-3.5" /> <span className="hidden lg:inline">Ayuda</span>
+            </Button>
 
             <Button
               variant="ghost"
@@ -454,7 +449,7 @@ export function PlanexApp() {
           <div className="px-3 pb-2">
             <button
               className="w-full rounded-md border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive text-left flex items-center gap-2 hover:bg-destructive/15"
-              onClick={() => setVerConflictos(true)}
+              onClick={irAConflictos}
             >
               <AlertTriangle className="size-3.5 shrink-0" />
               <b>{listaConflictos.length} sección(es) con conflicto de edición</b>
@@ -547,19 +542,64 @@ export function PlanexApp() {
         </main>
       </div>
 
-      {/* -------------------------------------------------- diálogos */}
-      <Dialog open={verAlertas} onOpenChange={setVerAlertas}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bell className="size-4" /> Diagnóstico del plan (misión §15)
-            </DialogTitle>
-            <DialogDescription>
+      {/* -------------------------------------------------- panel lateral de diagnóstico (no modal: misión UX-002 §4.4) */}
+      {verAlertas && (
+        <PanelDiagnostico
+          diagnostico={diagnostico}
+          onCerrar={() => setVerAlertas(false)}
+          onIrAHallazgo={irAHallazgo}
+        />
+      )}
+
+      <Toaster richColors position="bottom-right" />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Panel lateral de diagnóstico: análisis sustancial en una vista integrada
+// que no oculta el editor (misión UX-002 §4.4: fuera de la política de
+// modales). Cierra con Esc, con el fondo o con el botón; el foco vuelve al
+// botón de alertas.
+// ----------------------------------------------------------------------------
+
+function PanelDiagnostico({
+  diagnostico,
+  onCerrar,
+  onIrAHallazgo,
+}: {
+  diagnostico: ReturnType<typeof diagnosticar>;
+  onCerrar: () => void;
+  onIrAHallazgo: (partida?: string) => void;
+}) {
+  React.useEffect(() => {
+    const alTecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar();
+    };
+    window.addEventListener('keydown', alTecla);
+    return () => window.removeEventListener('keydown', alTecla);
+  }, [onCerrar]);
+
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="false" aria-label="Diagnóstico del plan">
+      <div className="absolute inset-0 bg-black/30 dark:bg-black/50" onClick={onCerrar} aria-hidden />
+      <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-background border-l shadow-xl flex flex-col">
+        <div className="border-b px-4 py-3 flex items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold flex items-center gap-2">
+              <Bell className="size-4" /> Diagnóstico del plan
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed max-w-lg">
               Cuatro niveles: error bloqueante, advertencia importante, información pendiente y observación de calidad.
               La completitud formal NO se usa como prueba de calidad: un apartado completo de supuestos sin respaldo no
               es un apartado validado. Pulse un hallazgo para ir a su sección.
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onCerrar} aria-label="Cerrar el panel de diagnóstico">
+            <X className="size-4" />
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {/* Resumen de control por dimensiones */}
           <div className="grid gap-2 sm:grid-cols-2">
             {diagnostico.resumen.dimensiones.map((d) => (
@@ -595,7 +635,7 @@ export function PlanexApp() {
           <div className="space-y-2">
             {diagnostico.hallazgos.length === 0 && <p className="text-sm text-muted-foreground">Sin hallazgos activos.</p>}
             {diagnostico.hallazgos.map((h, k) => (
-              <button key={k} className="w-full text-left rounded-lg border p-2.5 hover:bg-muted/60 flex items-start gap-2.5" onClick={() => irAHallazgo(h.partida)}>
+              <button key={k} className="w-full text-left rounded-lg border p-2.5 hover:bg-muted/60 flex items-start gap-2.5" onClick={() => onIrAHallazgo(h.partida)}>
                 <Badge
                   variant="outline"
                   className={
@@ -618,15 +658,8 @@ export function PlanexApp() {
               </button>
             ))}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      <DialogoConflictos abierto={verConflictos} alCerrar={() => setVerConflictos(false)} />
-      <DialogoHistorial abierto={verHistorial} alCerrar={() => setVerHistorial(false)} />
-      <DialogoActividad abierto={verActividad} alCerrar={() => setVerActividad(false)} />
-      <DialogoComentarios abierto={verComentarios} alCerrar={() => setVerComentarios(false)} />
-
-      <Toaster richColors position="bottom-right" />
+        </div>
+      </div>
     </div>
   );
 }

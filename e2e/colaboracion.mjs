@@ -92,6 +92,12 @@ async function abrirProyectos(pagina) {
   await esperarTexto(pagina, 'Proyectos del espacio compartido');
 }
 
+/** UX-002: desde la vista de Colaboración vuelve al editor del plan. */
+async function volverAlEditor(pagina) {
+  await pagina.locator('header button:has-text("Volver al editor")').click();
+  await pagina.locator('header button:has-text("Guardar")').first().waitFor({ state: 'visible', timeout: 15000 });
+}
+
 /** Espera a que el indicador muestre guardado (confirmado en el servidor). */
 async function esperarGuardado(pagina, ms = 15000) {
   try {
@@ -299,12 +305,13 @@ try {
   ok('12a', 'Tasa del impuesto 35 → 30 % guardada en Supabase (parámetros del proyecto)');
 
   // C2, en el análisis financiero, ve el recálculo en vivo:
+  // (tasa de cambio 743: 30 % × UAI 386,86 = 116,1 kUSD)
   await irASeccion(p2, '4.7');
-  await p2.getByText('110,8').first().waitFor({ timeout: 15000 });
-  ok('12b', `${C2.alias} ve el impuesto recalculado (110,8) en vivo tras el cambio de tasa`);
+  await p2.getByText('116,1').first().waitFor({ timeout: 15000 });
+  ok('12b', `${C2.alias} ve el impuesto recalculado (116,1) en vivo tras el cambio de tasa`);
   await p2.reload({ waitUntil: 'domcontentloaded' });
   await irASeccion(p2, '4.7'); // tras recargar, la sección activa vuelve a «general»
-  await p2.getByText('110,8').first().waitFor({ timeout: 15000 });
+  await p2.getByText('116,1').first().waitFor({ timeout: 15000 });
   ok('12c', 'Tras recarga, el parámetro y el recálculo persisten desde el servidor');
 
   // ------------------------------------------------- 13. autoguardado + recarga
@@ -341,12 +348,15 @@ try {
   const textoC1Conflicto = await leerCampo(p1, 'Caracterización de productos y servicios');
   comprobar(textoC1Conflicto === 'LOCAL-C1-SIN-CONEXION', '11', 'La edición no guardada de C1 NO desaparece al recibir el cambio remoto');
 
-  // Diálogo de conflicto: comparar + sobrescritura explícita.
+  // Diálogo de conflicto → VISTA INTEGRADA de Colaboración (UX-002 §4.1:
+  // ya no es un modal; el banner «Revisar ahora» navega con ?tab=conflictos).
   await p1.locator('button:has-text("Revisar ahora")').first().click();
   await esperarTexto(p1, 'Conflictos de edición');
-  await p1.locator('button:has-text("Comparar")').first().click();
+  // El botón del conflicto se llama exactamente «Comparar» (no confundir con
+  // la pestaña «Comparar versiones», cuyo texto también lo contiene).
+  await p1.getByRole('button', { name: 'Comparar', exact: true }).first().click();
   await p1.getByText('Su versión (local)').first().waitFor({ timeout: 8000 });
-  const tablaDiff = await p1.locator('[role="dialog"] table tbody tr').count();
+  const tablaDiff = await p1.locator('table tbody tr').count();
   comprobar(tablaDiff >= 1, '10b', 'La comparación campo a campo muestra las diferencias', `${tablaDiff} filas`);
   const aceptarDialogos = (d) => {
     if (d.type() === 'confirm') void d.accept();
@@ -361,58 +371,110 @@ try {
   await esperarValor(p2, 'LOCAL-C1-SIN-CONEXION', 'Caracterización de productos y servicios');
   ok('10d', `${C2.alias} recibe la resolución del conflicto en vivo`);
 
-  // Cerrar el diálogo de conflictos para continuar.
-  await p1.keyboard.press('Escape');
-  await p1.locator('div[data-state="open"][data-slot="dialog-overlay"]').waitFor({ state: 'detached', timeout: 8000 }).catch(async () => {
-    await p1.keyboard.press('Escape');
-    await p1.waitForTimeout(400);
-  });
+  // Volver al editor desde la vista integrada (sin diálogos que cerrar).
+  await volverAlEditor(p1);
 
   // ------------------------------------------------- 18. historial y restauración
   fase = 'versiones';
   await irASeccion(p1, '4.8');
   await escribirCampo(p1, 'Caracterización de productos y servicios', 'MERCADO-PRE-VERSION');
   await esperarGuardado(p1);
-  await p1.locator('button:has-text("Colaboración")').first().click();
-  await p1.locator('[role="menuitem"]:has-text("Historial de versiones")').click();
-  await esperarTexto(p1, 'Historial de versiones');
+  await p1.locator('header button:has-text("Colaboración")').first().click();
+  await p1.locator('[role="tab"]:has-text("Historial de versiones")').click();
+  await esperarTexto(p1, 'Guardar versión actual');
   await p1.fill('input[placeholder*="Descripción del cambio"]', 'versión base del mercado');
-  await p1.locator('[role="dialog"] button:has-text("Guardar")').first().click();
+  await p1.locator('button:has-text("Guardar versión")').click();
   await p1.getByText('Versión guardada', { exact: false }).first().waitFor({ timeout: 10000 });
   ok('18a', 'Instantánea de versión guardada con autoría');
 
-  await p1.locator('button:has-text("Cerrar")').first().click().catch(async () => {
-    await p1.keyboard.press('Escape');
-  });
+  await volverAlEditor(p1);
   await escribirCampo(p1, 'Caracterización de productos y servicios', 'MERCADO-POSTERIOR');
   await esperarGuardado(p1);
-  await p1.locator('button:has-text("Colaboración")').first().click();
-  await p1.locator('[role="menuitem"]:has-text("Historial de versiones")').click();
-  await esperarTexto(p1, 'Historial de versiones');
+  await p1.locator('header button:has-text("Colaboración")').first().click();
+  await p1.locator('[role="tab"]:has-text("Historial de versiones")').click();
+  await esperarTexto(p1, 'Guardar versión actual');
   await p1.fill('input[placeholder*="Descripción del cambio"]', 'cambio posterior');
-  await p1.locator('[role="dialog"] button:has-text("Guardar")').first().click();
+  await p1.locator('button:has-text("Guardar versión")').click();
   await p1.getByText('versión base del mercado').first().waitFor({ timeout: 10000 });
 
   // Restaurar la primera versión guardada (la base):
-  await p1.locator('[role="dialog"] button:has-text("Restaurar")').nth(1).click();
+  await p1.locator('button:has-text("Restaurar")').nth(1).click();
   await esperarTexto(p1, 'Se sustituirá la versión activa del plan');
   await p1.locator('[role="dialog"] button:has-text("Restaurar")').last().click();
   await p1.getByText('Restaurada la versión', { exact: false }).first().waitFor({ timeout: 25000 });
   ok('18b', 'Restauración aplicada (con copia de seguridad automática previa)');
-  // Cerrar el diálogo de historial para seguir trabajando en el editor.
-  await p1.keyboard.press('Escape');
-  await p1.waitForTimeout(500);
+  // Volver al editor para comprobar el contenido activo restaurado.
+  await volverAlEditor(p1);
   await irASeccion(p1, '4.8');
   const trasRestaurar = await leerCampo(p1, 'Caracterización de productos y servicios');
   comprobar(trasRestaurar === 'MERCADO-PRE-VERSION', '18c', 'El contenido activo corresponde a la versión restaurada', `valor="${trasRestaurar}"`);
-  await p1.locator('button:has-text("Colaboración")').first().click();
-  await p1.locator('[role="menuitem"]:has-text("Historial de versiones")').click();
-  await esperarTexto(p1, 'Historial de versiones');
+  await p1.locator('header button:has-text("Colaboración")').first().click();
+  await p1.locator('[role="tab"]:has-text("Historial de versiones")').click();
+  await esperarTexto(p1, 'Guardar versión actual');
+  await p1.getByText('cambio posterior').first().waitFor({ timeout: 10000 });
   const hayPosterior = await p1.getByText('cambio posterior').count();
   const haySeguridad = await p1.getByText('antes de restaurar', { exact: false }).count();
   comprobar(hayPosterior >= 1, '18d', 'El historial NO se borró: la versión posterior sigue registrada');
   comprobar(haySeguridad >= 1, '18e', 'Existe la copia de seguridad automática previa a la restauración');
-  await p1.keyboard.press('Escape');
+
+  // ------------------------------------------------- 23. UX-002: vistas con pestañas, comparación real y permisos
+  fase = 'ux002-colaboracion';
+  // 23a: la pestaña de comparación es reproducible por URL y muestra
+  // diferencias REALES entre dos versiones (no fechas decorativas).
+  await p1.locator('[role="tab"]:has-text("Comparar versiones")').click();
+  await esperarTexto(p1, 'Versión base (A)');
+  // A = v1 («versión base del mercado»), B = v2 («cambio posterior»):
+  // la comparación debe enseñar el campo del mercado cambiando. Las opciones
+  // del selector se rotulan «v<N> · fecha · autor».
+  await p1.locator('#version-a').click();
+  await p1.locator('[role="option"]', { hasText: /v1 ·/ }).first().click();
+  await p1.locator('#version-b').click();
+  await p1.locator('[role="option"]', { hasText: /v2 ·/ }).first().click();
+  await p1.getByText('MERCADO-PRE-VERSION').first().waitFor({ timeout: 10000 });
+  await p1.getByText('MERCADO-POSTERIOR').first().waitFor({ timeout: 10000 });
+  const filasComparadas = await p1.locator('table tbody tr').count();
+  comprobar(filasComparadas >= 1, '23a', 'Comparar versiones muestra la diferencia REAL campo a campo', `${filasComparadas} filas`);
+  const hashComparar = await p1.evaluate(() => window.location.hash);
+  comprobar(/[?&]a=/.test(hashComparar) && /[?&]b=/.test(hashComparar), '23b', 'La comparación queda en la URL (?a/?b) y es reproducible', hashComparar);
+  await p1.reload({ waitUntil: 'domcontentloaded' });
+  await esperarTexto(p1, 'Versión base (A)', 20000);
+  await p1.getByText('MERCADO-POSTERIOR').first().waitFor({ timeout: 15000 });
+  ok('23c', 'Recargar la URL de comparación restaura exactamente la misma vista');
+  const modalesEnVista = await p1.locator('[role="dialog"]').count();
+  comprobar(modalesEnVista === 0, '23d', 'Historial/comparación/permisos viven en la vista, no en modales', `${modalesEnVista} diálogos`);
+  // Permisos reales visibles: los dos editores del espacio.
+  await p1.locator('[role="tab"]:has-text("Colaboradores")').click();
+  await esperarTexto(p1, 'Colaboradores y permisos');
+  await p1.locator('[data-slot="badge"]', { hasText: 'Editor' }).first().waitFor({ timeout: 15000 });
+  const editores = await p1.locator('[data-slot="badge"]', { hasText: 'Editor' }).count();
+  comprobar(editores >= 2, '23e', 'La pestaña Colaboradores muestra los roles reales del espacio', `${editores} editor(es)`);
+  await volverAlEditor(p1);
+
+  // ------------------------------------------------- 24. UX-002: Centro de ayuda Diátaxis
+  fase = 'ux002-ayuda';
+  await ir(p1, '/ayuda?capa=guias&articulo=guia-cambiar-tasa');
+  await esperarTexto(p1, 'Cómo cambiar la tasa de cambio CUP/USD');
+  ok('24a', 'Enlace directo al artículo de ayuda reproduce el contenido pertinente');
+  await p1.fill('input[aria-label="Buscar en la ayuda"]', 'comparar versiones');
+  await esperarTexto(p1, 'resultado(s) para');
+  const hallado = await p1.locator('button:has-text("Cómo consultar y comparar versiones")').count();
+  comprobar(hallado >= 1, '24b', 'La búsqueda de la ayuda encuentra la guía de versiones');
+  for (const capa of ['Tutoriales', 'Guías', 'Referencia']) {
+    await p1.locator('[role="tab"]', { hasText: capa }).click();
+    if (capa === 'Referencia') await esperarTexto(p1, 'Fichas de las fórmulas');
+  }
+  await p1.locator('[role="tab"]', { hasText: 'Conceptos' }).click();
+  await esperarTexto(p1, 'Inversión, gasto operativo');
+  ok('24c', 'Las CUATRO capas de Diátaxis son navegables por pestañas');
+  const estadoIcono = await p1.evaluate(async (ruta) => (await fetch(ruta)).status, 'icon.svg');
+  comprobar(estadoIcono === 200, '24d', 'El icono propio responde en la ruta servida (/icon.svg)');
+  const linkIcono = await p1.evaluate(() => Array.from(document.querySelectorAll('link[rel*="icon"]')).map((l) => l.getAttribute('href')).join(' '));
+  comprobar(/icon\.svg/.test(linkIcono) && /favicon\.ico/.test(linkIcono) && !/logo\.svg/.test(linkIcono), '24e', 'Los metadatos referencian el icono nuevo (SVG+ICO, sin el antiguo)', linkIcono);
+
+  // Volver al editor para las exportaciones del epígrafe 19-20.
+  await ir(p1, `/editor?plan=${planId}`);
+  await esperarTexto(p1, 'Información general', 20000);
+  await esperarGuardado(p1);
 
   // ------------------------------------------------- 19. vista de documento + exportaciones
   fase = 'exportaciones';
@@ -433,7 +495,7 @@ try {
   const bytesPdf = readFileSync(rutaPdf);
   comprobar(bytesPdf.length > 15000 && bytesPdf.slice(0, 5).toString() === '%PDF-', '19c', `PDF descargado y válido (${Math.round(bytesPdf.length / 1024)} kB)`);
   const textoPdf = [...bytesPdf.toString('latin1').matchAll(/\((.*?)\) Tj/g)].map((x) => x[1]).join(' ');
-  comprobar(textoPdf.includes('110,8'), '19b', 'El PDF del visor refleja el estado compartido actualizado (impuesto 110,8)');
+  comprobar(textoPdf.includes('116,1'), '19b', 'El PDF del visor refleja el estado compartido actualizado (impuesto 116,1 con tasa 743)');
 
   const descargaXls = p2.waitForEvent('download', { timeout: 60000 });
   await p2.locator('button:has-text("Excel")').click();
@@ -504,6 +566,7 @@ try {
   await esperarTexto(p1, 'Acceso a PLANEX');
   ok('4c', 'Tras cerrar sesión, las vistas protegidas vuelven a exigir acceso');
   await abrirProyectos(p2);
+  await p2.locator('tbody tr').first().waitFor({ timeout: 15000 });
   const planesTrasLogout = await p2.locator('tbody tr').count();
   comprobar(planesTrasLogout >= 2, '4d', 'Cerrar sesión NO eliminó los proyectos compartidos', `${planesTrasLogout} planes`);
   apunta(`       (planes visibles para C2 antes del logout de C1: ${plansVisiblesC2})`);

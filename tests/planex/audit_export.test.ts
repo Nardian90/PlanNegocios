@@ -80,9 +80,10 @@ describe('MISIÓN §16.7 — PDF: composición, índice y coherencia', () => {
     expect(texto).toContain(fmtK(m.indicadores.inversionTotalKUSD));
     expect(texto).toContain('1.480,0'); // inversión total (formato es-ES)
     expect(texto).toContain('1.180,0'); // aportaciones
-    // Recuperaciones duales con un decimal (no la cifra vieja de 4,0).
-    expect(texto).toContain('3,5 años'); // FCFF
-    expect(texto).toContain('3,3 años'); // FCFE
+    // Recuperaciones duales con un decimal (tasa 743: FCFF 3,4 / FCFE 3,2;
+    // no la cifra vieja de 4,0).
+    expect(texto).toContain('3,4 años'); // FCFF
+    expect(texto).toContain('3,2 años'); // FCFE
     expect(texto).not.toContain('cuatro años');
   });
 
@@ -239,7 +240,7 @@ describe('MISIÓN §16.7 — XLSX: fórmulas reales, referencias y recálculo co
     const textos = Object.values(res).map((c) => String(c?.v ?? ''));
     // La recuperación del proyecto ya NO es la cifra vieja de 4,0.
     expect(textos.some((t) => t === '4,0')).toBe(false);
-    expect(textos.some((t) => t === '3,5')).toBe(true);
+    expect(textos.some((t) => t === '3,4')).toBe(true); // tasa 743
     // Los beneficios al país del resumen = los del modelo (conciliados).
     const valores = Object.values(res).map((c) => (typeof c?.v === 'number' ? c.v : 0));
     expect(valores).toContain(m.indicadores.beneficiosPaisAcumulados);

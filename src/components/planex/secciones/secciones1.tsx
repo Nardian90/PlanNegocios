@@ -12,7 +12,7 @@ import { FileText, ListOrdered } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, ETIQUETAS_APORTACION, DECLARACION_RESPONSABILIDAD } from '@/lib/planex/types';
 import { fmtK, fmtAnios, fechaLarga } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, PanelAnalisis } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { AportacionRow } from '@/lib/planex/types';
 
@@ -120,7 +120,8 @@ export function SeccionResumen({ modelo }: { modelo: ComputedModel }) {
   );
 
   return (
-    <Seccion num="4.4" titulo="Resumen ejecutivo" descripcion="Síntesis del negocio con cifras vinculadas al modelo financiero activo: se actualizan solas al cambiar parámetros o fórmulas.">
+    <Seccion num="4.4" titulo="Resumen ejecutivo" descripcion="Síntesis del negocio con cifras vinculadas al modelo financiero activo: se actualizan solas al cambiar parámetros o fórmulas."
+      acciones={<EnlaceAyuda articulo="guia-diferencia-resumen-tabla" etiqueta="Resumen y cifras: cómo revisarlos" />}>
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         {kpi('Inversión total', `${fmtK(ind.inversionTotalKUSD)} kUSD`)}
         {kpi('Aportaciones', `${fmtK(ind.aportacionesTotalesKUSD)} kUSD`)}

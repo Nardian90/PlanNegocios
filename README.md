@@ -12,7 +12,7 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
-![Pruebas](https://img.shields.io/badge/Pruebas-222%2B53%2B28%2B19_pass-brightgreen?style=flat-square)
+![Pruebas](https://img.shields.io/badge/Pruebas-246%2B63%2B28%2B19_pass-brightgreen?style=flat-square)
 [![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
 
 ### Aplicación en línea
@@ -51,7 +51,11 @@ el navegador. Detalle en [`docs/supabase/`](docs/supabase/).
 
 La plantilla de ejemplo incluye esta advertencia en la aplicación, la previsualización,
 el PDF y el libro Excel. La tasa impositiva del 35 %, el tipo de cambio y demás cifras de
-demostración son **supuestos editables**, no tasas legales vigentes.
+demostración son **supuestos editables**, no tasas legales vigentes. El tipo de cambio
+por defecto es **743 CUP/USD** (tasa ilustrativa del 2026-10-26, PENDIENTE DE VALIDACIÓN
+OFICIAL: sustitúyala por la tasa vigente y documentable antes de un uso oficial). El
+impuesto del 35 % es el supuesto demostrativo vigente, también pendiente de confirmación
+tributaria para el caso concreto de cada proyecto.
 
 ---
 
@@ -126,6 +130,29 @@ demostración son **supuestos editables**, no tasas legales vigentes.
   sola vez desde la moneda de origen, los porcentajes y cantidades no se convierten, los
   salarios permanecen en CUP conforme a la metodología 4.9 y los datos originales nunca se
   modifican.
+- **Centro de ayuda y guía de trabajo (Diátaxis)**: vista pública `#/ayuda` con cuatro capas
+  diferenciadas — tutoriales (recorrido completo verificable con la plantilla de clínica),
+  guías prácticas paso a paso (12: tasa, moneda, financiación, capacidad, fórmulas, PDF,
+  Word, versiones, restauración, permisos…), referencia (secciones 4.1–4.12, parámetros,
+  monedas y unidades, fichas de fórmulas con ejemplo numérico, indicadores, validaciones,
+  exportaciones) y conceptos (inversión vs gasto, ingresos vs caja, recuperación,
+  advertencia vs incumplimiento normativo…). Búsqueda tolerante a acentos con fragmentos,
+  enlaces directos por URL (`?capa=…&articulo=…`) y enlaces contextuales en los módulos
+  (financiación, capacidad, moneda, resumen, configuración, visor, proyectos y colaboración)
+  que abren OTRA pestaña para no perder el contexto de edición. Todo ejemplo numérico está
+  rotulado como didáctico y reproducible con la tasa vigente.
+- **Navegación integrada por vistas y pestañas (estilo GitHub, sin modales)**: la
+  colaboración, el historial de versiones, la **comparación REAL de versiones campo a campo
+  por sección**, los comentarios, los colaboradores con su rol y la resolución de conflictos
+  viven en una vista dedicada `#/colaboracion?plan=…&tab=…` con URL reproducible; el
+  diagnóstico del plan pasa a un panel lateral que no oculta el editor y el editor de
+  fórmulas también dejó de ser modal. Pestañas con estado activo reconocible, orden estable
+  y adaptación a pantallas estrechas; el único diálogo restante es la confirmación breve de
+  restaurar una versión.
+- **Icono propio de PLANEX**: marca vectorial original (documento + barras ascendentes sobre
+  squircle pizarra-verde) con variantes `icon.svg`, `favicon.ico` (16/32/48), PNG 192/512 y
+  `apple-touch-icon` (180, opaco), servidas y verificadas en el build; el favicon anterior
+  genérico fue retirado por completo.
 - **Validación y consistencia**: alertas clasificadas (error, inconsistencia, pendiente,
   supuesto, documental, legal) con navegación al apartado afectado; control de capacidad de
   servicios, insuficiencia/exceso de financiación, horizonte ≥ recuperación + 1 año y más.
@@ -241,6 +268,10 @@ revisan y exportan los mismos planes desde computadoras y navegadores distintos.
   dependencias y la vista documental refleja siempre el estado vigente.
 - **Historial y versiones**: instantáneas inmutables con autoría; restauración con copia de
   seguridad automática previa y aviso de sustitución; registro de actividad append-only.
+- **Vista de Colaboración con pestañas** (`#/colaboracion`): resumen y actividad, historial,
+  **comparación de dos versiones campo a campo** (URL reproducible con `?a=` y `?b=`),
+  comentarios, colaboradores con su rol real y conflictos con resolución explícita —
+  integrada en la navegación, no en ventanas modales.
 - **Modo sin conexión**: aviso visible, cambios pendientes conservados (caché local de
   recuperación) y reintento controlado; al volver, si el otro creó una versión nueva, se pide
   resolución del conflicto antes de sobrescribir.
@@ -280,7 +311,7 @@ src/
       model/                 Normalización/creación, % de cumplimentación y controles (diagnóstico §15)
       io/                    jsonio (JSON validado), xlsx (22 hojas), pdf (índice paginado), persistence
       store.ts               Estado global tipado (zustand)
-tests/planex/                222 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7) + documento DOC-001 (46)
+tests/planex/                246 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7) + documento DOC-001 (46) + UX-002 ayuda/navegación/comparación/iconos/tasa (24)
 docs/                        Informe de implementación, entregables de la auditoría y capturas
 ```
 
@@ -320,6 +351,14 @@ y no envía información a ningún servicio remoto (los planes se guardan en `lo
 y viajan solo cuando el usuario exporta JSON/PDF/Excel).
 
 ## Despliegue
+
+### CI de protección de main (configurado)
+
+Cada pull request hacia main y cada push a main ejecutan el flujo
+[`ci.yml`](.github/workflows/ci.yml): comprobación de tipos (`tsc`), lint, las 246 pruebas
+unitarias/de integración y el build de producción estático, más la verificación de que los
+iconos se sirven en el build. La rama `main` está protegida en el repositorio: exige pull
+request con ese check en verde, prohíbe force pushes y borrados.
 
 ### GitHub Pages (configurado, automático)
 
@@ -382,9 +421,10 @@ La suite automatizada cubre el motor de cálculo, los exportadores y el intercam
 | Auditoría AUDIT-001 | 109 | Ocho suites espejo de la misión: regresión sobre cifras originales (§16.1/§3.1), depreciación por activo (§16.2), flujos y recuperación (§4.3/§16.3), capacidad derivada de recursos (§16.4), cascada tributaria 35 %→30 % (§16.5), reacción de los textos analíticos y trazabilidad (§16.6/§12.13), exportaciones PDF/XLSX/JSON (§16.7) y generalización con el Centro (§17) |
 | Excel | 16 | Estructura (22 hojas), fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas |
 | PDF | 7 | Contenido, índice, cifras del modelo activo y advertencias |
+| UX-002 (ayuda, navegación, comparación, iconos, tasa) | 24 | Integridad del contenido Diátaxis (ids, capas, enlaces internos, estructura de cada guía), tutorial con pasos verificables (dónde/acción/resultado), búsqueda relevante y estados vacíos, rutas `#/ayuda` y `#/colaboracion` por hash, comparación REAL de versiones campo a campo, política de modales (sin diálogos de colaboración/historial), iconos del build y metadatos, tasa 743 CUP/USD + impuesto 35 % con advertencia de validación pendiente |
 | Documento DOC-001 (moneda/Word/consistencia) | 46 | Escenarios A–F de la misión: conversión USD/CUP con integridad de datos y huellas, nota documental de la tasa, salarios en CUP con equivalente, DOCX válido/actualizable/apaisado, consistencia modelo↔PDF↔Word, tablas multipágina con encabezados repetidos, inconsistencias visibles y sincronía del worker — [`docs/DOC001_EVIDENCIAS.md`](docs/DOC001_EVIDENCIAS.md) |
 | Documento E2E (navegador real) | 19 | Visor PDF real con worker bajo el basePath, paginación, zoom, búsqueda con resaltados, selector de moneda con regeneración, descarga idéntica al visor (21 = 21 páginas), Word válido, persistencia de la moneda, móvil, temas y consola limpia — [`e2e/REPORTE-E2E-DOC.txt`](e2e/REPORTE-E2E-DOC.txt) |
-| Colaboración E2E (dos navegadores reales) | 53 | Las 23 pruebas de la misión PLANEX-SUPABASE-001: login con ambos alias y rechazo de credenciales inválidas, sesión restaurada, espacio compartido en dos sesiones, creación/apertura en vivo, edición recibida sin recargar con autor identificado, ediciones simultáneas de secciones distintas, conflicto de la misma sección con resolución explícita, preservación de ediciones no guardadas, persistencia de parámetros con recálculo en vivo, autoguardado tras recarga, reconexión, RLS efectiva, tercero denegado, secretos fuera del bundle, historial y restauración, exportaciones PDF/Excel/JSON desde el estado compartido, despliegue estático, consola — detalle en [`docs/supabase/EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) |
+| Colaboración E2E (dos navegadores reales) | 63 | Misiones SUPABASE-001 + UX-002: login con ambos alias, sesión restaurada, espacio compartido en dos sesiones, creación/apertura en vivo, edición recibida sin recargar con autor identificado, ediciones simultáneas, conflicto de la misma sección con resolución explícita EN LA VISTA INTEGRADA, preservación de ediciones no guardadas, persistencia de parámetros con recálculo en vivo (impuesto 116,1 con tasa 743), autoguardado tras recarga, reconexión, historial y restauración con copia automática, COMPARACIÓN REAL de versiones con URL reproducible, roles reales de los colaboradores, centro de ayuda Diátaxis con enlace directo, búsqueda y capas, icono servido y metadatos sin el favicon antiguo, exportaciones PDF/Excel/JSON desde el estado compartido, despliegue estático, consola — detalle en [`docs/supabase/EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) y [`e2e/REPORTE-E2E.txt`](e2e/REPORTE-E2E.txt) |
 | RLS/REST con JWT reales | 28 | Visibilidad por pertenencia, concurrencia optimista (versión caducada → 0 filas), denegaciones (anónimo, autoconcesión de membresía/roles, espacios ajenos, alias inmutable, mover secciones, borrar historial) — [`e2e/REPORTE-RLS-REST.txt`](e2e/REPORTE-RLS-REST.txt) |
 | Vistas y acceso (enmienda) | 20 | Landing sin sesión, protección y redirección de vistas, cierre de sesión sin pérdida, previsualización dedicada, Atrás/Adelante, recargas sin 404, subruta, responsive, movimiento reducido — [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) |
 

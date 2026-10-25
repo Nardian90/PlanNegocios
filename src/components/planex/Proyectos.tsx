@@ -43,6 +43,7 @@ import { crearProyectoCentro } from '@/lib/planex/templates/centro';
 import { parsearProyectoJSON } from '@/lib/planex/io/jsonio';
 import { descargarPlan } from '@/lib/supabase/sync';
 import { navegar } from './navegacion';
+import { EnlaceAyuda } from './comunes';
 
 const ETIQUETA_ESTADO: Record<PlanRow['status'], string> = {
   borrador: 'Borrador',
@@ -286,6 +287,7 @@ export default function Proyectos() {
               acceso está protegido por autenticación y políticas RLS del servidor.
             </p>
           </div>
+          <EnlaceAyuda articulo="tutorial-primer-plan" etiqueta="Tutorial: crear su primer plan" />
         </div>
 
         {error && (

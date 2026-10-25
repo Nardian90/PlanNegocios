@@ -15,11 +15,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertCircle, BookOpen, Check, History, Pencil, RotateCcw, Search, Sigma, Wand2, X } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
+import { EnlaceAyuda } from './comunes';
 import { ComputedModel, Parametro, Regla, PlanexProject } from '@/lib/planex/types';
 import { computeProject } from '@/lib/planex/engine/engine';
 import { parsear, extraerVariables } from '@/lib/planex/engine/parser';
@@ -35,6 +35,7 @@ export function SeccionConfig({ modelo }: { modelo: ComputedModel }) {
         <h2 className="text-xl font-semibold tracking-tight flex items-baseline gap-2">
           <Sigma className="size-5 translate-y-0.5 text-primary/70" />
           Configuración de cálculos
+          <span className="not-italic"><EnlaceAyuda articulo="guia-supuesto-configurable" etiqueta="Cómo cambiar un supuesto" /></span>
         </h2>
         <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
           Dos niveles complementarios: <b>parámetros</b> (variables utilizadas por las fórmulas) y <b>reglas</b> (expresiones que determinan cada resultado). Todo se guarda por proyecto y no afecta a otras plantillas ni proyectos.
@@ -287,6 +288,15 @@ function EditorFormulas({ reglaId, proyecto, cerrar }: { reglaId: string; proyec
   const [borrador, setBorrador] = React.useState(regla.expresion);
   const [pestana, setPestana] = React.useState('expresion');
 
+  // Esc cierra el panel (integrado, no modal: misión UX-002 §4.4).
+  React.useEffect(() => {
+    const alTecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrar();
+    };
+    window.addEventListener('keydown', alTecla);
+    return () => window.removeEventListener('keydown', alTecla);
+  }, [cerrar]);
+
   const erroresSintaxis = React.useMemo(() => {
     try {
       parsear(borrador);
@@ -331,18 +341,25 @@ function EditorFormulas({ reglaId, proyecto, cerrar }: { reglaId: string; proyec
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && cerrar()}>
-      <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 flex-wrap">
-            <Wand2 className="size-4 text-primary" /> {regla.nombre}
-            <Badge variant="secondary" className="font-mono text-[10px]">{regla.id}</Badge>
-            <Badge variant="outline" className="text-[10px]">ámbito: {regla.ambito}</Badge>
-            <Badge variant="outline" className="text-[10px]">{regla.unidad}</Badge>
-          </DialogTitle>
-          <DialogDescription>{regla.descripcion}</DialogDescription>
-        </DialogHeader>
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="false" aria-label={`Editor de la regla ${regla.nombre}`}>
+      <div className="absolute inset-0 bg-black/30 dark:bg-black/50" onClick={cerrar} aria-hidden />
+      <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-background border-l shadow-xl flex flex-col">
+        <div className="border-b px-4 py-3 flex items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold flex items-center gap-2 flex-wrap">
+              <Wand2 className="size-4 text-primary" /> {regla.nombre}
+              <Badge variant="secondary" className="font-mono text-[10px]">{regla.id}</Badge>
+              <Badge variant="outline" className="text-[10px]">ámbito: {regla.ambito}</Badge>
+              <Badge variant="outline" className="text-[10px]">{regla.unidad}</Badge>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1 max-w-xl leading-relaxed">{regla.descripcion}</p>
+          </div>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={cerrar} aria-label="Cerrar el editor de la regla">
+            <X className="size-4" />
+          </Button>
+        </div>
 
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <Tabs value={pestana} onValueChange={setPestana}>
           <TabsList>
             <TabsTrigger value="expresion">Expresión</TabsTrigger>
@@ -447,8 +464,9 @@ function EditorFormulas({ reglaId, proyecto, cerrar }: { reglaId: string; proyec
             )}
           </TabsContent>
         </Tabs>
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <div className="border-t px-4 py-3 flex flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" onClick={cerrar} className="gap-1.5">
             <X className="size-4" /> Cancelar
           </Button>
@@ -458,9 +476,9 @@ function EditorFormulas({ reglaId, proyecto, cerrar }: { reglaId: string; proyec
           <Button onClick={aplicar} disabled={!!erroresSintaxis} className="gap-1.5">
             <Check className="size-4" /> Guardar fórmula
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
 

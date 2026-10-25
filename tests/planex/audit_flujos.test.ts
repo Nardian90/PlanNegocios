@@ -199,7 +199,7 @@ describe('MISIÓN §16.3 — FCFE con deuda: caja de dividendos y servicio', () 
     const p = crearProyectoClinica();
     const m = computeProject(p);
     const d1 = m.dividendos.find((d) => d.anio === 1)!;
-    expect(d1.saldoAcumulablePrevio).toBeCloseTo(-1.44, 4); // pérdida del año 0
+    expect(d1.saldoAcumulablePrevio).toBeCloseTo(-(6 * 96000) / 743 / 1000, 4); // pérdida del año 0 (tasa 743)
     expect(d1.base).toBeCloseTo(Math.max(0, d1.udi + d1.saldoAcumulablePrevio), 4);
     // Reserva del 10 % sobre la base, reparto del 50 % del distribuible.
     const pctReserva = p.parametros.find((x) => x.id === 'pct_reserva_legal')!.valor;

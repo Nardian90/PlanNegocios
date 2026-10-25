@@ -128,14 +128,14 @@ describe('MISIÓN §17 — Segundo proyecto: Centro de Diagnóstico «Imagen Hab
     // El resumen menciona el centro, su horizonte y su inversión.
     expect(a.resumen_ejecutivo.texto).toContain('Centro de Diagnóstico');
     expect(a.resumen_ejecutivo.texto).toContain('8 años');
-    expect(a.resumen_ejecutivo.texto).toContain('2.265'); // inversión del centro
+    expect(a.resumen_ejecutivo.texto).toContain('2.188,8'); // inversión del centro (tasa 743: 1 900 + 88,8 + 200 de capital de trabajo)
     // Escenario A declarado en el análisis de capacidad.
     expect(a.capacidad.texto).toContain('Escenario activo: A');
     expect(a.capacidad.texto).not.toContain('LIMITADO');
     // El análisis de deuda declara que NO hay crédito (coherente con los datos).
     expect(a.deuda_depreciacion.texto).toContain('no incluye crédito');
-    // Las conclusiones derivan del modelo nuevo (recuperación ≈ 4,6).
-    expect(a.conclusiones.texto).toContain('4,6 años');
+    // Las conclusiones derivan del modelo nuevo (recuperación ≈ 4,5 con tasa 743).
+    expect(a.conclusiones.texto).toContain('4,5 años');
   });
 
   test('el diagnóstico del centro evalúa las dimensiones con datos propios', () => {
@@ -143,7 +143,7 @@ describe('MISIÓN §17 — Segundo proyecto: Centro de Diagnóstico «Imagen Hab
     const integridad = d.resumen.dimensiones.find((x) => x.id === 'integridad_matematica')!;
     expect(integridad.estado).toBe('ok');
     const coherencia = d.resumen.dimensiones.find((x) => x.id === 'coherencia_financiera')!;
-    expect(coherencia.detalle).toContain('2.265');
+    expect(coherencia.detalle).toContain('2.188,8');
   });
 
   test('exporta PDF y Excel desde el estado del centro (coherentes con su modelo)', async () => {

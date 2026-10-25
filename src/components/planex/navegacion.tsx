@@ -4,11 +4,13 @@
 // PLANEX — navegación por hash compatible con alojamiento estático
 // (GitHub Pages en subruta). Cada vista tiene una URL diferenciada:
 //
-//   #/             → Landing de presentación        (pública)
-//   #/login        → Acceso con alias+contraseña     (pública)
+//   #/               → Landing de presentación        (pública)
+//   #/login          → Acceso con alias+contraseña     (pública)
 //   #/proyectos    → Panel de proyectos compartidos (protegida)
 //   #/editor?plan= → Editor del plan                  (protegida)
 //   #/preview?plan=→ Vista documental independiente (protegida)
+//   #/colaboracion?plan=&tab= → Colaboración, historial y versiones (protegida)
+//   #/ayuda?capa=&articulo=    → Centro de ayuda Diátaxis (pública)
 //
 // El fragmento de hash nunca viaja al servidor: recargar o compartir
 // cualquiera de estas rutas no produce 404 y Atrás/Adelante funcionan de
@@ -17,7 +19,7 @@
 
 import * as React from 'react';
 
-export type VistaRuta = 'landing' | 'login' | 'proyectos' | 'editor' | 'preview';
+export type VistaRuta = 'landing' | 'login' | 'proyectos' | 'editor' | 'preview' | 'colaboracion' | 'ayuda';
 
 export function rutaDeHash(hash: string): string {
   const ruta = hash.replace(/^#/, '');
@@ -32,6 +34,8 @@ export function vistaDesdeHash(hash: string): VistaRuta {
   // '/app' se conserva como alias histórico del editor.
   if (ruta === '/app' || ruta === '/editor' || ruta.startsWith('/app') || ruta.startsWith('/editor')) return 'editor';
   if (ruta === '/preview' || ruta.startsWith('/preview')) return 'preview';
+  if (ruta === '/colaboracion' || ruta.startsWith('/colaboracion')) return 'colaboracion';
+  if (ruta === '/ayuda' || ruta.startsWith('/ayuda')) return 'ayuda';
   return 'landing';
 }
 
@@ -87,4 +91,35 @@ export function useRuta(): VistaRuta {
 export function prefiereMovimientoReducido(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false;
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// ----------------------------------------------------------------------------
+// Ayuda y vistas con pestañas: URL con parámetros reproducibles
+// ----------------------------------------------------------------------------
+
+/** Construye la URL hash interna de un artículo del Centro de ayuda. */
+export function urlAyuda(capa?: string, articulo?: string): string {
+  const params = new URLSearchParams();
+  if (capa) params.set('capa', capa);
+  if (articulo) params.set('articulo', articulo);
+  const q = params.toString();
+  return `#/ayuda${q ? `?${q}` : ''}`;
+}
+
+/**
+ * Abre el Centro de ayuda EN OTRA PESTAÑA del navegador, directo al artículo
+ * solicitado. Así el contexto de edición nunca se pierde: el formulario y los
+ * cambios sin guardar permanecen intactos en la pestaña de trabajo y la
+ * vuelta a la tarea es cerrar la pestaña (o cambiar de una a otra).
+ */
+export function abrirAyuda(capa?: string, articulo?: string): void {
+  if (typeof window === 'undefined') return;
+  const base = `${window.location.origin}${window.location.pathname}`;
+  window.open(`${base}${urlAyuda(capa, articulo)}`, '_blank', 'noopener');
+}
+
+/** Navega en ESTA pestaña a la vista de colaboración del plan activo. */
+export function irAColaboracion(planId: string, tab?: string): void {
+  const t = tab ? `&tab=${encodeURIComponent(tab)}` : '';
+  navegar(`/colaboracion?plan=${encodeURIComponent(planId)}${t}`);
 }

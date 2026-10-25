@@ -1,0 +1,101 @@
+# ============================================================================
+# PLANEX Cuba — CI de protección de main (misión UX-002, petición del
+# propietario).
+#
+# Cada pull_request hacia main y cada push a main ejecutan la verificación
+# completa: tipos (tsc), lint (eslint), pruebas unitarias y de integración
+# (bun test) y el build de producción estático.
+#
+# Para que main quede PROTEGIDO de verdad, active en Settings → Branches:
+#   · Branch name pattern: main
+#   · Require a pull request before merging
+#   · Require status checks to pass → marcar «Verificación completa…»
+# El flujo de trabajo ya expone el check; la regla de rama la activa el
+# propietario desde la interfaz (el token de trabajo carece de permiso
+# Administration:write, documentado en el PR).
+#
+# Variables de compilación (NO secretas: viajan al navegador compilado):
+#   - NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+#     identificación del proyecto Supabase con la clave PUBLICABLE.
+#     NUNCA poner aquí claves sb_secret_/service_role ni contraseñas.
+# ============================================================================
+name: CI (protección de main)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Proyecto Supabase (público: la clave publicable no es un secreto; los
+  # datos quedan protegidos por autenticación y políticas RLS).
+  NEXT_PUBLIC_SUPABASE_URL: https://huxxoiifdnmmrxcdxith.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_9wEJACvdrcEYZ8T2-M86ng_8xmynW4A
+  NEXT_PUBLIC_PLANEX_COLABORADOR1_EMAIL: colaborador1@planex.app
+  NEXT_PUBLIC_PLANEX_COLABORADOR2_EMAIL: colaborador2@planex.app
+
+jobs:
+  verificacion:
+    name: Verificación completa (tipos, lint, pruebas y build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Comprobar tipos (tsc --noEmit)
+        run: bunx tsc --noEmit
+
+      - name: Lint (eslint)
+        run: bun run lint
+
+      - name: Pruebas unitarias y de integración
+        run: |
+          set +e
+          timeout 240 bun test tests/planex/ > pruebas-salida.txt 2>&1
+          rc=$?
+          set -e
+          cat pruebas-salida.txt
+          if [ "$rc" = "0" ]; then
+            exit 0
+          fi
+          if [ "$rc" = "124" ]; then
+            # El runner de bun a veces no termina tras emitir TODOS los
+            # resultados (documentado en AUDIT-001). Aceptamos el timeout
+            # solo si el resumen completo reporta cero fallos.
+            if grep -Eq "^ *[0-9]+ pass" pruebas-salida.txt && grep -Eq "^ *0 fail" pruebas-salida.txt; then
+              echo "El proceso de pruebas no terminó solo, pero el resumen reporta 0 fallos: aceptado."
+              exit 0
+            fi
+          fi
+          exit 1
+
+      - name: Build de producción (estático, como el despliegue)
+        run: bun run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /PlanNegocios
+
+      - name: Comprobar activos del icono en el build
+        run: |
+          test -f out/favicon.ico   || { echo "FALTA out/favicon.ico"; exit 1; }
+          test -f out/icon.svg      || { echo "FALTA out/icon.svg"; exit 1; }
+          test -f out/icon-192.png  || { echo "FALTA out/icon-192.png"; exit 1; }
+          test -f out/icon-512.png  || { echo "FALTA out/icon-512.png"; exit 1; }
+          test -f out/apple-touch-icon.png || { echo "FALTA out/apple-touch-icon.png"; exit 1; }
+          echo "Iconos del build presentes y servibles."

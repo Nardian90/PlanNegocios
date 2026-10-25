@@ -1,5 +1,5 @@
 [PASA] 1. Inicio de sesión con Supabase real (colaborador 1)
-[PASA] 2. Plan demo creado (id b140bea5…)
+[PASA] 2. Plan demo creado (id e7991149…)
 [PASA] 3. El visor muestra el PDF real con 21 páginas (worker de pdf.js activo)
 [PASA] 4. El lienzo del visor está renderizado (no en blanco)
 [PASA] 5. Navegación: «Página siguiente» pasa a la página 2
@@ -8,7 +8,7 @@
 [PASA] 8. Búsqueda: 4 resaltado(s) dibujados sobre la página
 [PASA] 9. Selector CUP: el documento se regeneró y el chip muestra «· CUP»
 [PASA] 10. Descarga CUP: el PDF tiene las mismas 21 páginas que el visor
-[PASA] 11. Descarga CUP: unidades kCUP e importe convertido (592.000,0) presentes
+[PASA] 11. Descarga CUP: unidades kCUP e importe convertido (1.099.640,0) presentes
 [PASA] 12. Descarga USD: unidades kUSD e importe nativo (1.480,0) presentes
 [PASA] 13. Word descargado (78 KB, OOXML ZIP válido)
 [PASA] 14. Escenario G: la moneda CUP persiste al cerrar y reabrir el plan (guardada en el plan)

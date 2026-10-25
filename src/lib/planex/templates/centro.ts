@@ -79,10 +79,10 @@ export function crearProyectoCentro(): PlanexProject {
 
   // Aportaciones: 100 % extranjero. 1 900 kUSD de aporte en efectivo en USD
   // y un local acondicionado aportado en CUP (conversión documentada):
-  // 66 000 000 CUP / 400 = 165 kUSD → total 2 065 kUSD.
+  // 66 000 000 CUP / 743 = 88,8 kUSD → total ≈ 1 988,8 kUSD.
   p.aportaciones = [
     { id: 'ap-ex-ef', socio: 'extranjero', tipo: 'efectivo', montos: [1500, 600, 0], referenciaDocumental: 'Compromiso de aporte en efectivo (ficticio; adjuntar instrumento)' },
-    { id: 'ap-ex-loc', socio: 'extranjero', tipo: 'activos_fijos_tangibles', montos: [165, 0, 0], referenciaDocumental: 'Local acondicionado en CUP (ficticio; avalúo y documentación de Patrimonio pendientes)' },
+    { id: 'ap-ex-loc', socio: 'extranjero', tipo: 'activos_fijos_tangibles', montos: [88.83, 0, 0], referenciaDocumental: 'Local acondicionado en CUP (ficticio; avalúo y documentación de Patrimonio pendientes)' },
   ];
 
   p.tecnico = {
@@ -191,7 +191,7 @@ export function crearProyectoCentro(): PlanexProject {
     { id: 'iv-6', concepto: 'Resonancia magnética 1.5 T', categoria: 'inversion_fija', moneda: 'USD', monto: 700, vidaUtilAnios: 10, anioDisponible: 3, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: 'Ficticio. Disponible desde el año 3: no deprecia antes.' },
     { id: 'iv-7', concepto: 'Laboratorio clínico de apoyo', categoria: 'inversion_fija', moneda: 'USD', monto: 95, vidaUtilAnios: 7, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: 'Ficticio' },
     { id: 'iv-8', concepto: 'Blindaje radiológico y adecuación', categoria: 'inversion_fija', moneda: 'USD', monto: 105, vidaUtilAnios: 20, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: 'Ficticio' },
-    { id: 'iv-9', concepto: 'Local acondicionado (aportado en CUP)', categoria: 'inversion_fija', moneda: 'CUP', monto: 66000, vidaUtilAnios: 20, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '66 000 kCUP / 400 CUP por USD = 165 kUSD (ficticio; misma partida aportada por el inversionista: avalúo conciliado, sin doble contabilización)' },
+    { id: 'iv-9', concepto: 'Local acondicionado (aportado en CUP)', categoria: 'inversion_fija', moneda: 'CUP', monto: 66000, vidaUtilAnios: 20, anioDisponible: 1, valorResidualPct: 0, metodoDepreciacion: 'lineal', observacion: '66 000 kCUP / 743 CUP por USD ≈ 88,8 kUSD (ficticio; misma partida aportada por el inversionista: avalúo conciliado, sin doble contabilización)' },
   ];
   p.financiero.vehiculos = [];
   p.financiero.otrosIngresos = normalizarSerie([], 8);

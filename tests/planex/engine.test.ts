@@ -45,17 +45,17 @@ describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => 
     expect(val(modelo, 'costos_variables_k', 1)).toBeCloseTo(254.82, 1);
   });
 
-  test('costo laboral año 1 = 38,3 kUSD (15 312 000 CUP / 400 / 1000)', () => {
-    expect(val(modelo, 'costo_laboral_k', 1)).toBeCloseTo(38.28, 1);
+  test('costo laboral año 1 = 20,6 kUSD (15 312 000 CUP / 743 / 1000)', () => {
+    expect(val(modelo, 'costo_laboral_k', 1)).toBeCloseTo(15312000 / 743 / 1000, 2);
   });
 
   test('año 0 (montaje): solo costo laboral de montaje; sin canon/públicos/otros ni depreciación', () => {
-    expect(val(modelo, 'costo_laboral_k', 0)).toBeCloseTo(1.44, 2); // 6 × 96 000 CUP / 400 / 1000
+    expect(val(modelo, 'costo_laboral_k', 0)).toBeCloseTo((6 * 96000) / 743 / 1000, 2); // 6 × 96 000 CUP / 743 / 1000
     expect(val(modelo, 'canon_k', 0)).toBe(0);
     expect(val(modelo, 'servicios_publicos_k', 0)).toBe(0);
     expect(val(modelo, 'otros_gastos_k', 0)).toBe(0);
     expect(val(modelo, 'depreciacion_anual_k', 0)).toBe(0); // defecto corregido
-    expect(val(modelo, 'utilidad_despues_impuestos_k', 0)).toBeCloseTo(-1.44, 2);
+    expect(val(modelo, 'utilidad_despues_impuestos_k', 0)).toBeCloseTo(-(6 * 96000) / 743 / 1000, 2);
   });
 
   test('depreciación: año 1 = 117,125 kUSD; activos respetan disponibilidad y tope depreciable', () => {
@@ -90,8 +90,8 @@ describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => 
   });
 
   test('año 0 de los flujos: FCFF = −inversión total + resultado de montaje; FCFE = −aportaciones + montaje + desembolso', () => {
-    expect(modelo.indicadores.fcff[0]).toBeCloseTo(-1481.44, 2); // −1 480 − 1,44
-    expect(modelo.indicadores.fcfe[0]).toBeCloseTo(-1181.44, 2); // FCFF + crédito (300) = −1 180 − 1,44
+    expect(modelo.indicadores.fcff[0]).toBeCloseTo(-(1480 + (6 * 96000) / 743 / 1000), 2); // −1 480 − 0,78
+    expect(modelo.indicadores.fcfe[0]).toBeCloseTo(-(1180 + (6 * 96000) / 743 / 1000), 2); // FCFF + crédito (300) = −1 180 − 0,78
   });
 
   test('crédito: gracia 1 (capital constante), intereses sobre saldo y amortización dentro del saldo', () => {
@@ -148,7 +148,7 @@ describe('Plantilla Clínica — carga inicial completa (esquema 2.0.0)', () => 
   });
 
   test('año 0 de beneficios: SOLO pagos por fuerza de trabajo de montaje (corregido)', () => {
-    expect(val(modelo, 'total_beneficios_pais_k', 0)).toBeCloseTo(1.44, 2);
+    expect(val(modelo, 'total_beneficios_pais_k', 0)).toBeCloseTo((6 * 96000) / 743 / 1000, 2);
     expect(val(modelo, 'canon_k', 0)).toBe(0);
     expect(val(modelo, 'aranceles_k', 0)).toBe(0);
   });
@@ -186,7 +186,7 @@ describe('Nivel A — parámetros: recálculo inmediato', () => {
   test('cambiar el tipo de cambio CUP/USD modifica el costo laboral y la utilidad', () => {
     const p = clonar(crearProyectoClinica());
     const m1 = computeProject(p);
-    p.parametros.find((x) => x.id === 'tipo_cambio')!.valor = 200;
+    p.parametros.find((x) => x.id === 'tipo_cambio')!.valor = 371.5; // mitad de 743: duplica el costo laboral en kUSD
     const m2 = computeProject(p);
     expect(val(m2, 'costo_laboral_k', 1)).toBeCloseTo(val(m1, 'costo_laboral_k', 1) * 2, 1);
     expect(val(m2, 'utilidad_antes_impuestos_k', 1)).toBeLessThan(val(m1, 'utilidad_antes_impuestos_k', 1));
