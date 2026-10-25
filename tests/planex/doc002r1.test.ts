@@ -123,9 +123,13 @@ describe('DOC-002-R1 §1 — Ingreso del año 1 en ambas monedas, en canónico/P
   test('el informe de auditoría del repositorio ya no cita la cifra errónea como válida', async () => {
     const { readFileSync } = await import('node:fs');
     const informe = readFileSync('docs/DOC002_INFORME_AUDITORIA.md', 'utf8');
-    // La única mención que puede quedar es la nota de corrección R1.
-    const menciones = informe.split('718.675,4').length - 1;
-    expect(menciones).toBe(1);
+    // La cifra errónea solo puede aparecer DENTRO de una nota de errata
+    // (corrección), nunca presentada como el valor válido del modelo.
+    const lineasConErrata = informe.split('\n').filter((l) => l.includes('718.675,4'));
+    expect(lineasConErrata.length).toBeGreaterThanOrEqual(1);
+    for (const linea of lineasConErrata) {
+      expect(/errata|corregid/i.test(linea)).toBe(true);
+    }
     expect(informe).toContain('719.075,4 kCUP (= 967,8 kUSD × 743');
     expect(informe).toContain('errata de dígito');
   });
