@@ -54,11 +54,18 @@ describe('MISIÓN §16.3 — Flujos del proyecto y de los socios en la clínica'
   test('FCFF excluye las decisiones de financiación; FCFE las incluye', () => {
     for (const t of m.years) {
       const f = m.deuda[t];
-      // FCFE = FCFF − interés pagado + desembolso − amortización
+      const escudo = m.indicadores.escudoFiscal[t] ?? 0;
+      // DOC-002 §4.1: FCFE = FCFF − interés pagado + escudo fiscal
+      //                + desembolso − amortización
       expect(m.indicadores.fcfe[t]).toBeCloseTo(
-        m.indicadores.fcff[t] - f.interesPagado + f.desembolso - f.amortizacion,
+        m.indicadores.fcff[t] - f.interesPagado + escudo + f.desembolso - f.amortizacion,
         4
       );
+      // Identidad de reconciliación documentada:
+      // FCFF − FCFE = intereses pagados − escudo − desembolsos + amortizaciones
+      expect(
+        m.indicadores.fcff[t] - m.indicadores.fcfe[t]
+      ).toBeCloseTo(f.interesPagado - escudo - f.desembolso + f.amortizacion, 4);
     }
   });
 

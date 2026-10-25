@@ -600,7 +600,15 @@ function PanelDiagnostico({
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {/* Resumen de control por dimensiones */}
+          {/* Estado general del plan (misión DOC-002 §5) */}
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estado general del plan</span>
+              <Badge variant="outline" className="border-primary/40 text-primary">{diagnostico.resumen.estadoGeneral.etiqueta}</Badge>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{diagnostico.resumen.estadoGeneral.detalle}</p>
+          </div>
+          {/* Resumen de control por las seis dimensiones independientes */}
           <div className="grid gap-2 sm:grid-cols-2">
             {diagnostico.resumen.dimensiones.map((d) => (
               <div key={d.id} className="rounded-lg border p-2.5">

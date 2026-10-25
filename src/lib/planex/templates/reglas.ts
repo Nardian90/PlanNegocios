@@ -87,12 +87,26 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     },
     {
       id: 'inflacion',
-      nombre: 'Inflación prevista (costos)',
-      descripcion: 'Crecimiento anual aplicado a los costos variables unitarios de los servicios.',
+      nombre: 'Inflación prevista (costos variables unitarios de servicios)',
+      descripcion:
+        'Crecimiento anual aplicado EXCLUSIVAMENTE al costo variable unitario de cada servicio (regla «srv_costo_unitario_proy»). No afecta canon, servicios públicos, otros gastos fijos, aranceles, otros impuestos ni royalties, que se rigen por su propio parámetro de inflación de costos fijos. Afecta el estado de resultados y la caja (ambos).',
       valor: 0.04,
       unidad: '%',
       tipo: 'porcentaje',
       fuente: 'Supuesto editable.',
+      fechaRef: '',
+      editable: true,
+      demo: false,
+    },
+    {
+      id: 'inflacion_costos_fijos',
+      nombre: 'Inflación de costos fijos (contratos nominales)',
+      descripcion:
+        'Crecimiento anual aplicado al canon, los servicios públicos, otros gastos fijos, aranceles, otros impuestos y royalties. Valor 0 % (por defecto) = contratos nominales a valores fijos: HIPÓTESIS deliberada y conservadora que debe declararse y validarse con los contratos reales. Afecta el estado de resultados y la caja (ambos).',
+      valor: 0,
+      unidad: '%',
+      tipo: 'porcentaje',
+      fuente: 'Regla explícita documentada: 0 % = partidas nominales constantes. Edítela solo con el sustento contractual correspondiente.',
       fechaRef: '',
       editable: true,
       demo: false,
@@ -624,29 +638,29 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'canon_k',
       'Canon (años de operación)',
-      'Canon anual activado a partir del año 1. El año 0 (montaje) no genera canon: los gastos de esa fase pertenecen a los gastos previos.',
+      'Canon anual activado a partir del año 1 e indexado con el parámetro de inflación de costos fijos (0 % = contrato nominal fijo, hipótesis documentada). El año 0 (montaje) no genera canon: los gastos de esa fase pertenecen a los gastos previos.',
       'anio',
       'Costos',
       'kUSD',
-      'IF(PERIODO >= 1, canon_anual_k, 0)'
+      'IF(PERIODO >= 1, canon_anual_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'servicios_publicos_k',
       'Servicios públicos (años de operación)',
-      'Agua, electricidad y portadores en años de operación.',
+      'Agua, electricidad y portadores en años de operación, indexados con la inflación de costos fijos (0 % = valores nominales constantes).',
       'anio',
       'Costos',
       'kUSD',
-      'IF(PERIODO >= 1, servicios_publicos_anual_k, 0)'
+      'IF(PERIODO >= 1, servicios_publicos_anual_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'otros_gastos_k',
       'Otros gastos fijos (años de operación)',
-      'Gastos fijos no incluidos en otras partidas, en años de operación.',
+      'Gastos fijos no incluidos en otras partidas, en años de operación, indexados con la inflación de costos fijos (0 % = valores nominales constantes).',
       'anio',
       'Costos',
       'kUSD',
-      'IF(PERIODO >= 1, otros_gastos_fijos_k, 0)'
+      'IF(PERIODO >= 1, otros_gastos_fijos_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'mantenimiento_k',
@@ -743,7 +757,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'flujo_proyecto_k',
       'Flujo de caja del PROYECTO (FCFF)',
-      'Flujo del proyecto antes de decisiones de financiación: UDI + intereses devengados + depreciación − CAPEX de ampliaciones (+ recuperación del capital de trabajo en el último año). Año 0: −inversión total + resultado de montaje. Base de la recuperación de la INVERSIÓN TOTAL.',
+      'Flujo del proyecto antes de decisiones de financiación: UDI + intereses DESPUÉS DE IMPUESTOS (intereses devengados menos su escudo fiscal, derivado de la regla de impuestos activa) + depreciación − CAPEX de ampliaciones (+ recuperación del capital de trabajo en el último año). Año 0: −inversión total + resultado de montaje. Base de la recuperación de la INVERSIÓN TOTAL (recuperación simple, sin descontar).',
       'anio',
       'Flujo de caja',
       'kUSD',
@@ -770,7 +784,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'flujo_socios_k',
       'Flujo de caja de los SOCIOS (FCFE)',
-      'Flujo para los aportantes: flujo del proyecto − intereses pagados + desembolsos del crédito − amortización del principal. Año 0: −aportaciones + resultado de montaje + desembolso del crédito. Base de la recuperación del CAPITAL APORTADO.',
+      'Flujo para los aportantes: flujo del proyecto − intereses pagados + escudo fiscal de los intereses + desembolsos del crédito − amortización del principal. Año 0: −aportaciones + resultado de montaje + desembolso del crédito. Con intereses corrientes equivale a UDI + depreciación − CAPEX + desembolsos − amortizaciones. Base de la recuperación del CAPITAL APORTADO (recuperación simple, sin descontar).',
       'anio',
       'Flujo de caja',
       'kUSD',
@@ -826,29 +840,29 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'otros_impuestos_k',
       'Otros impuestos y tasas (años de operación)',
-      'Impuestos, tasas y contribuciones distintas del impuesto sobre utilidades, en años de operación.',
+      'Impuestos, tasas y contribuciones distintas del impuesto sobre utilidades, en años de operación, indexados con la inflación de costos fijos (0 % = valores nominales constantes).',
       'anio',
       'Beneficios al país',
       'kUSD',
-      'IF(PERIODO >= 1, otros_impuestos_anual_k, 0)'
+      'IF(PERIODO >= 1, otros_impuestos_anual_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'aranceles_k',
       'Aranceles (años de operación)',
-      'Derechos aduaneros en años de operación.',
+      'Derechos aduaneros en años de operación, indexados con la inflación de costos fijos (0 % = valores nominales constantes).',
       'anio',
       'Beneficios al país',
       'kUSD',
-      'IF(PERIODO >= 1, aranceles_anual_k, 0)'
+      'IF(PERIODO >= 1, aranceles_anual_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'royalties_k',
       'Royalties (años de operación)',
-      'Regalías al país en años de operación.',
+      'Regalías al país en años de operación, indexadas con la inflación de costos fijos (0 % = valores nominales constantes).',
       'anio',
       'Beneficios al país',
       'kUSD',
-      'IF(PERIODO >= 1, royalties_anual_k, 0)'
+      'IF(PERIODO >= 1, royalties_anual_k * (1 + inflacion_costos_fijos) ^ MAX(0, PERIODO - 1), 0)'
     ),
     r(
       'otros_beneficios_pais_k',

@@ -46,8 +46,13 @@ describe('MISIÓN §16.5 — Cambio de tasa 35 % → 30 %: cascada completa', ()
 
   test('se actualizan los flujos afectados (FCFF/FCFE en cada año)', () => {
     for (const t of [1, 3, 5]) {
-      expect(m2.indicadores.fcff[t]).toBeCloseTo(m1.indicadores.fcff[t] + (val(m1, 'utilidad_antes_impuestos_k', t) * 0.05), 2);
-      expect(m2.indicadores.fcfe[t]).toBeCloseTo(m1.indicadores.fcfe[t] + (val(m1, 'utilidad_antes_impuestos_k', t) * 0.05), 2);
+      const uai1 = val(m1, 'utilidad_antes_impuestos_k', t);
+      const int1 = m1.deuda[t].interesDevengado;
+      // DOC-002 §4.1: con la tasa 30 % (vs 35 %) el FCFF sube por el menor
+      // impuesto hipotético sobre EBIT (UDI + escudo): ΔFCFF = Δtasa × (UAI + intereses).
+      expect(m2.indicadores.fcff[t]).toBeCloseTo(m1.indicadores.fcff[t] + (uai1 + int1) * 0.05, 2);
+      // El FCFE sube solo por la utilidad neta (el escudo compensa el interés):
+      expect(m2.indicadores.fcfe[t]).toBeCloseTo(m1.indicadores.fcfe[t] + uai1 * 0.05, 2);
     }
   });
 

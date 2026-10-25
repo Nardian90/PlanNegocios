@@ -73,6 +73,19 @@ export function SeccionTecnico({ modelo }: { modelo: ComputedModel }) {
       ),
     },
     {
+      titulo: 'Canal (4.8)',
+      tipo: 'select',
+      ancho: '150px',
+      valor: (s) => s.canal ?? 'ninguno',
+      opciones: [
+        { valor: 'ninguno', etiqueta: 'Sin declarar' },
+        { valor: 'plaza', etiqueta: 'Venta en plaza' },
+        { valor: 'exportacion', etiqueta: 'Exportación' },
+        { valor: 'plataformas_exterior', etiqueta: 'Plataformas (pagos exterior)' },
+      ],
+      onEdit: (s, v) => updServicio(s.id, { canal: v === 'ninguno' ? undefined : (v as ServicioRow['canal']) }),
+    },
+    {
       titulo: 'Realizable año 1 / capacidad',
       calculada: true,
       ancho: '140px',

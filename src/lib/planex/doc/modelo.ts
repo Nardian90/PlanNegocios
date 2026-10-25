@@ -18,6 +18,7 @@
 import { ClaveAnalisis } from '../engine/analisis';
 import { EstadoAnalisis } from '../types';
 import { MonedaPresentacion } from '../types';
+import type { FiguraDoc } from './figuras';
 
 // ---------------------------------------------------------------------------
 // Tablas
@@ -26,7 +27,7 @@ import { MonedaPresentacion } from '../types';
 export type Alineacion = 'izq' | 'der' | 'cen';
 
 export interface TablaDoc {
-  /** Título visible de la tabla (encima). */
+  /** Título visible de la tabla (encima; con numeración «Tabla N.»). */
   titulo?: string;
   /** Encabezados de columnas (una fila). */
   encabezados: string[];
@@ -39,6 +40,8 @@ export interface TablaDoc {
   ancha?: boolean;
   /** Unidad monetaria de la tabla, cuando toda ella comparte unidad. */
   unidad?: string;
+  /** Número de tabla asignado por el constructor («Tabla N.» en el título). */
+  numero?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +62,8 @@ export type ElementoDoc =
   | { tipo: 'subtitulo'; texto: string }
   | { tipo: 'tabla'; tabla: TablaDoc }
   | { tipo: 'analisis'; bloque: AnalisisDoc }
-  | { tipo: 'aviso'; texto: string };
+  | { tipo: 'aviso'; texto: string }
+  | { tipo: 'figura'; figura: FiguraDoc };
 
 // ---------------------------------------------------------------------------
 // Secciones y documento

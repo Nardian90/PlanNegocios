@@ -2,6 +2,7 @@
 // alimentan las alertas, no este indicador).
 
 import { PlanexProject, ComputedModel } from '../types';
+import { esValorPendiente } from '../format';
 
 export interface Cumplimiento {
   total: number;
@@ -17,7 +18,7 @@ const lleno = (s: string | undefined | null, min = 1) => !!s && s.trim().length 
 
 export function calcularCumplimiento(p: PlanexProject, m: ComputedModel): Cumplimiento {
   const porSeccion: Record<string, number> = {
-    general: pct([lleno(p.general.elaboradoPor), lleno(p.general.fecha), p.general.declaracionResponsabilidad, lleno(p.titulo.nombreProyecto), lleno(p.titulo.denominacionPropuesta)]),
+    general: pct([!esValorPendiente(p.general.elaboradoPor), lleno(p.general.fecha), p.general.declaracionResponsabilidad, lleno(p.titulo.nombreProyecto), lleno(p.titulo.denominacionPropuesta)]),
     resumen: pct([lleno(p.resumen.introduccion, 80)]),
     negocio: pct([lleno(p.negocio.modalidad), lleno(p.negocio.objetoSocial, 20), lleno(p.negocio.fundamentacion, 20), lleno(p.negocio.reglaDistribucion), p.aportaciones.length > 0, lleno(p.inversionistaExtranjero.nombre)]),
     tecnico: pct([lleno(p.tecnico.caracterizacion, 20), lleno(p.tecnico.capacidadInstalada), p.servicios.length > 0, lleno(p.tecnico.localizacion)]),

@@ -166,12 +166,12 @@ export function crearProyectoCentro(): PlanexProject {
   // Demanda prevista ficticia del año 1 (mensual). capacidadMaxMensual = 0
   // (sin tope directo: limita la capacidad de los recursos compartidos).
   p.servicios = [
-    { id: 'dz-1', nombre: 'Radiografía digital (por estudio)', precioBase: 18, cantidadBaseMensual: 850, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 3, duracionMinutos: 15, recursoIds: ['re-rad', 're-tec'], fuente: 'Supuesto ficticio' },
-    { id: 'dz-2', nombre: 'Ultrasonido (por estudio)', precioBase: 40, cantidadBaseMensual: 320, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 7, duracionMinutos: 30, recursoIds: ['re-us', 're-tec'], fuente: 'Supuesto ficticio' },
-    { id: 'dz-3', nombre: 'TAC (por estudio)', precioBase: 180, cantidadBaseMensual: 130, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 35, duracionMinutos: 20, recursoIds: ['re-tac', 're-tec'], fuente: 'Supuesto ficticio' },
-    { id: 'dz-4', nombre: 'Resonancia magnética (por estudio)', precioBase: 320, cantidadBaseMensual: 45, anioInicioDemanda: 3, capacidadMaxMensual: 0, costoVariableUnitario: 60, duracionMinutos: 35, recursoIds: ['re-rm', 're-tec'], fuente: 'Supuesto ficticio. Demanda desde el año 3 (arranque de la línea: campo «arranque de demanda» de la tabla de servicios).' },
-    { id: 'dz-5', nombre: 'Electrocardiografía y prueba de esfuerzo', precioBase: 55, cantidadBaseMensual: 150, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 8, duracionMinutos: 30, recursoIds: ['re-tec'], fuente: 'Supuesto ficticio' },
-    { id: 'dz-6', nombre: 'Laboratorio clínico (panel básico)', precioBase: 22, cantidadBaseMensual: 400, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 5, duracionMinutos: 15, recursoIds: ['re-tec'], fuente: 'Supuesto ficticio' },
+    { id: 'dz-1', nombre: 'Radiografía digital (por estudio)', precioBase: 18, cantidadBaseMensual: 850, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 3, duracionMinutos: 15, recursoIds: ['re-rad', 're-tec'], fuente: 'Supuesto ficticio' , canal: 'plaza'},
+    { id: 'dz-2', nombre: 'Ultrasonido (por estudio)', precioBase: 40, cantidadBaseMensual: 320, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 7, duracionMinutos: 30, recursoIds: ['re-us', 're-tec'], fuente: 'Supuesto ficticio' , canal: 'plaza'},
+    { id: 'dz-3', nombre: 'TAC (por estudio)', precioBase: 180, cantidadBaseMensual: 130, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 35, duracionMinutos: 20, recursoIds: ['re-tac', 're-tec'], fuente: 'Supuesto ficticio' , canal: 'plataformas_exterior'},
+    { id: 'dz-4', nombre: 'Resonancia magnética (por estudio)', precioBase: 320, cantidadBaseMensual: 45, anioInicioDemanda: 3, capacidadMaxMensual: 0, costoVariableUnitario: 60, duracionMinutos: 35, recursoIds: ['re-rm', 're-tec'], fuente: 'Supuesto ficticio. Demanda desde el año 3 (arranque de la línea: campo «arranque de demanda» de la tabla de servicios).' , canal: 'plataformas_exterior'},
+    { id: 'dz-5', nombre: 'Electrocardiografía y prueba de esfuerzo', precioBase: 55, cantidadBaseMensual: 150, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 8, duracionMinutos: 30, recursoIds: ['re-tec'], fuente: 'Supuesto ficticio' , canal: 'plaza'},
+    { id: 'dz-6', nombre: 'Laboratorio clínico (panel básico)', precioBase: 22, cantidadBaseMensual: 400, anioInicioDemanda: 1, capacidadMaxMensual: 0, costoVariableUnitario: 5, duracionMinutos: 15, recursoIds: ['re-tec'], fuente: 'Supuesto ficticio' , canal: 'plaza'},
   ];
 
   p.consumos = [

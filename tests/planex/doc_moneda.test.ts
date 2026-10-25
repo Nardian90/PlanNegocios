@@ -78,8 +78,10 @@ describe('DOC-001 Escenario A — Presentación en USD', () => {
   test('las cifras del modelo llegan sin conversión (unidad nativa kUSD)', () => {
     const cifras = tablaPorTitulo(doc, 'Cifras clave');
     expect(cifras).not.toBeNull();
-    expect(cifras!.filas[0][1]).toBe(fmtK(m.indicadores.inversionTotalKUSD)); // 1.480,0
-    expect(cifras!.filas[0][0]).toContain('miles de USD');
+    const filaInv = cifras!.filas.find((f) => f[0].includes('Inversión total'))!;
+    expect(filaInv[1]).toBe(fmtK(m.indicadores.inversionTotalKUSD)); // 1.480,0
+    expect(filaInv[0]).toContain('miles de USD');
+    expect(cifras!.filas[0][0]).toBe('Estado general del plan');
   });
 
   test('los salarios permanecen en CUP (metodología 4.9) con equivalente USD', () => {
@@ -125,8 +127,9 @@ describe('DOC-001 Escenario B — Presentación en CUP', () => {
     const cifras = tablaPorTitulo(doc, 'Cifras clave');
     const invKUSD = m.indicadores.inversionTotalKUSD;
     const esperado = fmtK(invKUSD * tasa);
-    expect(cifras!.filas[0][1]).toBe(esperado); // 1.099.640,0
-    expect(cifras!.filas[0][0]).toContain('miles de CUP');
+    const filaInv = cifras!.filas.find((f) => f[0].includes('Inversión total'))!;
+    expect(filaInv[1]).toBe(esperado); // 1.099.640,0
+    expect(filaInv[0]).toContain('miles de CUP');
   });
 
   test('no se confunde USD con miles: la unidad de tabla declara kCUP', () => {
@@ -191,10 +194,12 @@ describe('DOC-001 Escenario C — Cambio de tasa de cambio', () => {
     const m2 = computeProject(p);
     const doc800 = construirDocumentoPlanex(p, m2, { moneda: 'CUP' });
 
-    const inv400 = tablaPorTitulo(doc400, 'Cifras clave')!.filas[0][1];
-    const inv800 = tablaPorTitulo(doc800, 'Cifras clave')!.filas[0][1];
+    const fila400 = tablaPorTitulo(doc400, 'Cifras clave')!.filas.find((f) => f[0].includes('Inversión total'))!;
+    const fila800 = tablaPorTitulo(doc800, 'Cifras clave')!.filas.find((f) => f[0].includes('Inversión total'))!;
+    const inv400 = fila400[1];
+    const inv800 = fila800[1];
     // La inversión en kUSD NO cambia con la tasa (motor nativo)…
-    expect(tablaPorTitulo(doc800, 'Cifras clave')!.filas[0][0]).toContain('miles de CUP');
+    expect(fila800[0]).toContain('miles de CUP');
     // …pero el equivalente en kCUP se duplica con la tasa.
     const kusd800 = computeProject({ ...p, parametros: p.parametros.map((x) => ({ ...x })) }).indicadores.inversionTotalKUSD;
     expect(inv800).toBe(fmtK(kusd800 * 800));
@@ -226,8 +231,8 @@ describe('DOC-001 §5.3 — Plantillas Centro y persistencia de la preferencia',
     const invUsd = m.indicadores.inversionTotalKUSD;
     const cifrasUsd = tablaPorTitulo(usd, 'Cifras clave')!;
     const cifrasCup = tablaPorTitulo(cup, 'Cifras clave')!;
-    expect(cifrasUsd.filas[0][1]).toBe(fmtK(invUsd));
-    expect(cifrasCup.filas[0][1]).toBe(fmtK(invUsd * tasa));
+    expect(cifrasUsd.filas.find((f) => f[0].includes('Inversión total'))![1]).toBe(fmtK(invUsd));
+    expect(cifrasCup.filas.find((f) => f[0].includes('Inversión total'))![1]).toBe(fmtK(invUsd * tasa));
   });
 
   test('ajustes.monedaPresentacion es opcional y retrocompatible en el JSON', () => {

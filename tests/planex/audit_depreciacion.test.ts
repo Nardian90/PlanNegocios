@@ -140,12 +140,15 @@ describe('MISIÓN §16.2 — Depreciación por activo', () => {
   test('la depreciación se reincorpora UNA sola vez al flujo (gasto no monetario)', () => {
     const p = crearProyectoClinica();
     const m = computeProject(p);
-    // FCFF_año1 = UDI + intereses devengados + depreciación − CAPEX ampliaciones
+    // DOC-002 §4.1: FCFF_año1 = UDI + (intereses devengados − escudo fiscal)
+    //               + depreciación − CAPEX ampliaciones
     const udi = m.valores['utilidad_despues_impuestos_k'][1];
     const inter = m.deuda[1].interesDevengado;
     const dep = m.valores['depreciacion_anual_k'][1];
     const capex = m.indicadores.capexAmpliaciones[1] ?? 0;
-    expect(m.indicadores.fcff[1]).toBeCloseTo(udi + inter + dep - capex, 4);
+    const escudo = m.indicadores.escudoFiscal[1];
+    expect(escudo).toBeCloseTo(inter * 0.35, 4); // escudo = interés × tasa con la regla plana
+    expect(m.indicadores.fcff[1]).toBeCloseTo(udi + inter - escudo + dep - capex, 4);
     // Y el CAPEX de la ampliación NO entra en el año 1 (la ampliación es año 7).
     expect(capex).toBe(0);
   });

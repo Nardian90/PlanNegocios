@@ -12,7 +12,7 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
-![Pruebas](https://img.shields.io/badge/Pruebas-246%2B63%2B28%2B19_pass-brightgreen?style=flat-square)
+![Pruebas](https://img.shields.io/badge/Pruebas-288%2B63%2B28%2B19_pass-brightgreen?style=flat-square)
 [![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
 
 ### Aplicación en línea
@@ -311,7 +311,7 @@ src/
       model/                 Normalización/creación, % de cumplimentación y controles (diagnóstico §15)
       io/                    jsonio (JSON validado), xlsx (22 hojas), pdf (índice paginado), persistence
       store.ts               Estado global tipado (zustand)
-tests/planex/                246 pruebas: motor (44) + 8 suites de auditoría (109) + XLSX (16) + PDF (7) + documento DOC-001 (46) + UX-002 ayuda/navegación/comparación/iconos/tasa (24)
+tests/planex/                288 pruebas: motor + 8 suites de auditoría + XLSX + PDF + documento DOC-001 + UX-002 + DOC-002 (fórmulas/escudo fiscal, conciliación del arranque, estado general, texto canónico, figuras, trazabilidad)
 docs/                        Informe de implementación, entregables de la auditoría y capturas
 ```
 
@@ -355,7 +355,7 @@ y viajan solo cuando el usuario exporta JSON/PDF/Excel).
 ### CI de protección de main (configurado)
 
 Cada pull request hacia main y cada push a main ejecutan el flujo
-[`ci.yml`](.github/workflows/ci.yml): comprobación de tipos (`tsc`), lint, las 246 pruebas
+[`ci.yml`](.github/workflows/ci.yml): comprobación de tipos (`tsc`), lint, las 288 pruebas
 unitarias/de integración y el build de producción estático, más la verificación de que los
 iconos se sirven en el build. La rama `main` está protegida en el repositorio: exige pull
 request con ese check en verde, prohíbe force pushes y borrados.

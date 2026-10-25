@@ -89,6 +89,10 @@ export interface ServicioRow {
   /** Recursos operativos que utiliza cada procedimiento (ids de RecursoRow). */
   recursoIds: string[];
   fuente: string;
+  /** Canal de comercialización (metodología 4.8): los ingresos se desglosan
+   *  por canal SIN duplicar operaciones. Sin valor = sin canal declarado
+   *  (el diagnóstico lo marca como pendiente). */
+  canal?: 'exportacion' | 'plataformas_exterior' | 'plaza';
 }
 
 export interface ExpansionRecurso {
@@ -318,6 +322,11 @@ export interface MercadoInfo {
   consumoEstimado: string;
   demandaAparente: string;
   demandaSolvente: string;
+  /** Demanda solvente cuantificada (personas con capacidad de pago), para la
+   *  conciliación demanda/captación/volumen (misión DOC-002 §7). Opcional. */
+  demandaSolventePersonas?: number;
+  /** Captación objetivo del año 1 como fracción (0–1) de la demanda solvente. Opcional. */
+  captacionPrevistaPct?: number;
   metodoEstimacion: string;
   fuentesConsulta: string;
   ventasExportacion: string;
@@ -531,6 +540,10 @@ export interface Indicadores {
   /** FCFE por año (kUSD). */
   fcfe: Record<number, number>;
   fcfeAcumulado: Record<number, number>;
+  /** Escudo fiscal del interés devengado por año (kUSD): reducción del impuesto
+   *  atribuible al gasto por intereses, derivada de la regla de impuestos
+   *  activa. El FCFF reincorpora el interés DESPUÉS de impuestos. */
+  escudoFiscal: Record<number, number>;
   /** CAPEX de ampliaciones por año (kUSD). */
   capexAmpliaciones: Record<number, number>;
 }

@@ -95,13 +95,31 @@ describe('DOC-001 §7 — DOCX válido, editable y estructurado', () => {
     expect(apaisadas).toBeLessThan(verticales); // no todo el documento apaisado
   });
 
-  test('es EDITABLE: texto seleccionable, sin imágenes ni rasterizados (§7)', async () => {
+  test('es EDITABLE: texto seleccionable; las figuras son gráficos locales, no páginas rasterizadas (§7, DOC-002 §9)', async () => {
     const archivos = await docxArchivos();
     const doc = new TextDecoder().decode(archivos['word/document.xml']);
-    expect(doc).not.toContain('<w:drawing');
+    // DOC-002 §9: las FIGURAS se incrustan como PNG generado localmente
+    // desde los mismos datos del modelo (3 figuras del plan demo). Eso NO
+    // rasteriza el documento: el texto sigue siendo REAL y seleccionable.
+    const dibujos = (doc.match(/<w:drawing/g) ?? []).length;
+    expect(dibujos).toBeLessThanOrEqual(5); // solo las figuras (≈3), nunca páginas
+    const media = Object.keys(archivos).filter((k) => k.startsWith('word/media/') && k.endsWith('.png'));
+    expect(media.length).toBeGreaterThan(0); // las figuras existen como PNG
+    for (const m of media) {
+      const bytes = archivos[m];
+      expect(bytes.length).toBeGreaterThan(100);
+      expect(Array.from(bytes.slice(0, 8))).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    }
     expect(doc).not.toContain('<w:pict');
     const texto = textoWord(archivos);
     expect(texto.length).toBeGreaterThan(5000);
+    // El texto del documento coincide con el modelo canónico (sin U+2212 ni
+    // marcadores CJK: texto WinAni-seguro compartido con el PDF, §3.3/§8).
+    expect(texto).toContain('(t-1)');
+    expect(texto).not.toContain('\u2212');
+    expect(texto).not.toContain('\u3010');
+    expect(texto).toContain('[Pendiente: nombre y apellidos de quien elabora]');
+    expect(texto).toContain('BORRADOR NO APTO PARA PRESENTACIÓN');
   });
 
   test('usa estilos de Word (Heading1) y estilos propios, no solo formato manual', async () => {

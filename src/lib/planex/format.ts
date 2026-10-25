@@ -77,3 +77,24 @@ export function mesAnio(ym: string): string {
   if (!y || idx < 0 || idx > 11) return ym;
   return `${meses[idx]} ${y}`;
 }
+
+/** ¿Está el campo VACÍO o marcado expresamente como PENDIENTE de completar?
+ *  Misión DOC-002 §3.4: los campos obligatorios sin completar se muestran
+ *  como pendientes con un rótulo profesional («[Pendiente: …]») y NUNCA
+ *  deben interpretarse como completados. */
+export function esValorPendiente(v: string | number | undefined | null): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === 'number') return !Number.isFinite(v);
+  const t = v.trim();
+  if (!t || t === '—' || t === '-') return true;
+  return /^\[?\s*pendiente\b/i.test(t) || /^pendiente\b/i.test(t);
+}
+
+/** ¿Declara una referencia documental IDENTIFICABLE (no una mera hipótesis
+ *  ficticia de demostración)? Misión DOC-002 §5: un campo «con referencia
+ *  documental» exige una referencia identificable; un supuesto ficticio NO
+ *  cuenta como fuente validada. */
+export function esReferenciaHipotesis(v: string | undefined | null): boolean {
+  if (!v?.trim()) return true;
+  return /fictici|ilustrativ|supuesto|demostraci|pendiente|proforma|hipot|a validar|sin verificar/i.test(v);
+}

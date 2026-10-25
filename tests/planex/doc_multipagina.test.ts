@@ -83,8 +83,12 @@ describe('DOC-001 Escenario E — Documento extenso y tablas multipágina', () =
     const { datos: word } = await exportarDOCX(p, m, { moneda: 'USD' });
     const wbuf = Buffer.from(await word.arrayBuffer());
     const s = wbuf.toString('binary');
-    // El ZIP no contiene imágenes (sin rasterizados) y sí muchas tablas.
-    expect(s).not.toContain('media/');
+    // DOC-002 §9: las FIGURAS sí van en word/media (PNG generado localmente
+    // desde los mismos datos), pero NO hay rasterizados de texto/páginas: el
+    // documento sigue siendo editable y con muchas tablas reales.
+    const pngs = new Set((s.match(/word\/media\/[!-~]{8,}\.png/g) ?? []).map((x) => x.split('/').pop()!));
+    expect(pngs.size).toBe(3); // exactamente las 3 figuras del plan (horizonte ≥ 2 años + recursos)
+    expect(s).toContain('word/document.xml');
   });
 });
 

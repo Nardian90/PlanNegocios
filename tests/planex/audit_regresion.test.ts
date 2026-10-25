@@ -178,11 +178,16 @@ describe('MISIÓN §16.1 — Regresión sobre las cifras visibles originales', (
     expect(rec).not.toBeCloseTo(4.0, 1);
     expect(rec!).toBeGreaterThan(3);
     expect(rec!).toBeLessThan(5);
-    // El flujo del año 1 bajo la metodología FCFF (incluye intereses añadidos
-    // por ser flujo del financiador, excluye amortización por no ser gasto).
-    // Con la tasa 743: UDI 251,45683 + int 24 + dep 117,125 = 392,58183 exacto.
-    expect(m.indicadores.fcff[1]).toBeCloseTo(251.46 + 24 + 117.125, 1);
-    expect(m.indicadores.fcff[1]).toBeCloseTo((369.185 + (38.28 - 15312000 / 743 / 1000)) * 0.65 + 24 + 117.125, 4);
+    // El flujo del año 1 bajo la metodología FCFF CORREGIDA (DOC-002 §4.1):
+    // UDI + intereses DESPUÉS DE IMPUESTOS (interés − escudo fiscal, con el
+    // escudo = interés × 35 % derivado de la regla de impuestos activa)
+    // + depreciación. Con la tasa 743: UDI 251,45683 + (24 − 8,4) + 117,125.
+    // El modelo viejo sumaba el interés completo (392,58): sobrestimaba el
+    // FCFF en el escudo fiscal cada año.
+    expect(m.indicadores.fcff[1]).toBeCloseTo(251.46 + 24 - 24 * 0.35 + 117.125, 1);
+    expect(m.indicadores.fcff[1]).toBeCloseTo((369.185 + (38.28 - 15312000 / 743 / 1000)) * 0.65 + 24 * (1 - 0.35) + 117.125, 4);
+    // El escudo fiscal queda expuesto como serie del motor (§4.1).
+    expect(m.indicadores.escudoFiscal[1]).toBeCloseTo(24 * 0.35, 6);
   });
 });
 

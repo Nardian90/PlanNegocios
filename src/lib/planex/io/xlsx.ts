@@ -1188,7 +1188,8 @@ export async function exportarXLSX(proyecto: PlanexProject, modelo: ComputedMode
     fCtrl++;
   }
   hCtrl.texto(fCtrl, 1, `Conteo: ${resumen.conteo.error_bloqueante} error(es) bloqueante(s), ${resumen.conteo.advertencia_importante} advertencia(s) importante(s), ${resumen.conteo.informacion_pendiente} pendiente(s), ${resumen.conteo.observacion_calidad} observación(es) de calidad.`, ST.nota);
-  hCtrl.texto(fCtrl + 1, 1, 'La completitud formal de campos NO se usa como prueba de calidad: un apartado completo de supuestos sin respaldo sigue sin estar validado.', ST.nota);
+  hCtrl.texto(fCtrl + 1, 1, `ESTADO GENERAL DEL PLAN (DOC-002 §5): ${resumen.estadoGeneral.etiqueta}. ${resumen.estadoGeneral.detalle}`, ST.nota);
+  hCtrl.texto(fCtrl + 2, 1, 'La completitud formal de campos NO se usa como prueba de calidad: un apartado completo de supuestos sin respaldo sigue sin estar validado. Las seis dimensiones se evalúan de forma independiente.', ST.nota);
   // Leyenda de los CUATRO niveles del diagnóstico (misión §15): permite
   // distinguir la clasificación aunque el plan no genere hallazgos de todos
   // los niveles.
