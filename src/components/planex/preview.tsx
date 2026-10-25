@@ -1,13 +1,12 @@
 'use client';
 
-// Vista previa documental: representación de lectura (hojas tamaño carta,
-// fondo claro constante) del plan vigente. No es una captura de la interfaz
-// de edición: los datos provienen del motor activo.
+// Documento del plan: representación de lectura (hojas tamaño carta,
+// fondo claro constante) alimentada por el modelo vigente del motor.
+// No es una captura de la interfaz de edición y no contiene controles de
+// formulario: se renderiza dentro de la vista dedicada de previsualización
+// (ruta #/preview) y también se usa como referencia del PDF exportado.
 
 import * as React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Printer } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, ESTADO_RESULTADOS, BENEFICIOS_PAIS, ETIQUETAS_APORTACION, ETIQUETAS_CATEGORIA_INV, ETIQUETAS_GRUPO, ADVERTENCIA_DATOS_FICTICIOS, DECLARACION_RESPONSABILIDAD } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
@@ -63,7 +62,8 @@ function TablaDoc({ encabezados, filas, anchoPrimera }: { encabezados: string[];
   );
 }
 
-export function VistaPrevia({ abierto, cerrar, modelo }: { abierto: boolean; cerrar: () => void; modelo: ComputedModel }) {
+/** Documento completo del plan (portada, índice, 4.1–4.12 y notas) para la vista dedicada. */
+export function DocumentoPlan({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const m = modelo;
   const esDemo = p.planex.plantillaOrigen === 'clinica';
@@ -71,22 +71,9 @@ export function VistaPrevia({ abierto, cerrar, modelo }: { abierto: boolean; cer
   const val = (id: string, t: number) => m.valores[id]?.[t] ?? 0;
   const param = (id: string) => p.parametros.find((x) => x.id === id)?.valor ?? 0;
 
-  const imprimir = () => window.print();
-
   return (
-    <Dialog open={abierto} onOpenChange={(o) => !o && cerrar()}>
-      <DialogContent className="max-w-[900px] w-[94vw] h-[90vh] overflow-y-auto print:h-auto print:overflow-visible print:max-w-none print:w-auto p-0">
-        <DialogHeader className="px-6 pt-6 pb-2 print:hidden sticky top-0 bg-background z-10 border-b">
-          <DialogTitle className="flex items-center justify-between gap-3 flex-wrap">
-            <span>Previsualización del plan</span>
-            <Button variant="outline" size="sm" onClick={imprimir} className="gap-1.5">
-              <Printer className="size-4" /> Imprimir
-            </Button>
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="px-4 pb-8 print:p-0">
-          {/* Portada */}
+    <div className="preview-doc">
+      {/* Portada */}
           <Hoja>
             <div className="bg-slate-800 text-white -mx-10 -mt-9 mb-6 px-10 py-8 rounded-t-md">
               <div className="text-2xl font-bold tracking-wide">PLAN DE NEGOCIOS</div>
@@ -318,8 +305,6 @@ export function VistaPrevia({ abierto, cerrar, modelo }: { abierto: boolean; cer
               {esDemo && <li className="text-amber-800 font-medium">{ADVERTENCIA_DATOS_FICTICIOS}</li>}
             </ul>
           </Hoja>
-        </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

@@ -19,22 +19,21 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
   AlertTriangle, ArrowDownToLine, Bell, Calculator, ChevronLeft, ChevronRight, Copy, Eye, FileDown, FileSpreadsheet,
-  FolderOpen, HardDriveDownload, LayoutTemplate, ListChecks, Moon, Save, Stethoscope, Sun, TriangleAlert, Undo2,
+  FolderOpen, HardDriveDownload, LayoutTemplate, ListChecks, LogOut, Moon, Save, Stethoscope, Sun, TriangleAlert, Undo2,
 } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { computeProject } from '@/lib/planex/engine/engine';
 import { calcularCumplimiento } from '@/lib/planex/model/cumplimiento';
-import { cargarActual } from '@/lib/planex/io/persistence';
+import { cargarActual, guardarActual } from '@/lib/planex/io/persistence';
 import { parsearProyectoJSON, proyectoAJSON, descargarArchivo, nombreArchivoSeguro } from '@/lib/planex/io/jsonio';
-import { exportarPDF } from '@/lib/planex/io/pdf';
-import { exportarXLSX } from '@/lib/planex/io/xlsx';
+import { cerrarSesion } from '@/lib/planex/auth';
+import { navegar } from './navegacion';
 import { ComputedModel, PlanexProject } from '@/lib/planex/types';
 import { EtiquetaIssue } from './comunes';
 import { SeccionGeneral, SeccionResumen, SeccionNegocio } from './secciones/secciones1';
 import { SeccionTecnico, SeccionFinanciero } from './secciones/secciones2';
 import { SeccionMercado, SeccionFuerza, SeccionInversiones, SeccionBeneficios, SeccionConclusiones } from './secciones/secciones3';
 import { SeccionConfig } from './config';
-import { VistaPrevia } from './preview';
 
 const NAV: { id: string; num: string; titulo: string }[] = [
   { id: 'general', num: '4.1–4.3', titulo: 'Información general e índice' },
@@ -59,12 +58,29 @@ export function PlanexApp() {
   const { theme, setTheme } = useTheme();
   const [montado, setMontado] = React.useState(false);
   const [verAlertas, setVerAlertas] = React.useState(false);
-  const [verPrevia, setVerPrevia] = React.useState(false);
   const [verPlantillas, setVerPlantillas] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
   const inputJson = React.useRef<HTMLInputElement>(null);
+  const proyectoRef = React.useRef(proyecto);
 
   React.useEffect(() => setMontado(true), []);
+
+  // Referencia viva del proyecto para el volcado síncrono al desmontar la
+  // vista de edición (p. ej. al pasar a la previsualización): ningún cambio
+  // queda sin persistir aunque esté pendiente el autoguardado por debounce.
+  React.useEffect(() => {
+    proyectoRef.current = proyecto;
+  });
+  React.useEffect(
+    () => () => {
+      try {
+        guardarActual(proyectoRef.current);
+      } catch {
+        /* almacenamiento no disponible */
+      }
+    },
+    [],
+  );
 
   // Persistencia automática local (debounce 700 ms)
   React.useEffect(() => {
@@ -140,10 +156,11 @@ export function PlanexApp() {
     }, 'Va a sustituir el proyecto abierto por el archivo JSON.');
   };
 
-  const exportarPdf = () => {
+  const exportarPdf = async () => {
     if (errores.length > 0 && !confirm(`Hay ${errores.length} error(es) de cálculo. El PDF se generará con las partidas afectadas marcadas. ¿Continuar?`)) return;
     setExportando(true);
     try {
+      const { exportarPDF } = await import('@/lib/planex/io/pdf');
       const { datos, nombre } = exportarPDF(proyecto, modelo);
       descargarArchivo(nombre.replace(/[^\w.\- áéíóúÁÉÍÓÚñÑ]/g, ''), datos, 'application/pdf');
       toast.success('PDF generado con la versión vigente de datos y reglas');
@@ -158,6 +175,7 @@ export function PlanexApp() {
     if (errores.length > 0 && !confirm(`Hay ${errores.length} error(es) de cálculo: las partidas afectadas se exportarán marcadas como #ERROR y documentadas en la hoja «Reglas». ¿Continuar?`)) return;
     setExportando(true);
     try {
+      const { exportarXLSX } = await import('@/lib/planex/io/xlsx');
       const { datos, nombre, noTraducibles } = await exportarXLSX(proyecto, modelo);
       descargarArchivo(nombre.replace(/[^\w.\- áéíóúÁÉÍÓÚñÑ]/g, ''), datos, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       if (noTraducibles.length) {
@@ -257,8 +275,8 @@ export function PlanexApp() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Intercambio y documentos</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => setVerPrevia(true)} className="gap-2">
-                  <Eye className="size-4" /> Previsualizar plan
+                <DropdownMenuItem onClick={() => navegar('/preview')} className="gap-2">
+                  <Eye className="size-4" /> Previsualizar plan (vista dedicada)
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={exportarPdf} disabled={exportando} className="gap-2">
                   <ArrowDownToLine className="size-4" /> Exportar PDF
@@ -296,6 +314,19 @@ export function PlanexApp() {
               title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
             >
               {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              onClick={() => {
+                cerrarSesion();
+                navegar('/');
+              }}
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión y volver a la presentación (los proyectos guardados se conservan)"
+            >
+              <LogOut className="size-4" />
             </Button>
           </div>
         </div>
@@ -437,7 +468,6 @@ export function PlanexApp() {
         </DialogContent>
       </Dialog>
 
-      <VistaPrevia abierto={verPrevia} cerrar={() => setVerPrevia(false)} modelo={modelo} />
       <Toaster richColors position="bottom-right" />
     </div>
   );

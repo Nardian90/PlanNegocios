@@ -22,6 +22,22 @@ vía GitHub Actions + GitHub Pages. La aplicación es 100% estática: una vez ca
 funciona sin conexión y no envía datos a ningún servidor (los planes se guardan en el
 navegador y solo viajan cuando el usuario exporta JSON/PDF/Excel).
 
+**Flujo de vistas** (cada una con URL propia, navegación por hash sin 404):
+
+| Vista | Ruta | Acceso |
+|---|---|---|
+| Landing de presentación | `#/` | Público |
+| Acceso con contraseña | `#/login` | Público |
+| Aplicación (editor 4.1–4.12) | `#/app` | Protegido |
+| Vista documental del plan | `#/preview` | Protegido |
+
+**Acceso**: la aplicación se abre tras introducir la contraseña (`PLANEX`, sensible a
+mayúsculas). ⚠️ La contraseña se verifica en el cliente: es una barrera de acceso
+básica para uso personal o demostrativo, **no autenticación segura** — el código
+descargado puede inspeccionarse y la comprobación puede eludirse. Para confidencialidad
+real se requiere autenticación del lado del servidor. Detalle en
+[`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md).
+
 </div>
 
 ---
@@ -86,19 +102,30 @@ demostración son **supuestos editables**, no tasas legales vigentes.
   - **JSON** con esquema versionado para guardar, intercambiar y reabrir proyectos.
 - **Persistencia local**: autoguardado en `localStorage`, biblioteca de proyectos y temas
   claro/oscuro persistentes. La aplicación funciona completamente sin conexión.
+- **Vistas diferenciadas**: landing de presentación premium, acceso mediante
+  contraseña (solo `PLANEX`, sin cuentas), aplicación protegida y previsualización
+  documental como vista de página completa (no modal) — ver
+  [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md).
 - **Validación y consistencia**: alertas clasificadas (error, inconsistencia, pendiente,
   supuesto, documental, legal) con navegación al apartado afectado; control de capacidad de
   servicios, insuficiencia/exceso de financiación, horizonte ≥ recuperación + 1 año y más.
 
 ## Capturas de pantalla
 
-| Tema claro | Tema oscuro |
+| Landing de presentación | Vista documental dedicada |
+|:---:|:---:|
+| ![Landing](docs/capturas/landing-escritorio.png) | ![Vista previa](docs/capturas/vista-previa-dedicada.png) |
+
+| Tema claro (editor) | Tema oscuro (editor) |
 |:---:|:---:|
 | ![Tema claro](docs/capturas/captura-claro.png) | ![Tema oscuro](docs/capturas/captura-oscuro.png) |
 
-*Vista de la sección de análisis financiero con la proyección plurianual del ejemplo
-Clínica Estomatológica.* También hay una [captura del sitio desplegado en GitHub Pages
-](docs/capturas/captura-github-pages.png) con el ejemplo cargado.
+*La landing presenta el producto con dirección de arte editorial; la vista documental
+(`#/preview`) muestra el plan como documento institucional con fondo neutro; las
+capturas del editor corresponden a la sección de análisis financiero del ejemplo
+Clínica Estomatológica. También hay una [captura del sitio desplegado en GitHub Pages
+](docs/capturas/captura-github-pages.png), de la [vista de acceso](docs/capturas/vista-login.png)
+y de la landing en [móvil](docs/capturas/landing-movil.png).*
 
 ## Conformidad metodológica GOC-2026-O57
 
@@ -230,6 +257,8 @@ El repositorio incluye el workflow [`.github/workflows/deploy.yml`](.github/work
 cada push a `main` construye el sitio estático con Bun y lo publica en
 **https://nardian90.github.io/PlanNegocios/** mediante GitHub Actions. No se necesita Vercel
 ni ningún otro proveedor: la app no requiere servidor, base de datos ni funciones en la nube.
+La navegación interna usa rutas por hash (`#/`, `#/login`, `#/app`, `#/preview`), de modo que
+ninguna vista produce 404 al recargar y los recursos resuelven bajo la subruta del repo.
 
 Configuración necesaria (ya aplicada en este repositorio):
 
@@ -248,16 +277,22 @@ Al ser un sitio estático, `out/` puede servirse desde cualquier hosting:
 
 ## Guía de uso rápido
 
-1. **Primer uso**: aparece el selector de plantillas. Elija «Clínica Estomatológica»
+1. **Landing y acceso**: abra el sitio; explore la presentación («Explorar funcionalidades»)
+   y pulse «Acceder a PLANEX». En la pantalla de acceso introduzca la contraseña (solo
+   contraseña, sin usuario) y pulse Entrar.
+2. **Primer uso en la app**: aparece el selector de plantillas. Elija «Clínica Estomatológica»
    (ejemplo completo) o «Default» (estructura general vacía).
-2. **Explorar el modelo**: navegue por las secciones 4.1–4.12 en la barra lateral; las
+3. **Explorar el modelo**: navegue por las secciones 4.1–4.12 en la barra lateral; las
    celdas calculadas muestran su fórmula al pasar el cursor y enlazan a la regla origen.
-3. **Cambiar un parámetro**: abra «Configuración de cálculos», edite la tasa del impuesto
+4. **Cambiar un parámetro**: abra «Configuración de cálculos», edite la tasa del impuesto
    (35 → 30 %) y observe el recálculo en cascada en la sección 4.7.
-4. **Cambiar una fórmula**: en la misma configuración, edite la expresión del impuesto
+5. **Cambiar una fórmula**: en la misma configuración, edite la expresión del impuesto
    (constructor visual o editor de texto) con validación en vivo y prueba con datos actuales.
-5. **Exportar**: previsualice el documento y genere PDF (documental), Excel (con fórmulas
-   vivas) o JSON (intercambio). El libro Excel recalcula al cambiar cualquier parámetro.
+6. **Previsualizar y exportar**: «Previsualizar plan» abre la vista documental dedicada
+   (`#/preview`); desde su barra de acciones exporte PDF (documental), Excel (con fórmulas
+   vivas) o JSON, y «Volver a editar» regresa a la misma sección de edición.
+7. **Cerrar sesión**: el botón de la barra superior regresa a la landing y limpia la sesión
+   sin borrar los proyectos guardados.
 
 ## Pruebas
 
@@ -268,6 +303,7 @@ La suite automatizada cubre el motor de cálculo, los exportadores y el intercam
 | Motor | 35 | Valores esperados manuales, recálculo por parámetro, cambio de fórmula, sintaxis inválida, variables inexistentes, ciclos, división por cero, insuficiencia de financiación, horizonte, capacidad, round-trip JSON |
 | Excel | 16 | Fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas (926+ fórmulas) |
 | PDF | 7 | Contenido, índice, cifras del modelo activo y advertencias |
+| Vistas y acceso (enmienda) | 20 | Landing sin sesión, flujo de acceso con contraseña, protección y redirección de vistas, cierre de sesión sin pérdida de datos, previsualización dedicada, sincronización de cifras, Atrás/Adelante, recargas sin 404, subruta, responsive, movimiento reducido, recursos externos y consola — detalle en [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) |
 
 Además se verificó de extremo a extremo en navegador: carga de plantillas, edición de
 formularios y tablas, cascadas de recálculo, persistencia tras recarga, temas claro/oscuro
@@ -287,9 +323,15 @@ y ausencia de errores en consola. El detalle completo está en
 5. Validaciones legales, tributarias, sanitarias y de mercado **pendientes de confirmación
    por el usuario** antes de cualquier uso oficial (tasa de impuesto, tipo de cambio,
    certificaciones del MFP, licencias MINSAP, estudios de demanda).
+6. **La contraseña de acceso se verifica en el cliente** y puede eludirse inspeccionando
+   el código descargado: es una barrera demostrativa para uso personal, no autenticación
+   segura. No sustituye un mecanismo de control de acceso del lado del servidor.
 
 ## Documentación adicional
 
+- [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) — Enmienda:
+  landing premium, acceso mediante contraseña (con su limitación real de seguridad),
+  previsualización como vista dedicada y las 20 pruebas adicionales ejecutadas.
 - [`docs/INFORME_DE_IMPLEMENTACION.md`](docs/INFORME_DE_IMPLEMENTACION.md) — Informe completo
   de implementación y verificación: funciones, arquitectura, pruebas ejecutadas y resultados.
 - [`docs/ejemplos/`](docs/ejemplos/) — Salidas del ejemplo Clínica Estomatológica:

@@ -1,5 +1,5 @@
-import { PlanexApp } from '@/components/planex/PlanexApp';
+import { Vistas } from '@/components/planex/Vistas';
 
 export default function Home() {
-  return <PlanexApp />;
+  return <Vistas />;
 }
