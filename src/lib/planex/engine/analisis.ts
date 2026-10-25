@@ -16,6 +16,18 @@
 // ya no coincide, el estado pasa a «desactualizado» y el sistema advierte en
 // lugar de sobrescribir en silencio el texto del usuario. Regenerar sustituye
 // el texto por la versión actual del modelo.
+//
+// Moneda de presentación (misión PLANEX-DOC-001 §5): los importes monetarios
+// del motor (kUSD) se formatean a través de un contexto de presentación que
+// convierte UNA sola vez desde la moneda de origen. El contexto por defecto
+// (PRESENTACION_NATIVA) reproduce exactamente la salida anterior en kUSD.
+// Las HUELLAS se computan sobre los valores de ORIGEN: cambiar la moneda de
+// presentación nunca marca un texto manual como desactualizado.
+//
+// Permanecen SIEMPRE en su unidad de origen (no se convierten): el tipo de
+// cambio (CUP/USD), los factores técnicos, los salarios en CUP (metodología
+// 4.9) y los importes de filas expresados en la moneda de la propia fila
+// (p. ej. inversiones), que conservan su etiqueta de moneda de origen.
 // ============================================================================
 
 import { PlanexProject, ComputedModel, EstadoAnalisis, ETIQUETAS_APORTACION, ETIQUETAS_CATEGORIA_INV } from '../types';
@@ -42,6 +54,27 @@ export interface AnalisisGenerado {
   texto: string;
   huella: string;
 }
+
+/**
+ * Presentación monetaria de los textos (misión DOC-001 §3.2): convierte un
+ * importe del motor (kUSD) a MILES de la moneda de presentación y lo formatea,
+ * junto con las etiquetas de unidad correspondientes.
+ */
+export interface PresentacionMonetaria {
+  /** Importe del motor en kUSD → texto en miles de la moneda de presentación. */
+  k: (n: number) => string;
+  /** Abreviatura de la unidad: 'kUSD' | 'kCUP'. */
+  corto: string;
+  /** Unidad en textos: 'miles de USD' | 'miles de CUP'. */
+  largo: string;
+}
+
+/** Contexto nativo del motor: idéntico a la salida histórica en kUSD. */
+export const PRESENTACION_NATIVA: PresentacionMonetaria = {
+  k: fmtK,
+  corto: 'kUSD',
+  largo: 'miles de USD',
+};
 
 /** Hash determinista (FNV-1a) de la huella canónica. */
 function hash(texto: string): string {
@@ -77,7 +110,7 @@ function pct(n: number, d: number): number {
 // Generadores (uno por apartado con tablas importantes)
 // ---------------------------------------------------------------------------
 
-function analisisAportaciones(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisAportaciones(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const tot = m.indicadores.aportacionesTotalesKUSD;
   const extranjero = p.aportaciones.filter((a) => a.socio === 'extranjero').reduce((s, a) => s + a.montos.reduce((x, y) => x + y, 0), 0);
   const nacional = p.aportaciones.filter((a) => a.socio === 'nacional').reduce((s, a) => s + a.montos.reduce((x, y) => x + y, 0), 0);
@@ -91,23 +124,23 @@ function analisisAportaciones(p: PlanexProject, m: ComputedModel): { texto: stri
   const dif = m.valores['diferencia_financiacion_k']?.[0] ?? 0;
 
   const frases = [
-    `Las aportaciones comprometidas suman ${fmtK(tot)} miles de USD: el inversionista extranjero aporta ${fmtK(extranjero)} (${fmtPct(pct(extranjero, tot))}) y la parte nacional ${fmtK(nacional)} (${fmtPct(pct(nacional, tot))}).`,
+    `Las aportaciones comprometidas suman ${pres.k(tot)} ${pres.largo}: el inversionista extranjero aporta ${pres.k(extranjero)} (${fmtPct(pct(extranjero, tot))}) y la parte nacional ${pres.k(nacional)} (${fmtPct(pct(nacional, tot))}).`,
     tipos.length
-      ? `Por tipo de aporte, ${tipos.map(([t, v]) => `${ETIQUETAS_APORTACION[t as keyof typeof ETIQUETAS_APORTACION] ?? t} con ${fmtK(v)} (${fmtPct(pct(v, tot))})`).join(', ')}.`
+      ? `Por tipo de aporte, ${tipos.map(([t, v]) => `${ETIQUETAS_APORTACION[t as keyof typeof ETIQUETAS_APORTACION] ?? t} con ${pres.k(v)} (${fmtPct(pct(v, tot))})`).join(', ')}.`
       : 'No hay aportaciones registradas: complete la tabla de aportaciones (4.5) antes de evaluar la financiación.',
     `La composición del capital resultante es ${fmtPct(pct(extranjero, tot))} extranjero / ${fmtPct(pct(nacional, tot))} nacional; el parámetro de participación cubana configurado es ${fmtPct(parametro(p, 'pct_parte_cubana'))} y el diagnóstico comprueba su coherencia con estas aportaciones.`,
   ];
   if (Math.abs(dif) <= 0.05) {
     frases.push(
-      `Con estas aportaciones y las demás fuentes, la financiación disponible cubre exactamente la inversión total calculada (diferencia de ${fmtK(dif)} kUSD) bajo las premisas vigentes; ello no implica que los fondos estén comprometidos ni desembolsados: las aportaciones requieren documentación de respaldo.`
+      `Con estas aportaciones y las demás fuentes, la financiación disponible cubre exactamente la inversión total calculada (diferencia de ${pres.k(dif)} ${pres.corto}) bajo las premisas vigentes; ello no implica que los fondos estén comprometidos ni desembolsados: las aportaciones requieren documentación de respaldo.`
     );
   } else if (dif < 0) {
     frases.push(
-      `Existe una insuficiencia de financiación de ${fmtK(Math.abs(dif))} kUSD frente a la inversión total: el plan debe aumentar aportaciones, gestionar crédito adicional o reducir el alcance de la inversión antes de presentarse.`
+      `Existe una insuficiencia de financiación de ${pres.k(Math.abs(dif))} ${pres.corto} frente a la inversión total: el plan debe aumentar aportaciones, gestionar crédito adicional o reducir el alcance de la inversión antes de presentarse.`
     );
   } else {
     frases.push(
-      `La financiación supera la inversión total en ${fmtK(dif)} kUSD: verifique si el exceso corresponde a capital de trabajo adicional documentado o debe ajustar las fuentes.`
+      `La financiación supera la inversión total en ${pres.k(dif)} ${pres.corto}: verifique si el exceso corresponde a capital de trabajo adicional documentado o debe ajustar las fuentes.`
     );
   }
   if (sinRef.length) {
@@ -121,7 +154,7 @@ function analisisAportaciones(p: PlanexProject, m: ComputedModel): { texto: stri
   return { texto: lista(frases), huella: huellaDe({ tot, extranjero, nacional, tipos, dif, sinRef: sinRef.length }) };
 }
 
-function analisisCapacidad(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisCapacidad(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const umbral = parametro(p, 'umbral_utilizacion_capacidad');
   const umbralMargen = parametro(p, 'umbral_margen_minimo');
   const frases: string[] = [];
@@ -147,10 +180,10 @@ function analisisCapacidad(p: PlanexProject, m: ComputedModel): { texto: string;
   const margenBajo = margenes.filter((x) => x.margenPct < umbralMargen && x.ingreso > 0);
 
   frases.push(
-    `En el año 1 los ingresos por servicios ascienden a ${fmtK(ingresoTotal / 1000)} miles de USD. Las tres líneas principales (${top3.map((x) => `«${x.s.nombre}» con ${fmtPct(pct(x.ingreso, ingresoTotal))}`).join(', ')}) concentran ${fmtPct(concentracion)} del ingreso${top ? `, encabezadas por «${top.s.nombre}» con ${fmtK(top.ingreso / 1000)} miles de USD` : ''}.`
+    `En el año 1 los ingresos por servicios ascienden a ${pres.k(ingresoTotal / 1000)} ${pres.largo}. Las tres líneas principales (${top3.map((x) => `«${x.s.nombre}» con ${fmtPct(pct(x.ingreso, ingresoTotal))}`).join(', ')}) concentran ${fmtPct(concentracion)} del ingreso${top ? `, encabezadas por «${top.s.nombre}» con ${pres.k(top.ingreso / 1000)} ${pres.largo}` : ''}.`
   );
   frases.push(
-    `El margen de contribución del año 1 es ${fmtK(m.indicadores.margenContribucionAnio1 ? m.indicadores.margenContribucionAnio1 / 1000 : 0)} miles de USD (${fmtPct(pct(m.indicadores.margenContribucionAnio1 ?? 0, ingresoTotal))} de los ingresos). La línea que más margen aporta es «${mayorMargen?.s.nombre ?? '—'}» (${fmtK((mayorMargen?.margen ?? 0) / 1000)} miles de USD) y la que menos, «${menorMargen?.s.nombre ?? '—'}» (${fmtK((menorMargen?.margen ?? 0) / 1000)}).`
+    `El margen de contribución del año 1 es ${pres.k(m.indicadores.margenContribucionAnio1 ? m.indicadores.margenContribucionAnio1 / 1000 : 0)} ${pres.largo} (${fmtPct(pct(m.indicadores.margenContribucionAnio1 ?? 0, ingresoTotal))} de los ingresos). La línea que más margen aporta es «${mayorMargen?.s.nombre ?? '—'}» (${pres.k((mayorMargen?.margen ?? 0) / 1000)} ${pres.largo}) y la que menos, «${menorMargen?.s.nombre ?? '—'}» (${pres.k((menorMargen?.margen ?? 0) / 1000)}).`
   );
   if (margenBajo.length) {
     frases.push(
@@ -161,7 +194,7 @@ function analisisCapacidad(p: PlanexProject, m: ComputedModel): { texto: string;
   const escenario = p.tecnico.escenarioCapacidad;
   frases.push(
     escenario === 'B_ampliacion'
-      ? `Escenario activo: B (ampliación de capacidad). Las ampliaciones programadas en la tabla de recursos generan CAPEX en sus años de ejecución y amplían la capacidad disponible; el total de CAPEX de ampliaciones del horizonte es ${fmtK(Object.values(m.indicadores.capexAmpliaciones).reduce((s, v) => s + v, 0))} miles de USD.`
+      ? `Escenario activo: B (ampliación de capacidad). Las ampliaciones programadas en la tabla de recursos generan CAPEX en sus años de ejecución y amplían la capacidad disponible; el total de CAPEX de ampliaciones del horizonte es ${pres.k(Object.values(m.indicadores.capexAmpliaciones).reduce((s, v) => s + v, 0))} ${pres.largo}.`
       : 'Escenario activo: A (capacidad constante). Las cantidades proyectadas quedan limitadas a la capacidad instalada actual; cualquier ampliación futura debe programarse explícitamente en el escenario B.'
   );
 
@@ -198,7 +231,7 @@ function analisisCapacidad(p: PlanexProject, m: ComputedModel): { texto: string;
   return { texto: lista(frases), huella: huellaDe(huellaDatos) };
 }
 
-function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const inv = m.indicadores.inversionTotalKUSD;
   const previos = m.valores['gastos_previos_k']?.[0] ?? 0;
   const fija = m.valores['inversion_fija_k']?.[0] ?? 0;
@@ -215,18 +248,18 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel): { te
   const mayores = [...p.financiero.inversion].sort((x, y) => y.monto - x.monto).slice(0, 3);
 
   const frases = [
-    `La inversión inicial total calculada es ${fmtK(inv)} miles de USD, compuesta por gastos previos de ${fmtK(previos)} (${fmtPct(pct(previos, inv))}), inversión fija de ${fmtK(fija)} (${fmtPct(pct(fija, inv))}) y capital de trabajo inicial de ${fmtK(ct)} (${fmtPct(pct(ct, inv))}).`,
+    `La inversión inicial total calculada es ${pres.k(inv)} ${pres.largo}, compuesta por gastos previos de ${pres.k(previos)} (${fmtPct(pct(previos, inv))}), inversión fija de ${pres.k(fija)} (${fmtPct(pct(fija, inv))}) y capital de trabajo inicial de ${pres.k(ct)} (${fmtPct(pct(ct, inv))}).`,
     mayores.length
       ? `Las partidas de mayor peso son ${mayores.map((x) => `«${x.concepto}» (${fmtK(x.monto)} ${x.moneda})`).join(', ')}.`
       : 'No hay partidas de inversión registradas: complete la tabla de inversiones (4.10).',
   ];
   if (fijaCUP > 0.001) {
     frases.push(
-      `Dentro de la inversión fija, ${fmtK(fijaCUP)} miles de USD provienen de partidas expresadas en CUP convertidas con el tipo de cambio parametrizado de ${fmtK(parametro(p, 'tipo_cambio'))} CUP/USD (con fecha y fuente documentables): las monedas no se suman sin convertir.`
+      `Dentro de la inversión fija, ${pres.k(fijaCUP)} ${pres.corto} provienen de partidas expresadas en CUP convertidas con el tipo de cambio parametrizado de ${fmtK(parametro(p, 'tipo_cambio'))} CUP/USD (con fecha y fuente documentables): las monedas no se suman sin convertir.`
     );
   }
   frases.push(
-    `Las fuentes disponibles suman ${fmtK(aport + otras + credito)} miles de USD (aportaciones ${fmtK(aport)}, otras fuentes ${fmtK(otras)}, crédito ${fmtK(credito)}). La necesidad de financiación (inversión menos aportaciones y otras fuentes) es ${fmtK(nec)} kUSD${
+    `Las fuentes disponibles suman ${pres.k(aport + otras + credito)} ${pres.largo} (aportaciones ${pres.k(aport)}, otras fuentes ${pres.k(otras)}, crédito ${pres.k(credito)}). La necesidad de financiación (inversión menos aportaciones y otras fuentes) es ${pres.k(nec)} ${pres.corto}${
       credito > 0
         ? nec > credito
           ? `, cubierta solo en ${fmtPct(pct(credito, nec))} por el crédito previsto: el faltante se cuantifica en la diferencia de financiación`
@@ -234,9 +267,9 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel): { te
         : ' y no se ha previsto crédito para cubrirla'}.`
   );
   if (dif < -0.05) {
-    frases.push(`Existe una insuficiencia de financiación de ${fmtK(Math.abs(dif))} kUSD frente a la inversión total: el plan no es financiable bajo las premisas actuales (diferencia de financiación: faltan ${fmtK(Math.abs(dif))} kUSD). Aumente aportaciones, gestione crédito adicional o reduzca el alcance de la inversión antes de cualquier presentación.`);
+    frases.push(`Existe una insuficiencia de financiación de ${pres.k(Math.abs(dif))} ${pres.corto} frente a la inversión total: el plan no es financiable bajo las premisas actuales (diferencia de financiación: faltan ${pres.k(Math.abs(dif))} ${pres.corto}). Aumente aportaciones, gestione crédito adicional o reduzca el alcance de la inversión antes de cualquier presentación.`);
   } else if (dif > 0.05) {
-    frases.push(`Diferencia de financiación: sobran ${fmtK(dif)} kUSD sin asignar a inversión; justifique su uso o ajuste las fuentes.`);
+    frases.push(`Diferencia de financiación: sobran ${pres.k(dif)} ${pres.corto} sin asignar a inversión; justifique su uso o ajuste las fuentes.`);
   } else {
     frases.push('La diferencia de financiación es nula bajo las premisas vigentes: el modelo cubre la inversión calculada. No se afirma que la financiación esté concedida ni que los fondos estén disponibles de manera real.');
   }
@@ -247,12 +280,12 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel): { te
     return acc;
   }, []);
   if (porAnio.some((v) => v > 0)) {
-    frases.push(`Calendario de desembolsos de aportaciones: ${porAnio.map((v, i) => `año ${i + 1}: ${fmtK(v)} kUSD`).join('; ')}.`);
+    frases.push(`Calendario de desembolsos de aportaciones: ${porAnio.map((v, i) => `año ${i + 1}: ${pres.k(v)} ${pres.corto}`).join('; ')}.`);
   }
   return { texto: lista(frases), huella: huellaDe({ inv, previos, fija, ct, aport, otras, credito, dif, porAnio, mayores: mayores.map((x) => x.id) }) };
 }
 
-function analisisIngresosCostos(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisIngresosCostos(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const N = p.ajustes.horizonteAnios;
   const ing1 = m.indicadores.ingresosTotales[1] ?? 0;
   const ingN = m.indicadores.ingresosTotales[N] ?? 0;
@@ -268,14 +301,14 @@ function analisisIngresosCostos(p: PlanexProject, m: ComputedModel): { texto: st
   const crecimientoIng = ing1 > 0.01 ? Math.pow(ingN / ing1, 1 / Math.max(1, N - 1)) - 1 : 0;
 
   const frases = [
-    `Los ingresos totales pasan de ${fmtK(ing1)} miles de USD en el año 1 a ${fmtK(ingN)} en el año ${N} (crecimiento medio implícito ${fmtPct(crecimientoIng)} anual). Esa trayectoria resulta de la demanda prevista, los precios con su crecimiento parametrizado y la limitación por capacidad del escenario activo; no incluye facturación por encima de lo atendible.`,
-    `En el año 1 los costos variables absorben ${fmtPct(pct(cv1, ing1))} de los ingresos, la fuerza de trabajo ${fmtPct(pct(cl1, ing1))} y los costos fijos de operación (canon, mantenimiento, servicios públicos, gastos administrativos y otros) ${fmtPct(pct(fijo1, ing1))}. La depreciación del período es ${fmtK(dep1)} miles de USD: es un gasto contable que no representa salida de caja.`,
-    `Con la regla tributaria activa (tasa parametrizada de ${fmtPct(tasa)}, supuesto de demostración), el impuesto del año 1 es ${fmtK(imp1)} miles de USD y la utilidad después de impuestos ${fmtK(udi1)} (${fmtPct(pct(udi1, ing1))} de margen neto).`,
+    `Los ingresos totales pasan de ${pres.k(ing1)} ${pres.largo} en el año 1 a ${pres.k(ingN)} en el año ${N} (crecimiento medio implícito ${fmtPct(crecimientoIng)} anual). Esa trayectoria resulta de la demanda prevista, los precios con su crecimiento parametrizado y la limitación por capacidad del escenario activo; no incluye facturación por encima de lo atendible.`,
+    `En el año 1 los costos variables absorben ${fmtPct(pct(cv1, ing1))} de los ingresos, la fuerza de trabajo ${fmtPct(pct(cl1, ing1))} y los costos fijos de operación (canon, mantenimiento, servicios públicos, gastos administrativos y otros) ${fmtPct(pct(fijo1, ing1))}. La depreciación del período es ${pres.k(dep1)} ${pres.largo}: es un gasto contable que no representa salida de caja.`,
+    `Con la regla tributaria activa (tasa parametrizada de ${fmtPct(tasa)}, supuesto de demostración), el impuesto del año 1 es ${pres.k(imp1)} ${pres.largo} y la utilidad después de impuestos ${pres.k(udi1)} (${fmtPct(pct(udi1, ing1))} de margen neto).`,
     uaiN > uai1
-      ? `La utilidad antes de impuestos mejora de ${fmtK(uai1)} (año 1) a ${fmtK(uaiN)} (año ${N}): el modelo atribuye la variación al crecimiento de demanda y precios activado por las reglas vigentes, sin cambios de capacidad adicionales a los programados.`
+      ? `La utilidad antes de impuestos mejora de ${pres.k(uai1)} (año 1) a ${pres.k(uaiN)} (año ${N}): el modelo atribuye la variación al crecimiento de demanda y precios activado por las reglas vigentes, sin cambios de capacidad adicionales a los programados.`
       : uaiN < uai1
-        ? `La utilidad antes de impuestos DESCIENDE de ${fmtK(uai1)} (año 1) a ${fmtK(uaiN)} (año ${N}): revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante o cargas financieras).`
-        : `La utilidad antes de impuestos permanece en ${fmtK(uai1)} miles de USD entre el año 1 y el año ${N}: verifique si el modelo refleja la dinámica prevista del negocio.`,
+        ? `La utilidad antes de impuestos DESCIENDE de ${pres.k(uai1)} (año 1) a ${pres.k(uaiN)} (año ${N}): revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante o cargas financieras).`
+        : `La utilidad antes de impuestos permanece en ${pres.k(uai1)} ${pres.largo} entre el año 1 y el año ${N}: verifique si el modelo refleja la dinámica prevista del negocio.`,
   ];
   const uaiSerie: number[] = [];
   for (let t = 1; t <= N; t++) uaiSerie.push(m.valores['utilidad_antes_impuestos_k']?.[t] ?? 0);
@@ -286,7 +319,7 @@ function analisisIngresosCostos(p: PlanexProject, m: ComputedModel): { texto: st
   if (caidas.length) {
     const t0 = caidas[0];
     frases.push(
-      `La utilidad antes de impuestos DESCIENDE en el año ${t0} (de ${fmtK(uaiSerie[t0 - 2])} a ${fmtK(uaiSerie[t0 - 1])} kUSD)${caidas.length > 1 ? ` y vuelve a caer en ${caidas.length - 1} año(s) más` : ''}: revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante, cargas financieras o nuevas depreciaciones de ampliaciones) antes de proyectar crecimiento sobre esa trayectoria.`
+      `La utilidad antes de impuestos DESCIENDE en el año ${t0} (de ${pres.k(uaiSerie[t0 - 2])} a ${pres.k(uaiSerie[t0 - 1])} ${pres.corto})${caidas.length > 1 ? ` y vuelve a caer en ${caidas.length - 1} año(s) más` : ''}: revise qué partida crece más que los ingresos (costos variables por inflación, capacidad limitante, cargas financieras o nuevas depreciaciones de ampliaciones) antes de proyectar crecimiento sobre esa trayectoria.`
     );
   }
   const caja = m.indicadores.fcfeAcumulado[N] ?? 0;
@@ -296,7 +329,7 @@ function analisisIngresosCostos(p: PlanexProject, m: ComputedModel): { texto: st
   return { texto: lista(frases), huella: huellaDe({ ing1, ingN, uai1, uaiN, imp1, cv1, cl1, dep1, fijo1, tasa, caja }) };
 }
 
-function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const cfg = p.financiero.deuda;
   const frases: string[] = [];
   const interesTotal = m.deuda.reduce((s, f) => s + f.interesDevengado, 0);
@@ -311,16 +344,16 @@ function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel): { texto:
     const plazo = parametro(p, 'plazo_amortizacion');
     const fin = m.deuda[m.deuda.length - 1];
     frases.push(
-      `El crédito de ${fmtK(monto)} miles de USD se desembolsa en el año ${cfg.anioDesembolso} con tasa del ${fmtPct(tasa)}, gracia de ${gracia} año(s) de tipo ${cfg.tipoGracia === 'total' ? 'TOTAL (los intereses se capitalizan en el saldo)' : 'de principal (los intereses se pagan corriente)'} y amortización por ${cfg.metodo === 'capital_constante' ? 'capital constante' : cfg.metodo === 'sistema_frances' ? 'sistema francés (cuota total constante)' : 'pago único al vencimiento'} en ${plazo} anualidades.`
+      `El crédito de ${pres.k(monto)} ${pres.largo} se desembolsa en el año ${cfg.anioDesembolso} con tasa del ${fmtPct(tasa)}, gracia de ${gracia} año(s) de tipo ${cfg.tipoGracia === 'total' ? 'TOTAL (los intereses se capitalizan en el saldo)' : 'de principal (los intereses se pagan corriente)'} y amortización por ${cfg.metodo === 'capital_constante' ? 'capital constante' : cfg.metodo === 'sistema_frances' ? 'sistema francés (cuota total constante)' : 'pago único al vencimiento'} en ${plazo} anualidades.`
     );
     frases.push(
-      `A lo largo del horizonte se devengan ${fmtK(interesTotal)} miles de USD de intereses y se amortizan ${fmtK(amortTotal)}; el saldo pendiente al cierre del horizonte es ${fmtK(fin.saldoFinal)} kUSD. La tabla de deuda verifica saldo final = saldo inicial + desembolso + capitalización − amortización en cada período y ningún período amortiza por encima del saldo.`
+      `A lo largo del horizonte se devengan ${pres.k(interesTotal)} ${pres.largo} de intereses y se amortizan ${pres.k(amortTotal)}; el saldo pendiente al cierre del horizonte es ${pres.k(fin.saldoFinal)} ${pres.corto}. La tabla de deuda verifica saldo final = saldo inicial + desembolso + capitalización − amortización en cada período y ningún período amortiza por encima del saldo.`
     );
     const servicio = m.deuda.map((f) => f.interesPagado + f.amortizacion);
     const maxServicio = Math.max(...servicio.slice(1));
     const anioMax = servicio.indexOf(maxServicio);
     frases.push(
-      `El servicio máximo de la deuda (interés pagado + amortización) es ${fmtK(maxServicio)} miles de USD en el año ${anioMax}: compárelo con el flujo de caja del proyecto del mismo año (${fmtK(m.indicadores.fcff[anioMax] ?? 0)} kUSD) para valorar el margen de cobertura.`
+      `El servicio máximo de la deuda (interés pagado + amortización) es ${pres.k(maxServicio)} ${pres.largo} en el año ${anioMax}: compárelo con el flujo de caja del proyecto del mismo año (${pres.k(m.indicadores.fcff[anioMax] ?? 0)} ${pres.corto}) para valorar el margen de cobertura.`
     );
   }
 
@@ -334,12 +367,12 @@ function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel): { texto:
   const sinDepreciar = activos.filter((a) => a.vnl > 0.01 && a.anioDisponible + a.vidaUtilAnios > p.ajustes.horizonteAnios + 1);
   frases.push(
     activos.length
-      ? `El registro de activos depreciables contiene ${activos.length} activo(s). La depreciación anual total es ${fmtK(depPorAnio[1] ?? 0)} miles de USD en el año 1 y alcanza su máximo (${fmtK(depPorAnio[anioPico] ?? 0)}) en el año ${anioPico}; cada activo deprecia desde su año de disponibilidad, respeta su vida útil y nunca supera su importe depreciable.`
+      ? `El registro de activos depreciables contiene ${activos.length} activo(s). La depreciación anual total es ${pres.k(depPorAnio[1] ?? 0)} ${pres.largo} en el año 1 y alcanza su máximo (${pres.k(depPorAnio[anioPico] ?? 0)}) en el año ${anioPico}; cada activo deprecia desde su año de disponibilidad, respeta su vida útil y nunca supera su importe depreciable.`
       : 'No hay activos depreciables definidos: la depreciación es nula y el flujo de caja no incorpora reincorporación alguna.'
   );
   if (sinDepreciar.length) {
     frases.push(
-      `${sinDepreciar.length} activo(s) quedan con valor neto en libros al final del horizonte (p. ej. «${sinDepreciar[0].concepto}» con ${fmtK(sinDepreciar[0].vnl)} kUSD): el plan debe declarar el tratamiento de ese valor residual al cierre.`
+      `${sinDepreciar.length} activo(s) quedan con valor neto en libros al final del horizonte (p. ej. «${sinDepreciar[0].concepto}» con ${pres.k(sinDepreciar[0].vnl)} ${pres.corto}): el plan debe declarar el tratamiento de ese valor residual al cierre.`
     );
   }
   frases.push('La depreciación es un gasto no monetario: reduce la utilidad contable pero el flujo de caja la reincorpora una sola vez; las amortizaciones del principal, en cambio, son salidas de caja del financiador y no gasto del estado de resultados.');
@@ -347,7 +380,7 @@ function analisisDeudaDepreciacion(p: PlanexProject, m: ComputedModel): { texto:
   return { texto: lista(frases), huella: huellaDe({ cfg, interesTotal, amortTotal, fin: m.deuda[m.deuda.length - 1]?.saldoFinal, activos: activos.map((a) => [a.id, a.acumulada, a.vnl]), totalDep }) };
 }
 
-function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const N = p.ajustes.horizonteAnios;
   const recP = m.indicadores.recuperacionProyecto;
   const recS = m.indicadores.recuperacionSocios;
@@ -358,35 +391,35 @@ function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel): { texto:
   );
   if (recP.anios !== null && !recP.indeterminado) {
     frases.push(
-      `Con los flujos vigentes, la inversión total de ${fmtK(m.indicadores.inversionTotalKUSD)} kUSD se recupera en ${fmtAnios(recP.anios)} (cruce del acumulado en el año ${recP.anioCruce}; interpolación lineal: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior)). El saldo pendiente de recuperar al final del año ${Math.max(0, (recP.anioCruce ?? 1) - 1)} era ${fmtK(-m.indicadores.fcffAcumulado[Math.max(0, (recP.anioCruce ?? 1) - 1)])} kUSD.`
+      `Con los flujos vigentes, la inversión total de ${pres.k(m.indicadores.inversionTotalKUSD)} ${pres.corto} se recupera en ${fmtAnios(recP.anios)} (cruce del acumulado en el año ${recP.anioCruce}; interpolación lineal: (t−1) + |acumulado anterior| / (acumulado actual − acumulado anterior)). El saldo pendiente de recuperar al final del año ${Math.max(0, (recP.anioCruce ?? 1) - 1)} era ${pres.k(-m.indicadores.fcffAcumulado[Math.max(0, (recP.anioCruce ?? 1) - 1)])} ${pres.corto}.`
     );
   } else if (recP.indeterminado) {
     frases.push(`La recuperación de la inversión total no puede emitirse como una cifra única fiable: ${recP.motivo}`);
   } else {
     frases.push(
-      `La inversión total NO se recupera dentro del horizonte de ${N} años con el flujo del proyecto: el acumulado termina en ${fmtK(m.indicadores.fcffAcumulado[N] ?? 0)} kUSD. Debe decirse expresamente; cualquier afirmación de recuperación en el plan sería incorrecta con los datos actuales.`
+      `La inversión total NO se recupera dentro del horizonte de ${N} años con el flujo del proyecto: el acumulado termina en ${pres.k(m.indicadores.fcffAcumulado[N] ?? 0)} ${pres.corto}. Debe decirse expresamente; cualquier afirmación de recuperación en el plan sería incorrecta con los datos actuales.`
     );
   }
   if (recS.anios !== null && !recS.indeterminado) {
     frases.push(
-      `El capital aportado por los socios (${fmtK(m.indicadores.aportacionesTotalesKUSD)} kUSD) se recupera en ${fmtAnios(recS.anios)} (cruce en el año ${recS.anioCruce}), más ${recS.anios !== null && recP.anios !== null && recS.anios >= recP.anios ? 'tardío que' : 'temprano que'} la recuperación de la inversión total: la diferencia procede del crédito (desembolsos) y de su servicio (intereses y amortizaciones).`
+      `El capital aportado por los socios (${pres.k(m.indicadores.aportacionesTotalesKUSD)} ${pres.corto}) se recupera en ${fmtAnios(recS.anios)} (cruce en el año ${recS.anioCruce}), más ${recS.anios !== null && recP.anios !== null && recS.anios >= recP.anios ? 'tardío que' : 'temprano que'} la recuperación de la inversión total: la diferencia procede del crédito (desembolsos) y de su servicio (intereses y amortizaciones).`
     );
   } else if (recS.indeterminado) {
-    frases.push(`La recuperación del capital aportado no puede emitirse como cifra única fiable: ${recS.motivo}`);
+    frases.push(`La recuperación del capital aportado no puede emitirse como una cifra única fiable: ${recS.motivo}`);
   } else {
-    frases.push(`El capital aportado por los socios NO se recupera dentro del horizonte según el flujo de los socios (acumulado final: ${fmtK(m.indicadores.fcfeAcumulado[N] ?? 0)} kUSD).`);
+    frases.push(`El capital aportado por los socios NO se recupera dentro del horizonte según el flujo de los socios (acumulado final: ${pres.k(m.indicadores.fcfeAcumulado[N] ?? 0)} ${pres.corto}).`);
   }
 
   const capexAmp = Object.values(m.indicadores.capexAmpliaciones).reduce((s, v) => s + v, 0);
   if (capexAmp > 0.001) {
     frases.push(
-      `Las ampliaciones de capacidad del escenario B añaden ${fmtK(capexAmp)} miles de USD de CAPEX en sus años de ejecución, retrasando el acumulado del proyecto en esos años; el modelo los incluye íntegramente (no presenta una recuperación optimista que ignore las inversiones adicionales).`
+      `Las ampliaciones de capacidad del escenario B añaden ${pres.k(capexAmp)} ${pres.largo} de CAPEX en sus años de ejecución, retrasando el acumulado del proyecto en esos años; el modelo los incluye íntegramente (no presenta una recuperación optimista que ignore las inversiones adicionales).`
     );
   }
   const pctCT = parametro(p, 'pct_recuperacion_capital_trabajo');
   if (pctCT > 0) {
     frases.push(
-      `El modelo libera el ${fmtPct(pctCT)} del capital de trabajo (${fmtK(pctCT * parametro(p, 'capital_trabajo_k'))} kUSD) en el último año: esa recuperación es un supuesto parametrizado que debe justificarse.`
+      `El modelo libera el ${fmtPct(pctCT)} del capital de trabajo (${pres.k(pctCT * parametro(p, 'capital_trabajo_k'))} ${pres.corto}) en el último año: esa recuperación es un supuesto parametrizado que debe justificarse.`
     );
   } else {
     frases.push('El capital de trabajo inicial no se recupera dentro del modelo (tratamiento conservador, parámetro de recuperación en 0 %).');
@@ -400,13 +433,13 @@ function analisisFlujoRecuperacion(p: PlanexProject, m: ComputedModel): { texto:
   };
 }
 
-function analisisMercado(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisMercado(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const ing1 = m.indicadores.ingresosTotales[1] ?? 0;
   const frases: string[] = [];
   const sinFuente = !p.mercado.fuentesConsulta?.trim() || /fictici|ilustrativ|supuesto/i.test(p.mercado.fuentesConsulta);
 
   frases.push(
-    `El volumen de negocio modelado en el año 1 (${fmtK(ing1)} miles de USD) se apoya en la demanda prevista definida en la tabla de servicios. La aplicación no simula una investigación de mercado: los valores de demanda aparente y demanda solvente declarados en el apartado 4.8 ${p.mercado.demandaAparente?.trim() && p.mercado.demandaSolvente?.trim() ? 'están registrados' : 'NO están registrados'} y deben sustentarse en fuentes verificables.`
+    `El volumen de negocio modelado en el año 1 (${pres.k(ing1)} ${pres.largo}) se apoya en la demanda prevista definida en la tabla de servicios. La aplicación no simula una investigación de mercado: los valores de demanda aparente y demanda solvente declarados en el apartado 4.8 ${p.mercado.demandaAparente?.trim() && p.mercado.demandaSolvente?.trim() ? 'están registrados' : 'NO están registrados'} y deben sustentarse en fuentes verificables.`
   );
   frases.push(
     sinFuente
@@ -419,12 +452,12 @@ function analisisMercado(p: PlanexProject, m: ComputedModel): { texto: string; h
     );
   }
   frases.push(
-    `Supuestos de mayor impacto en los resultados de mercado: precios unitarios (crecimiento ${fmtPct(parametro(p, 'crecimiento_precios'))} anual), demanda (crecimiento ${fmtPct(parametro(p, 'crecimiento_volumen'))} anual) y tope de capacidad del escenario activo. Un error de ±10 % en la demanda del año 1 desplaza los ingresos del año 1 en ±${fmtK(ing1 * 0.1)} miles de USD.`
+    `Supuestos de mayor impacto en los resultados de mercado: precios unitarios (crecimiento ${fmtPct(parametro(p, 'crecimiento_precios'))} anual), demanda (crecimiento ${fmtPct(parametro(p, 'crecimiento_volumen'))} anual) y tope de capacidad del escenario activo. Un error de ±10 % en la demanda del año 1 desplaza los ingresos del año 1 en ±${pres.k(ing1 * 0.1)} ${pres.largo}.`
   );
   return { texto: lista(frases), huella: huellaDe({ ing1, sinFuente, exp: p.mercado.ventasExportacion, da: p.mercado.demandaAparente, ds: p.mercado.demandaSolvente, cp: parametro(p, 'crecimiento_precios'), cv: parametro(p, 'crecimiento_volumen') }) };
 }
 
-function analisisFuerzaTrabajo(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisFuerzaTrabajo(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const ind = m.indicadores;
   const grupos = Object.entries(ind.trabajadoresPorGrupo).filter(([, v]) => v > 0);
   const cl1 = m.valores['costo_laboral_k']?.[1] ?? 0;
@@ -435,16 +468,16 @@ function analisisFuerzaTrabajo(p: PlanexProject, m: ComputedModel): { texto: str
     grupos.length
       ? `Distribución por categorías de operación: ${grupos.map(([g, v]) => `${fmtNum(v)} en ${g.replace(/_/g, ' — ')}`).join(', ')}.`
       : 'No hay personal de operación definido: complete la tabla 4.9.',
-    `El salario promedio anual ponderado de la plantilla de operación es ${fmtK(ind.salarioPromedioAnualCUP ?? 0)} CUP. El costo laboral del año 1 asciende a ${fmtK(cl1)} miles de USD (salarios en CUP convertidos con el tipo de cambio parametrizado, multiplicados por el factor de costo laboral de ${fmtK(parametro(p, 'factor_costo_laboral'))}), equivalente al ${fmtPct(pct(cl1, m.indicadores.ingresosTotales[1] ?? 0))} de los ingresos del año 1.`,
+    `El salario promedio anual ponderado de la plantilla de operación es ${fmtK(ind.salarioPromedioAnualCUP ?? 0)} CUP. El costo laboral del año 1 asciende a ${pres.k(cl1)} ${pres.largo} (salarios en CUP convertidos con el tipo de cambio parametrizado, multiplicados por el factor de costo laboral de ${fmtK(parametro(p, 'factor_costo_laboral'))}), equivalente al ${fmtPct(pct(cl1, m.indicadores.ingresosTotales[1] ?? 0))} de los ingresos del año 1.`,
     montajeCosto > 0.001
-      ? `El costo laboral del año 0 (montaje) es ${fmtK(montajeCosto)} kUSD y se registra como gasto del período: no forma parte de los gastos previos de la inversión, por lo que no está duplicado.`
+      ? `El costo laboral del año 0 (montaje) es ${pres.k(montajeCosto)} ${pres.corto} y se registra como gasto del período: no forma parte de los gastos previos de la inversión, por lo que no está duplicado.`
       : 'No se registran costos de personal de montaje en el año 0.',
-    `Los pagos por la fuerza de trabajo son uno de los beneficios directos al país: el costo laboral acumulado de la explotación es ${fmtK(pagosFTAcum)} miles de USD. La remuneración de cada categoría y su etapa de contratación figuran en la tabla 4.9; su validación frente a la legislación laboral vigente queda fuera del modelo.`,
+    `Los pagos por la fuerza de trabajo son uno de los beneficios directos al país: el costo laboral acumulado de la explotación es ${pres.k(pagosFTAcum)} ${pres.largo}. La remuneración de cada categoría y su etapa de contratación figuran en la tabla 4.9; su validación frente a la legislación laboral vigente queda fuera del modelo.`,
   ];
   return { texto: lista(frases), huella: huellaDe({ ind, cl1, montajeCosto, grupos, pagosFTAcum }) };
 }
 
-function analisisInversionesCronograma(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisInversionesCronograma(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const filas = [...p.financiero.inversion].sort((x, y) => y.monto - x.monto);
   const catPesos = ['gastos_previos', 'inversion_fija', 'inducida'].map((c) => {
     const v = p.financiero.inversion.filter((x) => x.categoria === c).reduce((s, x) => s + x.monto, 0);
@@ -465,14 +498,14 @@ function analisisInversionesCronograma(p: PlanexProject, m: ComputedModel): { te
   }
   if (m.indicadores.capexAmpliaciones && Object.values(m.indicadores.capexAmpliaciones).some((v) => v > 0)) {
     frases.push(
-      `Las ampliaciones del escenario B añaden desembolsos en los años ${Object.entries(m.indicadores.capexAmpliaciones).filter(([, v]) => v > 0).map(([t, v]) => `${t}: ${fmtK(v)} kUSD`).join(', ')}. Un retraso en esas inversiones desplazaría la capacidad disponible y con ella los ingresos; el modelo los vincula, así que cualquier cambio de fecha exige reevaluar la proyección.`
+      `Las ampliaciones del escenario B añaden desembolsos en los años ${Object.entries(m.indicadores.capexAmpliaciones).filter(([, v]) => v > 0).map(([t, v]) => `${t}: ${pres.k(v)} ${pres.corto}`).join(', ')}. Un retraso en esas inversiones desplazaría la capacidad disponible y con ella los ingresos; el modelo los vincula, así que cualquier cambio de fecha exige reevaluar la proyección.`
     );
   }
   void activosCriticos;
   return { texto: lista(frases), huella: huellaDe({ catPesos, filas: filas.slice(0, 3).map((f) => f.id), etapas, capex: m.indicadores.capexAmpliaciones }) };
 }
 
-function analisisBeneficiosPais(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisBeneficiosPais(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const total = m.indicadores.beneficiosPaisAcumulados;
   const explot = m.indicadores.beneficiosPaisExplotacion;
   const anio0 = m.indicadores.beneficiosPais[0] ?? 0;
@@ -485,15 +518,15 @@ function analisisBeneficiosPais(p: PlanexProject, m: ComputedModel): { texto: st
   const otrosImp = parametro(p, 'otros_impuestos_anual_k') * p.ajustes.horizonteAnios;
 
   const frases = [
-    `Los beneficios directos al país acumulan ${fmtK(total)} miles de USD en el período completo del análisis (años 0 a ${p.ajustes.horizonteAnios}). El subtotal de la explotación (años 1 a ${p.ajustes.horizonteAnios}) es ${fmtK(explot)} miles de USD y el año 0 aporta ${fmtK(anio0)} (pagos por la fuerza de trabajo de montaje, único concepto activo en esa fase). Ambos totales provienen del mismo cálculo del motor: resumen, tabla y conclusiones coinciden por construcción.`,
-    `Composición del período: impuestos sobre utilidades ${fmtK(imp)}, pagos por la fuerza de trabajo ${fmtK(pagosFT + (m.valores['pagos_fuerza_trabajo_k']?.[0] ?? 0))}, dividendos de la parte cubana ${fmtK(divCub)}, canon ${fmtK(canon)}, aranceles ${fmtK(aranceles)} y otros impuestos y tasas ${fmtK(otrosImp)} miles de USD.`,
+    `Los beneficios directos al país acumulan ${pres.k(total)} ${pres.largo} en el período completo del análisis (años 0 a ${p.ajustes.horizonteAnios}). El subtotal de la explotación (años 1 a ${p.ajustes.horizonteAnios}) es ${pres.k(explot)} ${pres.largo} y el año 0 aporta ${pres.k(anio0)} (pagos por la fuerza de trabajo de montaje, único concepto activo en esa fase). Ambos totales provienen del mismo cálculo del motor: resumen, tabla y conclusiones coinciden por construcción.`,
+    `Composición del período: impuestos sobre utilidades ${pres.k(imp)}, pagos por la fuerza de trabajo ${pres.k(pagosFT + (m.valores['pagos_fuerza_trabajo_k']?.[0] ?? 0))}, dividendos de la parte cubana ${pres.k(divCub)}, canon ${pres.k(canon)}, aranceles ${pres.k(aranceles)} y otros impuestos y tasas ${pres.k(otrosImp)} ${pres.largo}.`,
     `Los pagos por la fuerza de trabajo referencian el costo laboral del modelo (sin doble contabilización con los salarios ya deducidos en el estado de resultados); los dividendos cubanos provienen del módulo de dividendos (limitado por resultados acumulados, reservas y caja disponible) y no de un porcentaje aplicado en paralelo.`,
   ];
   const inv = m.indicadores.inversionTotalKUSD;
   frases.push(
     total > inv
-      ? `El acumulado (${fmtK(total)} kUSD) supera la inversión total del proyecto (${fmtK(inv)} kUSD) dentro del horizonte; aun así, estos son beneficios PROYECTADOS, no ingresos estatales efectivos, y dependen de que la operación ocurra según lo modelado.`
-      : `El acumulado (${fmtK(total)} kUSD) ${total > 0 ? 'es inferior' : 'no supera'} a la inversión total del proyecto (${fmtK(inv)} kUSD) dentro del horizonte: preséntelo con esa perspectiva.`
+      ? `El acumulado (${pres.k(total)} ${pres.corto}) supera la inversión total del proyecto (${pres.k(inv)} ${pres.corto}) dentro del horizonte; aun así, estos son beneficios PROYECTADOS, no ingresos estatales efectivos, y dependen de que la operación ocurra según lo modelado.`
+      : `El acumulado (${pres.k(total)} ${pres.corto}) ${total > 0 ? 'es inferior' : 'no supera'} a la inversión total del proyecto (${pres.k(inv)} ${pres.corto}) dentro del horizonte: preséntelo con esa perspectiva.`
   );
   const pendientes = p.aportaciones.some((a) => a.tipo === 'derechos_reales' && !a.referenciaDocumental?.trim());
   if (pendientes) frases.push('Existen aportaciones con derechos reales pendientes de documentación: los certificados exigibles forman parte de la acreditación de estos beneficios ante las autoridades.');
@@ -501,7 +534,7 @@ function analisisBeneficiosPais(p: PlanexProject, m: ComputedModel): { texto: st
   return { texto: lista(frases), huella: huellaDe({ total, explot, anio0, imp, pagosFT, divCub, canon, aranceles, otrosImp, inv }) };
 }
 
-function analisisResumenEjecutivo(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisResumenEjecutivo(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const ind = m.indicadores;
   const N = p.ajustes.horizonteAnios;
   const errores = m.issues.filter((i) => i.tipo === 'error');
@@ -511,12 +544,12 @@ function analisisResumenEjecutivo(p: PlanexProject, m: ComputedModel): { texto: 
   const insuficiente = (m.valores['diferencia_financiacion_k']?.[0] ?? 0) < -0.05;
 
   const frases = [
-    `${p.titulo.nombreProyecto || p.nombre} es una propuesta de ${p.negocio.modalidad || 'inversión extranjera'} con una inversión total calculada de ${fmtK(ind.inversionTotalKUSD)} miles de USD, financiada con ${fmtK(ind.aportacionesTotalesKUSD)} kUSD de aportaciones de los socios${parametro(p, 'credito_monto_k') > 0 && p.financiero.deuda.habilitada ? ` y un crédito de ${fmtK(parametro(p, 'credito_monto_k'))} kUSD` : ''}, sobre un horizonte de análisis de ${N} años.`,
-    `Con los supuestos activos, el modelo proyecta ingresos del año 1 por ${fmtK(ind.ingresosTotales[1] ?? 0)} miles de USD, utilidad después de impuestos de ${fmtK(ind.utilidadNeta[1] ?? 0)} kUSD y una plantilla de ${fmtNum(ind.totalTrabajadores)} trabajadores en operación.`,
+    `${p.titulo.nombreProyecto || p.nombre} es una propuesta de ${p.negocio.modalidad || 'inversión extranjera'} con una inversión total calculada de ${pres.k(ind.inversionTotalKUSD)} ${pres.largo}, financiada con ${pres.k(ind.aportacionesTotalesKUSD)} ${pres.corto} de aportaciones de los socios${parametro(p, 'credito_monto_k') > 0 && p.financiero.deuda.habilitada ? ` y un crédito de ${pres.k(parametro(p, 'credito_monto_k'))} ${pres.corto}` : ''}, sobre un horizonte de análisis de ${N} años.`,
+    `Con los supuestos activos, el modelo proyecta ingresos del año 1 por ${pres.k(ind.ingresosTotales[1] ?? 0)} ${pres.largo}, utilidad después de impuestos de ${pres.k(ind.utilidadNeta[1] ?? 0)} ${pres.corto} y una plantilla de ${fmtNum(ind.totalTrabajadores)} trabajadores en operación.`,
     recP.anios !== null && !recP.indeterminado
       ? `La inversión total se recupera en ${fmtAnios(recP.anios)} por el flujo de caja del proyecto; el capital aportado por los socios, en ${recS.anios !== null && !recS.indeterminado ? fmtAnios(recS.anios) : 'plazo no determinado'}.`
       : `La inversión total NO se recupera dentro del horizonte de ${N} años con el flujo del proyecto: el plan debe declararlo expresamente.`,
-    `Los beneficios directos al país acumulan ${fmtK(ind.beneficiosPaisAcumulados)} miles de USD en el período completo (explotación: ${fmtK(ind.beneficiosPaisExplotacion)} kUSD), con impuestos sobre utilidades por ${fmtK(ind.impuestosTotales)} kUSD y dividendos de la parte cubana por ${fmtK(Object.values(m.valores['dividendos_parte_cubana_k'] ?? {}).reduce((s, v) => s + v, 0))} kUSD.`,
+    `Los beneficios directos al país acumulan ${pres.k(ind.beneficiosPaisAcumulados)} ${pres.largo} en el período completo (explotación: ${pres.k(ind.beneficiosPaisExplotacion)} ${pres.corto}), con impuestos sobre utilidades por ${pres.k(ind.impuestosTotales)} ${pres.corto} y dividendos de la parte cubana por ${pres.k(Object.values(m.valores['dividendos_parte_cubana_k'] ?? {}).reduce((s, v) => s + v, 0))} ${pres.corto}.`,
   ];
   const riesgos: string[] = [];
   if (errores.length) riesgos.push(`errores de cálculo sin resolver (${errores.length})`);
@@ -535,7 +568,7 @@ function analisisResumenEjecutivo(p: PlanexProject, m: ComputedModel): { texto: 
   return { texto: lista(frases), huella: huellaDe({ inv: ind.inversionTotalKUSD, ap: ind.aportacionesTotalesKUSD, ing: ind.ingresosTotales[1], udi: ind.utilidadNeta[1], recP, recS, bp: ind.beneficiosPaisAcumulados, bpE: ind.beneficiosPaisExplotacion, riesgos, N }) };
 }
 
-function analisisConclusiones(p: PlanexProject, m: ComputedModel): { texto: string; huella: string } {
+function analisisConclusiones(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {
   const ind = m.indicadores;
   const N = p.ajustes.horizonteAnios;
   const recP = ind.recuperacionProyecto;
@@ -546,7 +579,7 @@ function analisisConclusiones(p: PlanexProject, m: ComputedModel): { texto: stri
 
   const frases: string[] = [];
   frases.push(
-    `Sobre los resultados económicos preliminares del modelo: inversión total de ${fmtK(ind.inversionTotalKUSD)} miles de USD, ingresos del año 1 de ${fmtK(ind.ingresosTotales[1] ?? 0)} kUSD, utilidad después de impuestos de ${fmtK(ind.utilidadNeta[1] ?? 0)} kUSD y beneficios directos al país acumulados de ${fmtK(ind.beneficiosPaisAcumulados)} kUSD en ${N} años.`
+    `Sobre los resultados económicos preliminares del modelo: inversión total de ${pres.k(ind.inversionTotalKUSD)} ${pres.largo}, ingresos del año 1 de ${pres.k(ind.ingresosTotales[1] ?? 0)} ${pres.corto}, utilidad después de impuestos de ${pres.k(ind.utilidadNeta[1] ?? 0)} ${pres.corto} y beneficios directos al país acumulados de ${pres.k(ind.beneficiosPaisAcumulados)} ${pres.corto} en ${N} años.`
   );
   frases.push(
     recP.anios !== null && !recP.indeterminado
@@ -573,21 +606,27 @@ function analisisConclusiones(p: PlanexProject, m: ComputedModel): { texto: stri
 // API pública
 // ---------------------------------------------------------------------------
 
-/** Genera TODOS los análisis con sus huellas a partir del modelo actual. */
-export function generarAnalisis(p: PlanexProject, m: ComputedModel): Record<ClaveAnalisis, AnalisisGenerado> {
+/** Genera TODOS los análisis con sus huellas a partir del modelo actual.
+ *  El contexto de presentación es opcional: por defecto reproduce la salida
+ *  nativa del motor en kUSD (retrocompatible con todas las pruebas). */
+export function generarAnalisis(
+  p: PlanexProject,
+  m: ComputedModel,
+  pres: PresentacionMonetaria = PRESENTACION_NATIVA
+): Record<ClaveAnalisis, AnalisisGenerado> {
   return {
-    resumen_ejecutivo: analisisResumenEjecutivo(p, m),
-    aportaciones: analisisAportaciones(p, m),
-    capacidad: analisisCapacidad(p, m),
-    inversion_financiacion: analisisInversionFinanciacion(p, m),
-    ingresos_costos: analisisIngresosCostos(p, m),
-    deuda_depreciacion: analisisDeudaDepreciacion(p, m),
-    flujo_recuperacion: analisisFlujoRecuperacion(p, m),
-    mercado: analisisMercado(p, m),
-    fuerza_trabajo: analisisFuerzaTrabajo(p, m),
-    inversiones_cronograma: analisisInversionesCronograma(p, m),
-    beneficios_pais: analisisBeneficiosPais(p, m),
-    conclusiones: analisisConclusiones(p, m),
+    resumen_ejecutivo: analisisResumenEjecutivo(p, m, pres),
+    aportaciones: analisisAportaciones(p, m, pres),
+    capacidad: analisisCapacidad(p, m, pres),
+    inversion_financiacion: analisisInversionFinanciacion(p, m, pres),
+    ingresos_costos: analisisIngresosCostos(p, m, pres),
+    deuda_depreciacion: analisisDeudaDepreciacion(p, m, pres),
+    flujo_recuperacion: analisisFlujoRecuperacion(p, m, pres),
+    mercado: analisisMercado(p, m, pres),
+    fuerza_trabajo: analisisFuerzaTrabajo(p, m, pres),
+    inversiones_cronograma: analisisInversionesCronograma(p, m, pres),
+    beneficios_pais: analisisBeneficiosPais(p, m, pres),
+    conclusiones: analisisConclusiones(p, m, pres),
   };
 }
 

@@ -48,7 +48,7 @@ export function crearProyectoBase(origen: 'clinica' | 'default' | 'centro' | 'nu
     nombre: 'Plan de negocios sin título',
     creado: ahora,
     actualizado: ahora,
-    ajustes: { horizonteAnios: 10 },
+    ajustes: { horizonteAnios: 10, monedaPresentacion: 'USD' },
     general: {
       elaboradoPor: '',
       cargo: '',
@@ -241,6 +241,8 @@ export function normalizarProyecto(entrada: unknown): PlanexProject {
   const aj = (o.ajustes ?? {}) as Record<string, unknown>;
   p.ajustes = {
     horizonteAnios: Math.max(1, Math.min(30, Math.trunc(Number(aj.horizonteAnios ?? 10)) || 10)),
+    // Retrocompatible: los planes previos a DOC-001 se interpretan como USD.
+    monedaPresentacion: aj.monedaPresentacion === 'CUP' ? 'CUP' : 'USD',
   };
 
   // Secciones simples (merge superficial campo a campo)

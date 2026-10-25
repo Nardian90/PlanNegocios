@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { PlanexProject, ComputedModel } from '../types';
-import { generarAnalisis, CLAVES_ANALISIS } from '../engine/analisis';
+import { generarAnalisis, CLAVES_ANALISIS, PresentacionMonetaria, PRESENTACION_NATIVA } from '../engine/analisis';
 import { fmtK, fmtAnios, fmtPct } from '../format';
 
 export type NivelHallazgo = 'error_bloqueante' | 'advertencia_importante' | 'informacion_pendiente' | 'observacion_calidad';
@@ -83,7 +83,7 @@ const CONSECUENCIAS: Record<string, { consecuencia: string; correccion: string; 
   DATOS_FICTICIOS: { consecuencia: 'El documento es una demostración: no acredita cumplimiento legal, tributario ni sanitario.', correccion: 'Sustituya los datos ficticios por evidencias verificables antes de un uso oficial.', afecta: false },
 };
 
-export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: Hallazgo[]; resumen: ResumenDiagnostico } {
+export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria = PRESENTACION_NATIVA): { hallazgos: Hallazgo[]; resumen: ResumenDiagnostico } {
   const hallazgos: Hallazgo[] = [];
 
   // ---- 1. Hallazgos derivados de los issues del motor
@@ -117,7 +117,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
     hallazgos.push({
       nivel: 'error_bloqueante',
       codigo: 'CONCILIACION_INVERSION',
-      mensaje: `La inversión total (${fmtK(inv)} kUSD) no concilia con gastos previos + inversión fija + capital de trabajo (${fmtK(sumaComponentes)} kUSD).`,
+      mensaje: `La inversión total (${pres.k(inv)} ${pres.corto}) no concilia con gastos previos + inversión fija + capital de trabajo (${pres.k(sumaComponentes)} ${pres.corto}).`,
       partida: 'inversion_total_k',
       origen: 'gastos_previos_k + inversion_fija_k + capital_trabajo_k',
       consecuencia: 'Las cifras de inversión y financiación dejarían de ser interpretables.',
@@ -133,7 +133,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'error_bloqueante',
         codigo: 'DEP_EXCESO',
-        mensaje: `El activo «${a.concepto}» acumula ${fmtK(a.acumulada)} kUSD de depreciación, por encima de su base depreciable (${fmtK(a.baseDepreciableKUSD)} kUSD).`,
+        mensaje: `El activo «${a.concepto}» acumula ${pres.k(a.acumulada)} ${pres.corto} de depreciación, por encima de su base depreciable (${pres.k(a.baseDepreciableKUSD)} ${pres.corto}).`,
         partida: a.id,
         consecuencia: 'Sobredepreciación: resultados y flujos inválidos.',
         correccion: 'Revise vida útil, residual y año de disponibilidad del activo.',
@@ -149,7 +149,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'error_bloqueante',
         codigo: 'DEUDA_CONCILIACION',
-        mensaje: `El saldo del año ${f.anio} no concilia (esperado ${fmtK(esperado)}, obtenido ${fmtK(f.saldoFinal)}).`,
+        mensaje: `El saldo del año ${f.anio} no concilia (esperado ${pres.k(esperado)}, obtenido ${pres.k(f.saldoFinal)}).`,
         partida: 'calendario de deuda',
         consecuencia: 'Intereses y amortizaciones inválidos.',
         correccion: 'Revise la configuración del crédito en 4.7.',
@@ -176,7 +176,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
     hallazgos.push({
       nivel: 'error_bloqueante',
       codigo: 'BENEFICIOS_DESCUADRE',
-      mensaje: `El acumulado de beneficios al país del resumen (${fmtK(m.indicadores.beneficiosPaisAcumulados)} kUSD) difiere del total de la tabla (${fmtK(totalTabla)} kUSD).`,
+      mensaje: `El acumulado de beneficios al país del resumen (${pres.k(m.indicadores.beneficiosPaisAcumulados)} ${pres.corto}) difiere del total de la tabla (${pres.k(totalTabla)} ${pres.corto}).`,
       partida: '4.11 / resumen ejecutivo',
       consecuencia: 'Contradicción entre apartados del documento.',
       correccion: 'Regenere las exportaciones desde el mismo estado del modelo.',
@@ -195,7 +195,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       codigo: 'PARTICIPACION_INCOHERENTE',
       mensaje: `La participación cubana parametrizada (${fmtPct(pctParam)}) difiere de la composición real de las aportaciones (${fmtPct(pctReal)}). Los dividendos se reparten con el parámetro, no con la composición.`,
       partida: 'pct_parte_cubana / aportaciones',
-      origen: `aportaciones nacionales ${fmtK(aportNac)} de ${fmtK(aportTot)} kUSD`,
+      origen: `aportaciones nacionales ${pres.k(aportNac)} de ${pres.k(aportTot)} ${pres.corto}`,
       consecuencia: 'El reparto de dividendos puede no corresponder al capital social realmente aportado.',
       correccion: 'Ajuste el parámetro o la tabla de aportaciones para que coincidan.',
       afectaConclusiones: true,
@@ -210,7 +210,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
       hallazgos.push({
         nivel: 'advertencia_importante',
         codigo: 'FLUJO_REGLA_MOTOR',
-        mensaje: `El acumulado del proyecto según la regla (${fmtK(fcffAcumRegla[N] ?? 0)}) difiere del motor (${fmtK(m.indicadores.fcffAcumulado[N] ?? 0)}): la regla editable fue modificada y ya no refleja el flujo estándar.`,
+        mensaje: `El acumulado del proyecto según la regla (${pres.k(fcffAcumRegla[N] ?? 0)}) difiere del motor (${pres.k(m.indicadores.fcffAcumulado[N] ?? 0)}): la regla editable fue modificada y ya no refleja el flujo estándar.`,
         partida: 'flujo_acumulado_proyecto_k',
         consecuencia: 'La recuperación puede no corresponder al flujo de caja del modelo.',
         correccion: 'Restaure la regla o documente la desviación deliberada.',
@@ -241,7 +241,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
 
   // Análisis editados manualmente y desactualizados frente al modelo actual
   // (misión §12.13): se comparan las huellas reales de datos de origen.
-  const generados = generarAnalisis(p, m);
+  const generados = generarAnalisis(p, m, pres);
   for (const clave of CLAVES_ANALISIS) {
     const guardado = p.analisis?.[clave as keyof typeof p.analisis];
     if (guardado?.texto && guardado?.huellaOrigen && guardado.huellaOrigen !== generados[clave].huella) {
@@ -294,7 +294,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel): { hallazgos: H
         : advertencias.some((a) => ['FINANCIACION_EXCESO', 'CT_RECUPERACION'].includes(a.codigo))
           ? 'aceptable'
           : 'ok',
-      `Inversión ${fmtK(conCero(inv))} kUSD vs financiación disponible ${fmtK(conCero(finDisp))} kUSD; recuperación del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : fmtAnios(recPa)}; socios ${recSa === null ? 'no recuperado en el horizonte' : fmtAnios(recSa)}.`
+      `Inversión ${pres.k(conCero(inv))} ${pres.corto} vs financiación disponible ${pres.k(conCero(finDisp))} ${pres.corto}; recuperación del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : fmtAnios(recPa)}; socios ${recSa === null ? 'no recuperado en el horizonte' : fmtAnios(recSa)}.`
     ),
     dim(
       'consistencia_operativa',

@@ -414,25 +414,29 @@ try {
   comprobar(haySeguridad >= 1, '18e', 'Existe la copia de seguridad automática previa a la restauración');
   await p1.keyboard.press('Escape');
 
-  // ------------------------------------------------- 19. vista previa + exportaciones
+  // ------------------------------------------------- 19. vista de documento + exportaciones
   fase = 'exportaciones';
   await ir(p2, `/preview?plan=${planId}`);
-  await esperarTexto(p2, 'Vista documental');
+  // DOC-001: la vista de documento muestra el PDF REAL en el visor integrado
+  // (pdf.js): ya no hay un documento HTML aproximado.
+  await p2.locator('canvas').waitFor({ timeout: 30000 });
+  await esperarTexto(p2, 'Documento');
   const modales = await p2.locator('[role="dialog"]').count();
-  comprobar(modales === 0, '19a', 'La vista previa es una página completa, no un modal', `${modales} diálogos`);
-  await p2.getByText('110,8').first().waitFor({ timeout: 15000 });
-  ok('19b', 'La vista documental refleja el estado compartido actualizado (impuesto 110,8)');
+  comprobar(modales === 0, '19a', 'La vista de documento es una página completa, no un modal', `${modales} diálogos`);
+  await p2.waitForTimeout(2500); // generación del PDF con el estado compartido
 
   const descargaPdf = p2.waitForEvent('download', { timeout: 30000 });
-  await p2.locator('button:has-text("Exportar PDF")').click();
+  await p2.locator('button:has-text("Descargar PDF")').click();
   const pdf = await descargaPdf;
   const rutaPdf = join(DIR_DESCARGAS, 'salida.pdf');
   await pdf.saveAs(rutaPdf);
   const bytesPdf = readFileSync(rutaPdf);
   comprobar(bytesPdf.length > 15000 && bytesPdf.slice(0, 5).toString() === '%PDF-', '19c', `PDF descargado y válido (${Math.round(bytesPdf.length / 1024)} kB)`);
+  const textoPdf = [...bytesPdf.toString('latin1').matchAll(/\((.*?)\) Tj/g)].map((x) => x[1]).join(' ');
+  comprobar(textoPdf.includes('110,8'), '19b', 'El PDF del visor refleja el estado compartido actualizado (impuesto 110,8)');
 
   const descargaXls = p2.waitForEvent('download', { timeout: 60000 });
-  await p2.locator('button:has-text("Exportar Excel")').click();
+  await p2.locator('button:has-text("Excel")').click();
   const xls = await descargaXls;
   const rutaXls = join(DIR_DESCARGAS, 'salida.xlsx');
   await xls.saveAs(rutaXls);

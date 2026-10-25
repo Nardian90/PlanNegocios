@@ -17,6 +17,15 @@
 /** Ámbito de evaluación de una regla. */
 export type AmbitoRegla = 'servicio' | 'personal' | 'proyecto' | 'anio';
 
+/**
+ * Moneda de PRESENTACIÓN del documento (misión PLANEX-DOC-001 §5).
+ * No altera los datos del plan ni los cálculos del motor: determina en qué
+ * moneda se muestran los importes en la previsualización, el PDF y el DOCX.
+ * El motor calcula en miles de USD (kUSD) y los salarios en CUP; la
+ * conversión se aplica UNA sola vez, desde la moneda de origen.
+ */
+export type MonedaPresentacion = 'CUP' | 'USD';
+
 export type TipoParametro =
   | 'porcentaje'
   | 'moneda_kusd'
@@ -339,6 +348,9 @@ export interface PlanexMeta {
 
 export interface Ajustes {
   horizonteAnios: number;
+  /** Moneda de presentación del documento. Opcional: los planes creados
+   *  antes de DOC-001 se interpretan como 'USD' (unidad nativa del motor). */
+  monedaPresentacion?: MonedaPresentacion;
 }
 
 export interface FinancieroInfo {
