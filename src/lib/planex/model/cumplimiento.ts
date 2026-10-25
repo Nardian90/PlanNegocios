@@ -21,7 +21,7 @@ export function calcularCumplimiento(p: PlanexProject, m: ComputedModel): Cumpli
     resumen: pct([lleno(p.resumen.introduccion, 80)]),
     negocio: pct([lleno(p.negocio.modalidad), lleno(p.negocio.objetoSocial, 20), lleno(p.negocio.fundamentacion, 20), lleno(p.negocio.reglaDistribucion), p.aportaciones.length > 0, lleno(p.inversionistaExtranjero.nombre)]),
     tecnico: pct([lleno(p.tecnico.caracterizacion, 20), lleno(p.tecnico.capacidadInstalada), p.servicios.length > 0, lleno(p.tecnico.localizacion)]),
-    financiero: pct([p.financiero.inversion.length > 0, m.ok, m.indicadores.recuperacionAnios !== null]),
+    financiero: pct([p.financiero.inversion.length > 0, m.ok, m.indicadores.recuperacionProyecto.anios !== null]),
     mercado: pct([lleno(p.mercado.requisitosRegulatorios), lleno(p.mercado.demandaAparente), lleno(p.mercado.demandaSolvente), lleno(p.mercado.metodoEstimacion)]),
     fuerza: pct([p.personal.some((x) => x.etapa === 'operacion'), lleno(p.fuerza.entidadContratante)]),
     inversiones: pct([p.cronograma.length > 0, p.financiero.vehiculos.length >= 0, p.financiero.inversion.length > 0]),

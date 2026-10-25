@@ -27,11 +27,12 @@ import { toast } from 'sonner';
 import {
   AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CloudOff, Eye, FileDown, FileSpreadsheet,
   FolderOpen, HardDriveDownload, History, LayoutTemplate, ListChecks, LogOut, MessageSquare, Moon,
-  Save, ScrollText, Stethoscope, Sun, TriangleAlert, Upload,
+  Save, ScrollText, Stethoscope, Sun, TriangleAlert, Upload, Activity,
 } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { computeProject } from '@/lib/planex/engine/engine';
 import { calcularCumplimiento } from '@/lib/planex/model/cumplimiento';
+import { diagnosticar } from '@/lib/planex/model/controles';
 import { proyectoAJSON, descargarArchivo, nombreArchivoSeguro } from '@/lib/planex/io/jsonio';
 import { useAuth } from '@/lib/supabase/auth';
 import {
@@ -47,7 +48,7 @@ import {
 import type { PlanRow } from '@/lib/supabase/tipos';
 import { navegar, parametrosDesdeHash } from './navegacion';
 import { nombreSeccion } from '@/lib/planex/secciones-sync';
-import { EtiquetaIssue } from './comunes';
+// import { EtiquetaIssue } from './comunes'; // sustituido por el panel de diagnóstico (misión §15)
 import { EstadoSincronizacion, DialogoConflictos, DialogoHistorial, DialogoActividad, DialogoComentarios } from './Colaboracion';
 import { SeccionGeneral, SeccionResumen, SeccionNegocio } from './secciones/secciones1';
 import { SeccionTecnico, SeccionFinanciero } from './secciones/secciones2';
@@ -135,6 +136,7 @@ export function PlanexApp() {
 
   const modelo = React.useMemo(() => computeProject(proyecto), [proyecto]);
   const cumplimiento = React.useMemo(() => calcularCumplimiento(proyecto, modelo), [proyecto, modelo]);
+  const diagnostico = React.useMemo(() => diagnosticar(proyecto, modelo), [proyecto, modelo]);
   const errores = modelo.issues.filter((i) => i.tipo === 'error');
   const pendientes = modelo.issues.filter((i) => i.tipo === 'pendiente');
   const incidencias = modelo.issues.filter((i) => i.tipo === 'inconsistencia');
@@ -236,6 +238,27 @@ export function PlanexApp() {
     if (issue.seccion) store.setSeccion(issue.seccion);
     setVerAlertas(false);
   };
+  void irAAlerta;
+
+  /** Lleva al editor de la sección asociada a un hallazgo del diagnóstico. */
+  const irAHallazgo = (partida?: string) => {
+    const mapa: Record<string, string> = {
+      '4.1': 'general',
+      '4.5': 'negocio',
+      '4.8': 'mercado',
+      general: 'general',
+      negocio: 'negocio',
+      tecnico: 'tecnico',
+      financiero: 'financiero',
+      inversiones: 'inversiones',
+      mercado: 'mercado',
+      fuerza: 'fuerza',
+      config: 'config',
+    };
+    const destino = partida ? mapa[partida] ?? partida.split(':')[0] : undefined;
+    if (destino) store.setSeccion(destino);
+    setVerAlertas(false);
+  };
 
   // ------------------------------------------------------------------ render
   if (!montado) {
@@ -293,6 +316,10 @@ export function PlanexApp() {
               {proyecto.planex.plantillaOrigen === 'clinica' ? (
                 <>
                   <Stethoscope className="size-2.5 mr-1" /> Clínica (demo)
+                </>
+              ) : proyecto.planex.plantillaOrigen === 'centro' ? (
+                <>
+                  <Activity className="size-2.5 mr-1" /> Centro diagnóstico (demo)
                 </>
               ) : (
                 <>
@@ -488,12 +515,12 @@ export function PlanexApp() {
 
             {seccion === 'general' && <SeccionGeneral modelo={modelo} />}
             {seccion === 'resumen' && <SeccionResumen modelo={modelo} />}
-            {seccion === 'negocio' && <SeccionNegocio />}
+            {seccion === 'negocio' && <SeccionNegocio modelo={modelo} />}
             {seccion === 'tecnico' && <SeccionTecnico modelo={modelo} />}
             {seccion === 'financiero' && <SeccionFinanciero modelo={modelo} />}
-            {seccion === 'mercado' && <SeccionMercado />}
+            {seccion === 'mercado' && <SeccionMercado modelo={modelo} />}
             {seccion === 'fuerza' && <SeccionFuerza modelo={modelo} />}
-            {seccion === 'inversiones' && <SeccionInversiones />}
+            {seccion === 'inversiones' && <SeccionInversiones modelo={modelo} />}
             {seccion === 'beneficios' && <SeccionBeneficios modelo={modelo} />}
             {seccion === 'conclusiones' && <SeccionConclusiones modelo={modelo} />}
             {seccion === 'config' && <SeccionConfig modelo={modelo} />}
@@ -503,23 +530,72 @@ export function PlanexApp() {
 
       {/* -------------------------------------------------- diálogos */}
       <Dialog open={verAlertas} onOpenChange={setVerAlertas}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Bell className="size-4" /> Alertas de consistencia y cumplimentación
+              <Bell className="size-4" /> Diagnóstico del plan (misión §15)
             </DialogTitle>
             <DialogDescription>
-              Se distingue entre error que impide calcular, inconsistencia que requiere revisión, campo pendiente,
-              supuesto no verificado, advertencia documental y requisito legal a validar. Pulse una alerta para ir a
-              su sección.
+              Cuatro niveles: error bloqueante, advertencia importante, información pendiente y observación de calidad.
+              La completitud formal NO se usa como prueba de calidad: un apartado completo de supuestos sin respaldo no
+              es un apartado validado. Pulse un hallazgo para ir a su sección.
             </DialogDescription>
           </DialogHeader>
+          {/* Resumen de control por dimensiones */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {diagnostico.resumen.dimensiones.map((d) => (
+              <div key={d.id} className="rounded-lg border p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">{d.nombre}</span>
+                  <Badge
+                    variant="outline"
+                    className={
+                      d.estado === 'ok'
+                        ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
+                        : d.estado === 'aceptable'
+                          ? 'border-amber-500/40 text-amber-700 dark:text-amber-400'
+                          : 'border-destructive/40 text-destructive'
+                    }
+                  >
+                    {d.estado === 'ok' ? 'Correcto' : d.estado === 'aceptable' ? 'Aceptable' : 'Deficiente'}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{d.detalle}</p>
+              </div>
+            ))}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            Conteo: {diagnostico.resumen.conteo.error_bloqueante} error(es) bloqueante(s) ·{' '}
+            {diagnostico.resumen.conteo.advertencia_importante} advertencia(s) importante(s) ·{' '}
+            {diagnostico.resumen.conteo.informacion_pendiente} pendiente(s) ·{' '}
+            {diagnostico.resumen.conteo.observacion_calidad} observación(es) de calidad.
+            {diagnostico.resumen.conclusionesAfectadas
+              ? ' Hay hallazgos que condicionan las conclusiones del plan.'
+              : ' Ningún hallazgo invalida por sí mismo las conclusiones bajo los supuestos vigentes.'}
+          </div>
           <div className="space-y-2">
-            {modelo.issues.length === 0 && <p className="text-sm text-muted-foreground">Sin alertas activas.</p>}
-            {modelo.issues.map((i, k) => (
-              <button key={k} className="w-full text-left rounded-lg border p-2.5 hover:bg-muted/60 flex items-start gap-2.5" onClick={() => irAAlerta(i)}>
-                <EtiquetaIssue tipo={i.tipo} />
-                <span className="text-xs leading-relaxed">{i.mensaje}</span>
+            {diagnostico.hallazgos.length === 0 && <p className="text-sm text-muted-foreground">Sin hallazgos activos.</p>}
+            {diagnostico.hallazgos.map((h, k) => (
+              <button key={k} className="w-full text-left rounded-lg border p-2.5 hover:bg-muted/60 flex items-start gap-2.5" onClick={() => irAHallazgo(h.partida)}>
+                <Badge
+                  variant="outline"
+                  className={
+                    h.nivel === 'error_bloqueante'
+                      ? 'border-destructive/50 text-destructive'
+                      : h.nivel === 'advertencia_importante'
+                        ? 'border-amber-500/50 text-amber-700 dark:text-amber-400'
+                        : h.nivel === 'informacion_pendiente'
+                          ? 'border-sky-500/50 text-sky-700 dark:text-sky-400'
+                          : 'text-muted-foreground'
+                  }
+                >
+                  {h.nivel === 'error_bloqueante' ? 'Error' : h.nivel === 'advertencia_importante' ? 'Advertencia' : h.nivel === 'informacion_pendiente' ? 'Pendiente' : 'Calidad'}
+                </Badge>
+                <span className="text-xs leading-relaxed">
+                  <b className="font-medium">{h.codigo}:</b> {h.mensaje}
+                  {h.consecuencia ? <> — <span className="text-muted-foreground">{h.consecuencia}</span></> : null}
+                  {h.correccion ? <> — <span className="text-muted-foreground">Corrección: {h.correccion}</span></> : null}
+                </span>
               </button>
             ))}
           </div>

@@ -25,7 +25,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
-  ArrowDownToLine, Copy, FileJson, FolderOpen, LayoutTemplate, LogOut, Moon, Plus, RefreshCw, Stethoscope, Sun, Users,
+  Activity, ArrowDownToLine, Copy, FileJson, FolderOpen, LayoutTemplate, LogOut, Moon, Plus, RefreshCw, Stethoscope, Sun, Users,
 } from 'lucide-react';
 import { useAuth } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/cliente';
@@ -39,6 +39,7 @@ import {
 import { usePlanex } from '@/lib/planex/store';
 import { crearProyectoClinica } from '@/lib/planex/templates/clinica';
 import { crearProyectoDefault } from '@/lib/planex/templates/default';
+import { crearProyectoCentro } from '@/lib/planex/templates/centro';
 import { parsearProyectoJSON } from '@/lib/planex/io/jsonio';
 import { descargarPlan } from '@/lib/supabase/sync';
 import { navegar } from './navegacion';
@@ -142,14 +143,18 @@ export default function Proyectos() {
     };
   }, [workspaceId, refrescar]);
 
-  const crearDesdePlantilla = async (plantilla: 'clinica' | 'default') => {
+  const crearDesdePlantilla = async (plantilla: 'clinica' | 'default' | 'centro') => {
     if (!workspaceId) return;
     setCreando(true);
     try {
-      const proyecto = plantilla === 'clinica' ? crearProyectoClinica() : crearProyectoDefault();
+      const proyecto = plantilla === 'clinica' ? crearProyectoClinica() : plantilla === 'centro' ? crearProyectoCentro() : crearProyectoDefault();
       const plan = await crearPlanCompartido(
         workspaceId,
-        plantilla === 'clinica' ? 'Clínica Estomatológica (ejemplo ilustrativo)' : 'Plan de negocios nuevo',
+        plantilla === 'clinica'
+          ? 'Clínica Estomatológica (ejemplo ilustrativo)'
+          : plantilla === 'centro'
+            ? 'Centro de Diagnóstico Integral (prueba de generalización)'
+            : 'Plan de negocios nuevo',
         plantilla,
         proyecto,
       );
@@ -176,7 +181,7 @@ export default function Proyectos() {
         return;
       }
       const proyecto = res.proyecto;
-      const plantilla = proyecto.planex.plantillaOrigen === 'clinica' ? 'clinica' : 'default';
+      const plantilla = proyecto.planex.plantillaOrigen === 'clinica' ? 'clinica' : proyecto.planex.plantillaOrigen === 'centro' ? 'centro' : 'default';
       const plan = await crearPlanCompartido(workspaceId, proyecto.nombre || 'Proyecto importado', plantilla, proyecto);
       toast.success('Proyecto importado como plan compartido', {
         description: res.avisos.join(' ') || 'Reglas y parámetros del archivo conservados.',
@@ -419,8 +424,25 @@ export default function Proyectos() {
                 <Stethoscope className="size-4 text-primary" /> Clínica Estomatológica
               </div>
               <p className="text-xs text-muted-foreground mt-1.5">
-                Ejemplo completo con datos ficticios coherentes: 9 servicios, inversión 1 480 kUSD, horizonte
-                de 10 años, recuperación ≈ 4 años. Ideal para explorar el motor de cálculo.
+                Ejemplo completo con datos ficticios coherentes: 9 líneas de servicio, capacidad derivada de
+                recursos operativos (escenario B con ampliación programada), deuda con calendario explícito y
+                horizonte de 10 años. Ideal para explorar el motor de cálculo; todas las cifras salen del
+                modelo, no de esta tarjeta.
+              </p>
+              <Badge variant="secondary" className="mt-2 text-[10px]">Ejemplo ilustrativo</Badge>
+            </button>
+            <button
+              className="rounded-xl border p-4 text-left hover:border-primary transition-colors disabled:opacity-50"
+              onClick={() => void crearDesdePlantilla('centro')}
+              disabled={creando}
+            >
+              <div className="flex items-center gap-2 font-semibold text-sm">
+                <Activity className="size-4 text-primary" /> Centro de Diagnóstico (generalización)
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Segundo ejemplo de la prueba de generalización: otra actividad, horizonte de 8 años, sin
+                crédito, escenario A y un activo con disponibilidad diferida — construido con las MISMAS
+                reglas de fábrica, sin fórmulas de negocio nuevas.
               </p>
               <Badge variant="secondary" className="mt-2 text-[10px]">Ejemplo ilustrativo</Badge>
             </button>

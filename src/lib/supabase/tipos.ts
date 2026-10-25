@@ -22,7 +22,7 @@ export interface PlanRow {
   id: string;
   workspace_id: string;
   title: string;
-  template_key: 'clinica' | 'default';
+  template_key: 'clinica' | 'default' | 'centro';
   status: 'borrador' | 'en_revision' | 'finalizado';
   created_by: string;
   updated_by: string | null;

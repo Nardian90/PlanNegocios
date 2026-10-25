@@ -1,8 +1,19 @@
 // ============================================================================
 // Parámetros (Nivel A) y reglas (Nivel B) preconfigurados de fábrica.
-// Ambas plantillas comparten este conjunto; los valores por defecto de los
-// parámetros se ajustan por plantilla. Nada de esto es una constante rígida:
-// todo es editable desde la interfaz y se guarda por proyecto.
+// Todas las plantillas comparten este conjunto; los valores por defecto de los
+// parámetros se ajustan por plantilla. Nada es una constante rígida: todo es
+// editable desde la interfaz y se guarda por proyecto.
+//
+// Convenciones del esquema 2.0.0 (misión PLANEX-AUDIT-001):
+//  - Prefijo «mtr_» RESERVADO: variables calculadas por el motor estructural
+//    (depreciación por activo, calendario de deuda, capacidad, FCFF/FCFE,
+//    dividendos). Las reglas las referencian; su origen es trazable.
+//  - Los costos fijos de EXPLOTACIÓN (canon, servicios públicos, otros gastos
+//    fijos, otros impuestos, aranceles, royalties, otros ingresos al país)
+//    activan solo en años de operación (t ≥ 1) mediante reglas envolventes.
+//  - El año 0 (montaje) solo admite costos reales de esa fase (p. ej. la
+//    fuerza de trabajo de montaje); los costos de puesta en marcha no
+//    recurrentes deben presupuestarse en «gastos previos» (4.10).
 // ============================================================================
 
 import { Parametro, Regla } from '../types';
@@ -28,7 +39,8 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'tipo_cambio',
       nombre: 'Tipo de cambio (CUP por USD)',
-      descripcion: 'Tasa de conversión utilizada para expresar en miles de USD los montos en CUP (salarios, inversiones).',
+      descripcion:
+        'Conversión CUP → USD aplicada a los salarios y a las inversiones expresadas en CUP. Finalidad: expresar en miles de USD las partidas en CUP del estado de resultados, la inversión y los beneficios al país. Debe documentarse la fecha de referencia y la fuente oficial antes de un uso oficial.',
       valor: 400,
       unidad: 'CUP/USD',
       tipo: 'numero',
@@ -40,7 +52,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'tasa_interes',
       nombre: 'Tasa de interés anual del crédito',
-      descripcion: 'Interés nominal anual del crédito externo previsto.',
+      descripcion: 'Interés nominal anual del crédito previsto.',
       valor: 0.08,
       unidad: '%',
       tipo: 'porcentaje',
@@ -64,7 +76,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'periodo_gracia',
       nombre: 'Período de gracia del crédito',
-      descripcion: 'Años iniciales del crédito en los que no se amortiza principal (solo intereses).',
+      descripcion: 'Años de gracia. La naturaleza (solo principal o total, con capitalización de intereses) se configura en 4.7 → calendario de deuda.',
       valor: 1,
       unidad: 'años',
       tipo: 'anios',
@@ -99,8 +111,8 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     },
     {
       id: 'crecimiento_volumen',
-      nombre: 'Variación anual del volumen (pacientes)',
-      descripcion: 'Crecimiento anual previsto de la cantidad de servicios demandados.',
+      nombre: 'Variación anual del volumen (demanda)',
+      descripcion: 'Crecimiento anual previsto de la DEMANDA de servicios. La producción real queda limitada por la capacidad instalada del escenario activo.',
       valor: 0.05,
       unidad: '%',
       tipo: 'porcentaje',
@@ -136,7 +148,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'pct_mantenimiento',
       nombre: 'Mantenimiento (% de la inversión fija)',
-      descripcion: 'Porcentaje de la inversión fija destinado anualmente a mantenimiento.',
+      descripcion: 'Porcentaje de la inversión fija destinado anualmente a mantenimiento (años de operación).',
       valor: 0.03,
       unidad: '%',
       tipo: 'porcentaje',
@@ -159,8 +171,8 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     },
     {
       id: 'pct_parte_cubana',
-      nombre: 'Participación de la parte cubana',
-      descripcion: 'Porcentaje del capital social aportado por el socio nacional (base del reparto de dividendos).',
+      nombre: 'Participación de la parte cubana en el capital',
+      descripcion: 'Porcentaje del capital social aportado por el socio nacional. PARTICIPACIÓN (composición del capital) ≠ porcentaje de reparto. Verifique la coherencia con la tabla de aportaciones (el diagnóstico la comprueba).',
       valor: 0.4,
       unidad: '%',
       tipo: 'porcentaje',
@@ -171,12 +183,36 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     },
     {
       id: 'pct_reparto_dividendos',
-      nombre: 'Reparto de dividendos (% de la utilidad neta)',
-      descripcion: 'Porcentaje de la utilidad después de impuestos que se prevé distribuir entre los socios.',
+      nombre: 'Reparto de dividendos (% de la utilidad distribuible)',
+      descripcion: 'Fracción de la utilidad distribuible (tras absorber pérdidas acumuladas y constituir la reserva) que se propone distribuir. REPARTO ≠ participación.',
       valor: 0.5,
       unidad: '%',
       tipo: 'porcentaje',
-      fuente: 'Supuesto editable.',
+      fuente: 'Supuesto de política de distribución editable (debe validarse jurídicamente para la modalidad del negocio).',
+      fechaRef: '',
+      editable: true,
+      demo: true,
+    },
+    {
+      id: 'pct_reserva_legal',
+      nombre: 'Reserva sobre la utilidad distribuible',
+      descripcion: 'Fracción de la base distribuible que se retiene como reserva antes de calcular los dividendos propuestos. Supuesto de demostración: la reserva legalmente exigible debe validarse.',
+      valor: 0.1,
+      unidad: '%',
+      tipo: 'porcentaje',
+      fuente: 'Supuesto de demostración editable. Validar la reserva exigible para la modalidad del negocio.',
+      fechaRef: '',
+      editable: true,
+      demo: true,
+    },
+    {
+      id: 'pct_recuperacion_capital_trabajo',
+      nombre: 'Recuperación del capital de trabajo al cierre',
+      descripcion: 'Fracción del capital de trabajo inicial que el modelo libera en el ÚLTIMO año del horizonte. 0 = tratamiento conservador (no se supone recuperación). Cualquier valor > 0 debe justificarse documentalmente.',
+      valor: 0,
+      unidad: '%',
+      tipo: 'porcentaje',
+      fuente: 'Regla explícita y conservadora: 0 % (sin recuperación supuesta). Edítela solo con justificación.',
       fechaRef: '',
       editable: true,
       demo: false,
@@ -184,7 +220,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'servicios_publicos_anual_k',
       nombre: 'Servicios públicos anuales',
-      descripcion: 'Agua, electricidad y portadores energéticos por año (miles de USD).',
+      descripcion: 'Agua, electricidad y portadores energéticos por año de operación (miles de USD).',
       valor: 40,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
@@ -196,7 +232,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'canon_anual_k',
       nombre: 'Canon anual',
-      descripcion: 'Pago anual por el derecho de uso del suelo/instalaciones (miles de USD).',
+      descripcion: 'Pago anual por el derecho de uso del suelo/instalaciones en años de operación (miles de USD).',
       valor: 30,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
@@ -208,7 +244,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'otros_gastos_fijos_k',
       nombre: 'Otros gastos fijos anuales',
-      descripcion: 'Gastos fijos no incluidos en otras partidas (seguros, comunicaciones, otros) en miles de USD.',
+      descripcion: 'Gastos fijos de operación no incluidos en otras partidas (seguros, comunicaciones, otros) en miles de USD.',
       valor: 10,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
@@ -220,7 +256,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'credito_monto_k',
       nombre: 'Monto del crédito externo',
-      descripcion: 'Principal del crédito externo previsto (miles de USD).',
+      descripcion: 'Principal del crédito externo previsto (miles de USD). Desembolso, gracia y amortización: 4.7 → calendario de deuda.',
       valor: opciones.creditoKUSD,
       unidad: 'kUSD',
       tipo: 'moneda_kusd',
@@ -244,7 +280,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'capital_trabajo_k',
       nombre: 'Capital de trabajo inicial',
-      descripcion: 'Capital de trabajo dentro del costo total de la inversión inicial (miles de USD).',
+      descripcion: 'Capital de trabajo dentro del costo total de la inversión inicial (miles de USD). Se desembolsa en el año 0; su recuperación al cierre solo entra si el parámetro de recuperación lo indica.',
       valor: opciones.capitalTrabajoKUSD,
       unidad: 'kUSD',
       tipo: 'moneda_kusd',
@@ -256,7 +292,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'aranceles_anual_k',
       nombre: 'Aranceles anuales',
-      descripcion: 'Derechos aduaneros previstos por año (miles de USD).',
+      descripcion: 'Derechos aduaneros previstos por año de operación (miles de USD).',
       valor: 8,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
@@ -268,7 +304,7 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
     {
       id: 'otros_impuestos_anual_k',
       nombre: 'Otros impuestos y tasas anuales',
-      descripcion: 'Impuestos, tasas y contribuciones distintas del impuesto sobre utilidades (miles de USD).',
+      descripcion: 'Impuestos, tasas y contribuciones distintas del impuesto sobre utilidades, por año de operación (miles de USD).',
       valor: 5,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
@@ -290,13 +326,37 @@ export function parametrosPorDefecto(opciones: { creditoKUSD: number; capitalTra
       demo: false,
     },
     {
-      id: 'otros_beneficios_pais_k',
+      id: 'otros_beneficios_pais_anual_k',
       nombre: 'Otros ingresos anuales al país',
-      descripcion: 'Otros aportes directos al país no contemplados en las partidas anteriores (miles de USD).',
+      descripcion: 'Otros aportes directos al país no contemplados en las partidas anteriores (miles de USD, años de operación).',
       valor: 0,
       unidad: 'kUSD/año',
       tipo: 'moneda_kusd',
       fuente: 'Supuesto editable.',
+      fechaRef: '',
+      editable: true,
+      demo: false,
+    },
+    {
+      id: 'umbral_utilizacion_capacidad',
+      nombre: 'Umbral de utilización de recursos (análisis)',
+      descripcion: 'Umbral configurable del análisis: porcentaje de utilización de un recurso a partir del cual el texto analítico advierte saturación. No interviene en ningún cálculo: solo califica los análisis.',
+      valor: 0.9,
+      unidad: '%',
+      tipo: 'porcentaje',
+      fuente: 'Política de análisis configurable.',
+      fechaRef: '',
+      editable: true,
+      demo: false,
+    },
+    {
+      id: 'umbral_margen_minimo',
+      nombre: 'Umbral de margen de contribución mínimo (análisis)',
+      descripcion: 'Margen sobre ingresos por debajo del cual el análisis advierte que una línea de servicio aporta poco margen. Solo califica los análisis.',
+      valor: 0.15,
+      unidad: '%',
+      tipo: 'porcentaje',
+      fuente: 'Política de análisis configurable.',
       fechaRef: '',
       editable: true,
       demo: false,
@@ -343,21 +403,12 @@ export function reglasPorDefecto(): Regla[] {
     ),
     r(
       'srv_cantidad_mensual_proy',
-      'Cantidad mensual proyectada',
-      'Cantidad mensual de servicios en el año actual, con crecimiento anual del volumen.',
+      'Demanda mensual prevista',
+      'DEMANDA mensual del servicio en el año actual: inicia en el año de arranque configurado por servicio (anio_inicio_demanda, 1 por defecto) y crece con el volumen. La producción realizable puede quedar por debajo si la capacidad instalada del escenario activo no basta; el motor la limita en srv_cantidad_real_mensual.',
       'servicio',
       'Servicios',
       'servicios/mes',
-      'cantidad_base_mensual * (1 + crecimiento_volumen) ^ MAX(0, PERIODO - 1)'
-    ),
-    r(
-      'srv_cantidad_anual',
-      'Cantidad anual de servicios',
-      'Cantidad mensual proyectada multiplicada por los meses del año.',
-      'servicio',
-      'Servicios',
-      'servicios/año',
-      'srv_cantidad_mensual_proy * MESES_ANIO'
+      'IF(PERIODO >= anio_inicio_demanda, cantidad_base_mensual * (1 + crecimiento_volumen) ^ MAX(0, PERIODO - anio_inicio_demanda), 0)'
     ),
     r(
       'srv_costo_unitario_proy',
@@ -369,9 +420,27 @@ export function reglasPorDefecto(): Regla[] {
       'costo_variable_unitario * (1 + inflacion) ^ MAX(0, PERIODO - 1)'
     ),
     r(
+      'srv_cantidad_real_mensual',
+      'Cantidad realizable mensual (limitada por capacidad)',
+      'Demanda prevista limitada por la capacidad realmente disponible del escenario activo: incluye el tope técnico del propio servicio Y la asignación pro-rata de los recursos compartidos (cuando varios servicios comparten gabinetes, equipos o profesionales, la demanda agregada no puede superar el pool de tiempo disponible). Ningún servicio genera ingresos por encima de su capacidad de prestación.',
+      'servicio',
+      'Servicios',
+      'servicios/mes',
+      'mtr_cantidad_real_mensual'
+    ),
+    r(
+      'srv_cantidad_anual',
+      'Cantidad anual de servicios',
+      'Cantidad realizable mensual multiplicada por los meses del año.',
+      'servicio',
+      'Servicios',
+      'servicios/año',
+      'srv_cantidad_real_mensual * MESES_ANIO'
+    ),
+    r(
       'srv_ingreso_anual',
       'Ingreso anual por servicio',
-      'Ingreso del servicio en el año actual: precio unitario × cantidad anual.',
+      'Ingreso del servicio en el año actual: precio unitario × cantidad anual realizable.',
       'servicio',
       'Ingresos',
       'USD/año',
@@ -380,7 +449,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'srv_costo_variable_total',
       'Costo variable total del servicio',
-      'Costo variable unitario × cantidad anual del servicio.',
+      'Costo variable unitario × cantidad anual realizable del servicio.',
       'servicio',
       'Costos',
       'USD/año',
@@ -487,11 +556,11 @@ export function reglasPorDefecto(): Regla[] {
       'kUSD',
       'financiacion_disponible_k - inversion_total_k'
     ),
-    // ------------------------------------------------- Ámbito año
+    // ------------------------------------------------- Ámbito año: ingresos y costos
     r(
       'ingresos_servicios_usd',
       'Ingresos por servicios (USD)',
-      'Suma de los ingresos anuales de todos los servicios en el año.',
+      'Suma de los ingresos anuales de todos los servicios en el año (sobre cantidades realizables).',
       'anio',
       'Ingresos',
       'USD',
@@ -536,7 +605,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'costo_laboral_cup',
       'Costo laboral en CUP',
-      'Suma de cantidad × salario anual proyectado por categoría, multiplicado por el factor de costo laboral.',
+      'Suma de cantidad × salario anual proyectado por categoría (año 0: personal de montaje; años 1+: operación), multiplicado por el factor de costo laboral.',
       'anio',
       'Costos',
       'CUP',
@@ -551,19 +620,47 @@ export function reglasPorDefecto(): Regla[] {
       'kUSD',
       'costo_laboral_cup / tipo_cambio / 1000'
     ),
+    // Costos fijos SOLO en años de operación (envolventes explícitas)
     r(
-      'mantenimiento_k',
-      'Mantenimiento',
-      'Porcentaje de la inversión fija aplicado como mantenimiento anual (regla de porcentaje configurable).',
+      'canon_k',
+      'Canon (años de operación)',
+      'Canon anual activado a partir del año 1. El año 0 (montaje) no genera canon: los gastos de esa fase pertenecen a los gastos previos.',
       'anio',
       'Costos',
       'kUSD',
-      'pct_mantenimiento * inversion_fija_k'
+      'IF(PERIODO >= 1, canon_anual_k, 0)'
+    ),
+    r(
+      'servicios_publicos_k',
+      'Servicios públicos (años de operación)',
+      'Agua, electricidad y portadores en años de operación.',
+      'anio',
+      'Costos',
+      'kUSD',
+      'IF(PERIODO >= 1, servicios_publicos_anual_k, 0)'
+    ),
+    r(
+      'otros_gastos_k',
+      'Otros gastos fijos (años de operación)',
+      'Gastos fijos no incluidos en otras partidas, en años de operación.',
+      'anio',
+      'Costos',
+      'kUSD',
+      'IF(PERIODO >= 1, otros_gastos_fijos_k, 0)'
+    ),
+    r(
+      'mantenimiento_k',
+      'Mantenimiento (años de operación)',
+      'Porcentaje de la inversión fija aplicado como mantenimiento anual en años de operación.',
+      'anio',
+      'Costos',
+      'kUSD',
+      'IF(PERIODO >= 1, pct_mantenimiento * inversion_fija_k, 0)'
     ),
     r(
       'gastos_admin_k',
       'Gastos administrativos',
-      'Porcentaje de los ingresos totales destinado a gastos administrativos (regla de porcentaje configurable).',
+      'Porcentaje de los ingresos totales destinado a gastos administrativos (el año 0, sin ingresos, es cero).',
       'anio',
       'Costos',
       'kUSD',
@@ -571,39 +668,39 @@ export function reglasPorDefecto(): Regla[] {
     ),
     r(
       'depreciacion_anual_k',
-      'Depreciación anual',
-      'Suma de monto / vida útil de las partidas de inversión fija (USD) más la parte en CUP convertida.',
+      'Depreciación anual (calendario por activo)',
+      'Variable del motor mtr_depreciacion_k: suma de la depreciación de cada activo según su costo, vida útil, valor residual y año de disponibilidad. El calendario limita la depreciación acumulada al importe depreciable de cada activo y no deprecia activos no disponibles.',
       'anio',
       'Costos',
       'kUSD',
-      'SUMA_INVERSIONES(IF(AND(categoria_inv = "inversion_fija", moneda_inv = "USD"), monto_inv * IF(vida_util_inv > 0, 1 / vida_util_inv, 0), 0)) + SUMA_INVERSIONES(IF(AND(categoria_inv = "inversion_fija", moneda_inv = "CUP"), monto_inv * IF(vida_util_inv > 0, 1 / vida_util_inv, 0), 0)) / tipo_cambio'
-    ),
-    r(
-      'amortizacion_k',
-      'Amortización del crédito',
-      'Anualidad de amortización del principal tras el período de gracia.',
-      'anio',
-      'Inversión y financiación',
-      'kUSD',
-      'IF(AND(PERIODO > periodo_gracia, PERIODO <= periodo_gracia + plazo_amortizacion), credito_monto_k / plazo_amortizacion, 0)'
-    ),
-    r(
-      'saldo_deuda_k',
-      'Saldo de la deuda',
-      'Saldo pendiente del crédito al final de cada año (recurrencia con LAG).',
-      'anio',
-      'Inversión y financiación',
-      'kUSD',
-      'IF(PERIODO = 0, credito_monto_k, MAX(0, LAG(saldo_deuda_k, 1) - amortizacion_k))'
+      'mtr_depreciacion_k'
     ),
     r(
       'interes_k',
-      'Intereses del crédito',
-      'Interés del año sobre el saldo de la deuda del año anterior.',
+      'Intereses del crédito (gasto devengado)',
+      'Interés devengado del período según el calendario de deuda (incluye la porción capitalizada si la gracia es total).',
       'anio',
       'Costos',
       'kUSD',
-      'IF(PERIODO = 0, 0, LAG(saldo_deuda_k, 1) * tasa_interes)'
+      'mtr_interes_devengado_k'
+    ),
+    r(
+      'amortizacion_k',
+      'Amortización del principal del crédito',
+      'Amortización del principal según el calendario de deuda (método, gracia y plazo configurados en 4.7). Es un flujo de financiación, NO un gasto del estado de resultados.',
+      'anio',
+      'Inversión y financiación',
+      'kUSD',
+      'mtr_amortizacion_k'
+    ),
+    r(
+      'saldo_deuda_k',
+      'Saldo de la deuda al cierre',
+      'Saldo pendiente al final de cada año según el calendario de deuda (verifica saldo final = inicial + desembolso + capitalización − amortización).',
+      'anio',
+      'Inversión y financiación',
+      'kUSD',
+      'mtr_saldo_deuda_k'
     ),
     r(
       'costos_totales_k',
@@ -612,8 +709,9 @@ export function reglasPorDefecto(): Regla[] {
       'anio',
       'Costos',
       'kUSD',
-      'costos_variables_k + costo_laboral_k + canon_anual_k + mantenimiento_k + servicios_publicos_anual_k + gastos_admin_k + otros_gastos_fijos_k + depreciacion_anual_k + interes_k'
+      'costos_variables_k + costo_laboral_k + canon_k + mantenimiento_k + servicios_publicos_k + gastos_admin_k + otros_gastos_k + depreciacion_anual_k + interes_k'
     ),
+    // ------------------------------------------------- Ámbito año: resultados
     r(
       'utilidad_antes_impuestos_k',
       'Utilidad antes de impuestos',
@@ -641,59 +739,134 @@ export function reglasPorDefecto(): Regla[] {
       'kUSD',
       'utilidad_antes_impuestos_k - impuesto_utilidades_k'
     ),
+    // ------------------------------------------------- Ámbito año: flujos de caja
     r(
-      'flujo_neto_k',
-      'Flujo de caja neto',
-      'Año 0: desembolso de la inversión total. Años de operación: utilidad neta + depreciación − amortización del principal.',
+      'flujo_proyecto_k',
+      'Flujo de caja del PROYECTO (FCFF)',
+      'Flujo del proyecto antes de decisiones de financiación: UDI + intereses devengados + depreciación − CAPEX de ampliaciones (+ recuperación del capital de trabajo en el último año). Año 0: −inversión total + resultado de montaje. Base de la recuperación de la INVERSIÓN TOTAL.',
       'anio',
       'Flujo de caja',
       'kUSD',
-      'IF(PERIODO = 0, -inversion_total_k, utilidad_despues_impuestos_k + depreciacion_anual_k - amortizacion_k)'
+      'mtr_fcff_k'
     ),
     r(
-      'flujo_acumulado_k',
-      'Flujo de caja acumulado',
-      'Suma acumulada de los flujos netos (recurrencia con LAG).',
+      'flujo_acumulado_proyecto_k',
+      'Flujo acumulado del proyecto',
+      'Suma acumulada del flujo del proyecto (recurrencia con LAG).',
       'anio',
       'Flujo de caja',
       'kUSD',
-      'IF(PERIODO = 0, flujo_neto_k, LAG(flujo_acumulado_k, 1) + flujo_neto_k)'
+      'IF(PERIODO = 0, flujo_proyecto_k, LAG(flujo_acumulado_proyecto_k, 1) + flujo_proyecto_k)'
     ),
     r(
-      'saldo_pendiente_k',
-      'Saldo pendiente de recuperar',
-      'Parte de la inversión aún no recuperada por el flujo acumulado.',
+      'saldo_pendiente_proyecto_k',
+      'Saldo pendiente de recuperar (proyecto)',
+      'Parte de la inversión total aún no recuperada por el flujo acumulado del proyecto.',
       'anio',
       'Flujo de caja',
       'kUSD',
-      'MAX(0, -flujo_acumulado_k)'
+      'MAX(0, -flujo_acumulado_proyecto_k)'
+    ),
+    r(
+      'flujo_socios_k',
+      'Flujo de caja de los SOCIOS (FCFE)',
+      'Flujo para los aportantes: flujo del proyecto − intereses pagados + desembolsos del crédito − amortización del principal. Año 0: −aportaciones + resultado de montaje + desembolso del crédito. Base de la recuperación del CAPITAL APORTADO.',
+      'anio',
+      'Flujo de caja',
+      'kUSD',
+      'mtr_fcfe_k'
+    ),
+    r(
+      'flujo_acumulado_socios_k',
+      'Flujo acumulado de los socios',
+      'Suma acumulada del flujo de los socios (recurrencia con LAG).',
+      'anio',
+      'Flujo de caja',
+      'kUSD',
+      'IF(PERIODO = 0, flujo_socios_k, LAG(flujo_acumulado_socios_k, 1) + flujo_socios_k)'
+    ),
+    r(
+      'saldo_pendiente_socios_k',
+      'Saldo pendiente de recuperar (socios)',
+      'Parte del capital aportado aún no recuperado por el flujo acumulado de los socios.',
+      'anio',
+      'Flujo de caja',
+      'kUSD',
+      'MAX(0, -flujo_acumulado_socios_k)'
+    ),
+    // ------------------------------------------------- Ámbito año: dividendos
+    r(
+      'dividendos_pagables_k',
+      'Dividendos pagables',
+      'Dividendos efectivamente distribuibles según el módulo de dividendos: propuestos (utilidad distribuible × reparto) limitados por la caja acumulada disponible. Ningún dividendo se paga por encima de la liquidez modelada.',
+      'anio',
+      'Beneficios al país',
+      'kUSD',
+      'mtr_dividendos_pagables_k'
     ),
     r(
       'dividendos_parte_cubana_k',
       'Dividendos de la parte cubana',
-      'Utilidad neta distribuible × participación cubana, solo con utilidad positiva.',
+      'Dividendos efectivamente pagables × participación de la parte cubana en el capital. Concilia con el módulo de dividendos (no es un cálculo aparte).',
       'anio',
       'Beneficios al país',
       'kUSD',
-      'IF(utilidad_despues_impuestos_k > 0, utilidad_despues_impuestos_k * pct_parte_cubana * pct_reparto_dividendos, 0)'
+      'mtr_dividendos_nacional_k'
     ),
+    // ------------------------------------------------- Ámbito año: beneficios al país
     r(
       'pagos_fuerza_trabajo_k',
       'Pagos por la fuerza de trabajo',
-      'Vinculado al costo laboral del año (evita doble contabilización).',
+      'Vinculado al costo laboral del año (evita doble contabilización). Incluye el personal de montaje del año 0 como pago real a trabajadores cubanos.',
       'anio',
       'Beneficios al país',
       'kUSD',
       'costo_laboral_k'
     ),
     r(
-      'total_beneficios_pais_k',
-      'Total de beneficios directos al país',
-      'Suma de impuestos, aranceles, dividendos cubanos, pagos por fuerza de trabajo, canon, royalties y otros ingresos, sin duplicar partidas.',
+      'otros_impuestos_k',
+      'Otros impuestos y tasas (años de operación)',
+      'Impuestos, tasas y contribuciones distintas del impuesto sobre utilidades, en años de operación.',
       'anio',
       'Beneficios al país',
       'kUSD',
-      'impuesto_utilidades_k + otros_impuestos_anual_k + aranceles_anual_k + dividendos_parte_cubana_k + pagos_fuerza_trabajo_k + canon_anual_k + royalties_anual_k + otros_beneficios_pais_k'
+      'IF(PERIODO >= 1, otros_impuestos_anual_k, 0)'
+    ),
+    r(
+      'aranceles_k',
+      'Aranceles (años de operación)',
+      'Derechos aduaneros en años de operación.',
+      'anio',
+      'Beneficios al país',
+      'kUSD',
+      'IF(PERIODO >= 1, aranceles_anual_k, 0)'
+    ),
+    r(
+      'royalties_k',
+      'Royalties (años de operación)',
+      'Regalías al país en años de operación.',
+      'anio',
+      'Beneficios al país',
+      'kUSD',
+      'IF(PERIODO >= 1, royalties_anual_k, 0)'
+    ),
+    r(
+      'otros_beneficios_pais_k',
+      'Otros ingresos al país (años de operación)',
+      'Otros aportes directos al país en años de operación.',
+      'anio',
+      'Beneficios al país',
+      'kUSD',
+      'IF(PERIODO >= 1, otros_beneficios_pais_anual_k, 0)'
+    ),
+    r(
+      'total_beneficios_pais_k',
+      'Total de beneficios directos al país',
+      'Suma de impuestos, otros impuestos, aranceles, dividendos cubanos, pagos por fuerza de trabajo, canon, royalties y otros ingresos, sin duplicar partidas. Los beneficios de explotación se activan desde el año 1; los pagos por fuerza de trabajo incluyen el montaje del año 0. Este total es el mismo que aparece en el resumen y las conclusiones.',
+      'anio',
+      'Beneficios al país',
+      'kUSD',
+      'impuesto_utilidades_k + otros_impuestos_k + aranceles_k + dividendos_parte_cubana_k + pagos_fuerza_trabajo_k + canon_k + royalties_k + otros_beneficios_pais_k'
     ),
   ];
 }

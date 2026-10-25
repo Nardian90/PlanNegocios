@@ -52,7 +52,7 @@ export async function actualizarEstadoPlan(planId: string, estado: PlanRow['stat
 export async function crearPlanCompartido(
   workspaceId: string,
   titulo: string,
-  plantilla: 'clinica' | 'default',
+  plantilla: 'clinica' | 'default' | 'centro',
   proyecto: PlanexProject,
 ): Promise<PlanRow> {
   const sb = supabase();
@@ -72,7 +72,7 @@ export async function crearPlanCompartido(
   const { error: errSecciones } = await sb.from('plan_sections').insert(filas);
   if (errSecciones) throw new Error(`El plan se creó pero no se pudieron guardar sus secciones: ${errSecciones.message}`);
 
-  await registrarActividad(plan.id, 'plan_creado', null, `Plantilla: ${plantilla === 'clinica' ? 'Clínica Estomatológica (ejemplo ilustrativo)' : 'Default'}`);
+  await registrarActividad(plan.id, 'plan_creado', null, `Plantilla: ${plantilla === 'clinica' ? 'Clínica Estomatológica (ejemplo ilustrativo)' : plantilla === 'centro' ? 'Centro de Diagnóstico Integral (prueba de generalización)' : 'Default'}`);
   return plan;
 }
 
@@ -152,7 +152,7 @@ export async function guardarSeccion(
     return { aplicado: false, error: `Error de red al guardar: ${(e as Error).message}` };
   }
   if (error) return { aplicado: false, error: error.message };
-  const fila = (data ?? [])[0];
+  const fila = (data ?? [])[0] as { section_version: number; updated_at: string; updated_by: string | null } | undefined;
   if (!fila) return { aplicado: false, conflicto: true };
   return { aplicado: true, version: fila.section_version, updated_at: fila.updated_at, updated_by: fila.updated_by };
 }

@@ -36,10 +36,11 @@ const filaTasa = 3 + proyecto.parametros.findIndex((p) => p.id === 'tasa_impuest
 const celdaImpY1 = `D${FILAS['impuesto_utilidades_k']}`;
 
 describe('Excel — hojas y estructura', () => {
-  test('contiene las 18 hojas esperadas', () => {
+  test('contiene las 22 hojas del modelo (motor 2.0.0)', () => {
     const esperadas = [
-      'Portada', 'Resumen', 'Parametros', 'Inversion', 'Aportaciones', 'Financiacion',
-      'Servicios', 'Personal', 'Proyecciones', 'FlujoCaja', 'BeneficiosPais',
+      'Portada', 'Resumen', 'Parametros', 'Inversion', 'Depreciacion', 'Deuda',
+      'Aportaciones', 'Financiacion', 'Servicios', 'Personal', 'Capacidad',
+      'Proyecciones', 'FlujosCaja', 'Dividendos', 'BeneficiosPais',
       'FuerzaTrabajo', 'Cronograma', 'ConsumosTecnicos', 'Mercado', 'Descripcion',
       'Reglas', 'Controles',
     ];
@@ -107,10 +108,13 @@ describe('Excel — fórmulas reales', () => {
     expect(fInvFija).toContain('USD');
   });
 
-  test('la depreciación usa el SUMIFS sobre la columna auxiliar de Inversion', () => {
+  test('la depreciación referencia la hoja Depreciacion (calendario por activo)', () => {
+    // Modelo 2.0.0: la depreciación se calcula POR ACTIVO en su propia hoja
+    // (misión §16.2) y la fila anual del estado de resultados referencia su
+    // fila de TOTALES — ya no se deduce con un SUMIFS sobre la hoja Inversion.
     const f = String((proy[`D${FILAS['depreciacion_anual_k']}`] as XLSX.CellObject).f);
-    expect(f).toContain('SUMIFS');
-    expect(f).toContain('Inversion!$F$');
+    expect(f).toContain('Depreciacion!');
+    expect(f.replace(/^=/, '').startsWith('Depreciacion!')).toBe(true);
   });
 
   test('el flujo acumulado es una recurrencia por columnas (LAG → columna anterior)', () => {
@@ -135,9 +139,9 @@ describe('Excel — fórmulas reales', () => {
     const svc = wb.Sheets['Servicios'];
     const g4 = svc['G4'] as XLSX.CellObject; // precio proy
     expect(String(g4.f)).toContain('Parametros!');
-    const k4 = svc['K4'] as XLSX.CellObject; // ingreso anual
-    expect(String(k4.f)).toContain('G4');
-    expect(String(k4.f)).toContain('I4');
+    const l4 = svc['L4'] as XLSX.CellObject; // ingreso anual (col L del formato largo)
+    expect(String(l4.f)).toContain('G4');
+    expect(String(l4.f)).toContain('J4'); // cantidad anual (J = I×12, por fila)
   });
 
   test('la hoja Reglas documenta la traducción y el estado', () => {

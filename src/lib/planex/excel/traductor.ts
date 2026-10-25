@@ -31,13 +31,16 @@ export const COL_SERVICIO: Record<string, string> = {
   cantidad_base_mensual: 'D',
   capacidad_max_mensual: 'E',
   costo_variable_unitario: 'F',
+  duracion_minutos: 'O',
+  anio_inicio_demanda: 'Q',
   srv_precio_proy: 'G',
   srv_cantidad_mensual_proy: 'H',
-  srv_cantidad_anual: 'I',
-  srv_costo_unitario_proy: 'J',
-  srv_ingreso_anual: 'K',
-  srv_costo_variable_total: 'L',
-  srv_margen_contribucion: 'M',
+  srv_cantidad_real_mensual: 'I',
+  srv_cantidad_anual: 'J',
+  srv_costo_unitario_proy: 'K',
+  srv_ingreso_anual: 'L',
+  srv_costo_variable_total: 'M',
+  srv_margen_contribucion: 'N',
 };
 
 export const COL_PERSONAL: Record<string, string> = {
@@ -70,6 +73,14 @@ export interface CtxTraduccion {
   rangoInversion: [number, number];
   /** Columna del total de aportaciones (por fila). */
   colTotalAportaciones: string;
+  /** Referencia Excel de una variable del motor (mtr_*) en modo anual.
+   *  Recibe el nombre y el AÑO t. Debe existir para traducir reglas que usan
+   *  el motor estructural (depreciación, deuda, flujos, dividendos). */
+  refMotor?: (nombre: string, anio: number) => string;
+  /** Referencia Excel de una variable del motor de ámbito servicio (capacidad).
+   *  Recibe el nombre y la FILA actual (fila servicio-año alineada con la
+   *  hoja Capacidad). */
+  refMotorServicio?: (nombre: string, fila: number) => string;
 }
 
 function esVar(n: Nodo): n is { t: 'var'; nombre: string; pos: number } {
@@ -200,6 +211,10 @@ function traducirVar(nombre: string, ctx: CtxTraduccion): string {
     if (nombre === 'PERIODO') return `$A${ctx.fila}`;
     if (nombre === 'PERIODOS') return String(ctx.periodos);
     if (nombre === 'MESES_ANIO') return '12';
+    if (nombre.startsWith('mtr_')) {
+      if (!ctx.refMotorServicio) throw new NoTraducible(`Variable del motor «${nombre}» sin hoja de capacidad disponible en este contexto`);
+      return ctx.refMotorServicio(nombre, ctx.fila);
+    }
     const col = COL_SERVICIO[nombre];
     if (col) return `${col}${ctx.fila}`;
     return traducirVarGlobal(nombre, ctx);
@@ -212,11 +227,17 @@ function traducirVar(nombre: string, ctx: CtxTraduccion): string {
     if (col) return `${col}${ctx.fila}`;
     return traducirVarGlobal(nombre, ctx);
   }
-  // modo anio: primero otra regla anual (misma columna), luego global
+  // modo anio: variables del motor, luego otra regla anual, luego global
   if (nombre === 'PERIODO') return `${letraCol(ctx.col)}$${ctx.filaPeriodos}`;
   if (nombre === 'PERIODOS') return String(ctx.periodos);
   if (nombre === 'MESES_ANIO') return '12';
   if (nombre === 'otros_ingresos_serie') return `${letraCol(ctx.col)}$${ctx.filaOtrosIngresos}`;
+  if (nombre.startsWith('mtr_')) {
+    if (!ctx.refMotor) throw new NoTraducible(`Variable del motor «${nombre}» sin equivalente Excel en este contexto`);
+    const anio = ctx.col - 2; // ctx.col es 0-based; el año t vive en la columna 2+t
+    if (anio < 0) throw new NoTraducible(`Variable del motor «${nombre}» usada fuera del rango de años`);
+    return ctx.refMotor(nombre, anio);
+  }
   const filaAnio = ctx.filaReglaAnio(nombre);
   if (filaAnio > 0) return `${letraCol(ctx.col)}$${filaAnio}`;
   return traducirVarGlobal(nombre, ctx);
@@ -290,7 +311,9 @@ function traducirSumaInversiones(expr: Nodo, ctx: CtxTraduccion): string {
   const cuerpo = extraerCuerpoIF(expr);
   if (!cuerpo) throw new NoTraducible('SUMA_INVERSIONES traduce la forma IF(AND(categoría, moneda), monto, 0)');
   const usaVida = contieneVar(cuerpo.body, 'vida_util_inv');
-  const colDatos = usaVida ? 'F' : 'D';
+  // Hoja Inversion (esquema 2.0.0): A concepto, B categoría, C moneda,
+  // D monto, E vida útil, F disponible, G residual, H dep. anual.
+  const colDatos = usaVida ? 'H' : 'D';
   const rangoDatos = `Inversion!$${colDatos}$${f1}:$${colDatos}$${f2}`;
   const rangoCat = `Inversion!$B$${f1}:$B$${f2}`;
   const rangoMon = `Inversion!$C$${f1}:$C$${f2}`;
