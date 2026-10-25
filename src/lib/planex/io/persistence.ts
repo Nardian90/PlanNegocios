@@ -101,3 +101,39 @@ export function cargarTema(): 'dark' | 'light' | null {
   const t = localStorage.getItem(CLAVE_TEMA);
   return t === 'dark' || t === 'light' ? t : null;
 }
+
+// ----------------------------------------------------------------------------
+// Copia local de trabajo por plan (mecanismo de RECUPERACIÓN).
+//
+// Supabase es la fuente compartida de verdad cuando hay conexión; esta caché
+// solo preserva el trabajo pendiente ante un cierre inesperado o una
+// interrupción de red. Nunca se presenta como «guardado en el servidor».
+// ----------------------------------------------------------------------------
+
+const claveCachePlan = (id: string) => `planex.cache.${id}`;
+
+export function guardarCachePlan(id: string, p: PlanexProject): void {
+  try {
+    localStorage.setItem(claveCachePlan(id), JSON.stringify(p));
+  } catch {
+    /* cuota agotada: la sincronización con Supabase no se ve afectada */
+  }
+}
+
+export function cargarCachePlan(id: string): PlanexProject | null {
+  try {
+    const texto = localStorage.getItem(claveCachePlan(id));
+    if (!texto) return null;
+    return normalizarProyecto(JSON.parse(texto));
+  } catch {
+    return null;
+  }
+}
+
+export function borrarCachePlan(id: string): void {
+  try {
+    localStorage.removeItem(claveCachePlan(id));
+  } catch {
+    /* ignorar */
+  }
+}

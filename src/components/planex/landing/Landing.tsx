@@ -11,7 +11,7 @@ import * as React from 'react';
 import { Fraunces } from 'next/font/google';
 import './landing.css';
 import { navegar, prefiereMovimientoReducido } from '../navegacion';
-import { sesionActiva } from '@/lib/planex/auth';
+import { useAuth } from '@/lib/supabase/auth';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -79,7 +79,7 @@ const FUNCIONALIDADES: { nombre: string; desc: string; glifo: React.ReactNode }[
     desc: 'Esquema versionado con validación: guardar, intercambiar y reabrir proyectos conservando las reglas y parámetros propios del autor. Sin ejecución de código del archivo.',
     glifo: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-        <path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 h2M16 3h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2" />
+        <path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2" />
         <path d="M10 8l-2 4h8l-2-4M10 16l-2-4h8l-2 4" opacity="0" />
         <path d="M9 12h6" />
       </svg>
@@ -96,8 +96,8 @@ const FUNCIONALIDADES: { nombre: string; desc: string; glifo: React.ReactNode }[
     ),
   },
   {
-    nombre: 'Persistencia local y dos temas visuales',
-    desc: 'Trabajo sin conexión y sin cuentas en línea: autoguardado en el navegador con biblioteca de proyectos, intercambio por archivos JSON y temas claro/oscuro persistentes.',
+    nombre: 'Colaboración en un espacio compartido',
+    desc: 'Dos colaboradores trabajan el mismo plan desde equipos distintos con autoguardado, sincronización en vivo, historial de versiones, registro de actividad y control de conflictos. Los datos viven en Supabase, protegidos por autenticación real y políticas RLS del servidor.',
     glifo: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
         <path d="M12 3a9 9 0 1 0 9 9c0-5-4-9-9-9Z" />
@@ -155,7 +155,7 @@ export function Landing() {
     return () => window.removeEventListener('scroll', alScroll);
   }, []);
 
-  const entrar = () => navegar(sesionActiva() ? '/app' : '/login');
+  const entrar = () => navegar(useAuth.getState().estado === 'autenticado' ? '/proyectos' : '/login');
 
   return (
     <div ref={raiz} className={`plx-escena ${fraunces.variable}`}>
@@ -202,7 +202,7 @@ export function Landing() {
               <span>Estructura <b>4.1 – 4.12</b></span>
               <span>Motor <b>parametrizable</b></span>
               <span>Exportación <b>PDF · Excel · JSON</b></span>
-              <span>Uso <b>local y sin conexión</b></span>
+              <span>Colaboración <b>en tiempo real</b></span>
             </div>
           </div>
 
@@ -382,7 +382,7 @@ export function Landing() {
             <p>
               PLANEX organiza la información del negocio conforme a las Bases Metodológicas de la
               GOC-2026-O57, mantiene los cálculos bajo su control y produce el documento final listo
-              para revisión. El acceso requiere la contraseña de la herramienta.
+              para revisión. El acceso se realiza con la cuenta de colaborador del espacio compartido.
             </p>
             <button className="plx-btn-primario" onClick={entrar}>
               Acceder a PLANEX
@@ -401,9 +401,9 @@ export function Landing() {
             <div>
               <div className="plx-footer-marca">PLANEX</div>
               <p>
-                Herramienta local para elaborar planes de negocios de propuestas con inversión extranjera,
+                Herramienta para elaborar planes de negocios de propuestas con inversión extranjera,
                 conforme a los epígrafes 4.1–4.12 de las Bases Metodológicas publicadas en la Gaceta Oficial
-                GOC-2026-O57.
+                GOC-2026-O57, con espacio de trabajo compartido y sincronización entre colaboradores.
               </p>
             </div>
             <div>
@@ -426,7 +426,7 @@ export function Landing() {
           </div>
           <div className="plx-footer-fin">
             <span>PLANEX — planificación empresarial y financiera</span>
-            <span>Aplicación estática · funciona sin conexión</span>
+            <span>Aplicación estática · espacio compartido en Supabase con RLS</span>
           </div>
         </div>
       </footer>

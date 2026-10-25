@@ -1,0 +1,60 @@
+[PASA] A1. Landing carga sin sesión con el héroe «De los supuestos…»
+[PASA] A2. Botones «Acceder a PLANEX» presentes
+[PASA] A3. «Acceder a PLANEX» lleva a la vista de login
+[PASA] B1. URL protegida sin sesión redirige al login (hash)
+[PASA] B2. Destino guardado tras redirección (sessionStorage planex.destino)
+[PASA] C1. Alias desconocido rechazado antes de llamar al servidor
+[PASA] C2. Contraseña incorrecta rechazada por Supabase Auth (mensaje visible)
+[PASA] 1. Ingreso correcto de Colaborador1
+[PASA] 2. Ingreso correcto de Colaborador2
+[PASA] 4a. Sesión restaurada tras recarga completa
+[PASA] 5a. Colaborador2 crea un plan desde la plantilla Clínica (secciones+parámetros+reglas en Supabase)
+[PASA] 5b. Contenido inicial guardado en Supabase (indicador «Guardado»)
+       plan creado: 65325936-9e87-4e0a-8375-49c8929be4a2
+[PASA] 7a. Colaborador1 ve el plan creado por Colaborador2 sin recargar (Realtime)
+[PASA] 7b. Colaborador1 abre el mismo plan desde su sesión
+[PASA] 8a. Colaborador1 edita «Mercado» y el cambio queda confirmado en el servidor
+[PASA] 8b. Colaborador2 recibe el cambio en vivo sin recargar (value = TEXTO-INICIAL-C1)
+       aviso de autoría mostrado: sí
+[PASA] 8c. La interfaz identifica al autor de la modificación (toast con autor)
+[PASA] 9a. Ambos editan secciones distintas y cada guardado se confirma
+[PASA] 9b. Colaborador1 recibe la sección de Colaborador2 sin conflicto
+[PASA] 12a. Tasa del impuesto 35 → 30 % guardada en Supabase (parámetros del proyecto)
+[PASA] 12b. Colaborador2 ve el impuesto recalculado (110,8) en vivo tras el cambio de tasa
+[PASA] 12c. Tras recarga, el parámetro y el recálculo persisten desde el servidor
+[PASA] 13. Autoguardado + recuperación tras recarga
+[PASA] 14a. Aviso visible de pérdida de conexión
+[PASA] 14b. Sin conexión NO se muestra como guardado; el texto local se conserva
+[PASA] 14c. El indicador no afirma «guardado» estando desconectado
+[PASA] 10a. Reconexión con versión remota distinta → conflicto detectado (nunca sobrescribe en silencio)
+[PASA] 11. La edición no guardada de C1 NO desaparece al recibir el cambio remoto
+[PASA] 10b. La comparación campo a campo muestra las diferencias
+[PASA] 10c. Sobrescritura EXPLÍCITA con confirmación aplicada y confirmada en el servidor
+[PASA] 10d. Colaborador2 recibe la resolución del conflicto en vivo
+[PASA] 18a. Instantánea de versión guardada con autoría
+[PASA] 18b. Restauración aplicada (con copia de seguridad automática previa)
+[PASA] 18c. El contenido activo corresponde a la versión restaurada
+[PASA] 18d. El historial NO se borró: la versión posterior sigue registrada
+[PASA] 18e. Existe la copia de seguridad automática previa a la restauración
+[PASA] 19a. La vista previa es una página completa, no un modal
+[PASA] 19b. La vista documental refleja el estado compartido actualizado (impuesto 110,8)
+[PASA] 19c. PDF descargado y válido (263 kB)
+[PASA] 19d. Excel con hoja Parametros y tasa exportada (0.3)
+[PASA] 19e. Excel con fórmula real del impuesto (=IF((C$3=0),Parametros!$C$20,MAX(0,(B$20-C…)
+[PASA] 20a. JSON con reglas (40) y parámetros (24)
+[PASA] 20b. El JSON lleva el parámetro modificado (tasa 30 % = 0.3 en el modelo)
+[PASA] 20c. JSON importado como plan compartido y abierto
+[PASA] 4b. Cerrar sesión vuelve a la landing
+[PASA] 4c. Tras cerrar sesión, las vistas protegidas vuelven a exigir acceso
+[PASA] 4d. Cerrar sesión NO eliminó los proyectos compartidos
+       (planes visibles para C2 antes del logout de C1: 0)
+[PASA] 21a. Botón Atrás del navegador vuelve del panel al editor (hash)
+[PASA] 21b. Botón Adelante restaura la vista del panel
+[PASA] 21c. Recarga de una ruta interna bajo subruta /PlanNegocios: sin 404
+[PASA] 21d. Móvil 375 px: landing sin desbordamiento horizontal (+0px)
+[PASA] 21e. prefers-reduced-motion respetado (contenido visible de inmediato: sí)
+       consola: 2 entradas de error (2 de red, sobre todo durante la simulación sin conexión)
+[PASA] 22. Sin errores de consola relevantes en ambas sesiones
+
+== Resumen ==
+Comprobaciones: 53 · Fallidas: 0

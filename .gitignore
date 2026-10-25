@@ -33,3 +33,6 @@ next-env.d.ts
 
 # salidas locales de pruebas y exportaciones
 tests/planex/salida-*
+
+# artefactos de las pruebas E2E (los informes sí se versionan)
+e2e/descargas/

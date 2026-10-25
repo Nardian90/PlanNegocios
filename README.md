@@ -12,31 +12,32 @@ de Cuba, número extraordinario **GOC-2026-O57 de 9 de julio de 2026** (epígraf
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=flat-square&logo=tailwindcss)
-![Pruebas](https://img.shields.io/badge/Pruebas-58%2F58_pass-brightgreen?style=flat-square)
+![Pruebas](https://img.shields.io/badge/Pruebas-58%2B53%2B28_pass-brightgreen?style=flat-square)
 [![Deploy](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml/badge.svg)](https://github.com/Nardian90/PlanNegocios/actions/workflows/deploy.yml)
 
 ### Aplicación en línea
 
 **https://nardian90.github.io/PlanNegocios/** — despliegue automático desde la rama `main`
-vía GitHub Actions + GitHub Pages. La aplicación es 100% estática: una vez cargada,
-funciona sin conexión y no envía datos a ningún servidor (los planes se guardan en el
-navegador y solo viajan cuando el usuario exporta JSON/PDF/Excel).
+vía GitHub Actions + GitHub Pages. La interfaz es 100% estática; la colaboración usa
+**Supabase** desde el navegador (Auth + PostgreSQL con RLS + Realtime), sin backend propio:
+los planes del espacio compartido se guardan y sincronizan en el servidor, protegidos por
+autenticación real y políticas RLS.
 
 **Flujo de vistas** (cada una con URL propia, navegación por hash sin 404):
 
 | Vista | Ruta | Acceso |
 |---|---|---|
 | Landing de presentación | `#/` | Público |
-| Acceso con contraseña | `#/login` | Público |
-| Aplicación (editor 4.1–4.12) | `#/app` | Protegido |
-| Vista documental del plan | `#/preview` | Protegido |
+| Acceso con alias de colaborador | `#/login` | Público |
+| Proyectos compartidos | `#/proyectos` | Protegido |
+| Editor del plan (4.1–4.12) | `#/editor?plan=…` | Protegido |
+| Vista documental del plan | `#/preview?plan=…` | Protegido |
 
-**Acceso**: la aplicación se abre tras introducir la contraseña (`PLANEX`, sensible a
-mayúsculas). ⚠️ La contraseña se verifica en el cliente: es una barrera de acceso
-básica para uso personal o demostrativo, **no autenticación segura** — el código
-descargado puede inspeccionarse y la comprobación puede eludirse. Para confidencialidad
-real se requiere autenticación del lado del servidor. Detalle en
-[`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md).
+**Acceso**: inicio de sesión con el alias del colaborador (`Colaborador1` / `Colaborador2`)
+y su contraseña. El alias se resuelve al correo interno de la cuenta y la verificación la
+hace **Supabase Auth** en el servidor (correo + contraseña); tras autenticar se comprueba
+que la cuenta pertenezca al espacio de trabajo autorizado. Las contraseñas no se guardan en
+el navegador. Detalle en [`docs/supabase/`](docs/supabase/).
 
 </div>
 
@@ -62,13 +63,14 @@ demostración son **supuestos editables**, no tasas legales vigentes.
 4. [Motor de cálculo configurable](#motor-de-cálculo-configurable)
 5. [Plantillas incluidas](#plantillas-incluidas)
 6. [Exportación e intercambio](#exportación-e-intercambio)
-7. [Arquitectura del proyecto](#arquitectura-del-proyecto)
-8. [Requisitos e instalación](#requisitos-e-instalación)
-9. [Despliegue](#despliegue)
-10. [Guía de uso rápido](#guía-de-uso-rápido)
-11. [Pruebas](#pruebas)
-12. [Limitaciones conocidas](#limitaciones-conocidas)
-13. [Documentación adicional](#documentación-adicional)
+7. [Colaboración multiusuario con Supabase](#colaboración-multiusuario-con-supabase)
+8. [Arquitectura del proyecto](#arquitectura-del-proyecto)
+9. [Requisitos e instalación](#requisitos-e-instalación)
+10. [Despliegue](#despliegue)
+11. [Guía de uso rápido](#guía-de-uso-rápido)
+12. [Pruebas](#pruebas)
+13. [Limitaciones conocidas](#limitaciones-conocidas)
+14. [Documentación adicional](#documentación-adicional)
 
 ---
 
@@ -100,12 +102,19 @@ demostración son **supuestos editables**, no tasas legales vigentes.
   - **Excel con fórmulas reales y referencias entre hojas** (no valores estáticos): 18 hojas,
     celdas de entrada y fórmulas diferenciadas, y recálculo automático al abrir el libro.
   - **JSON** con esquema versionado para guardar, intercambiar y reabrir proyectos.
-- **Persistencia local**: autoguardado en `localStorage`, biblioteca de proyectos y temas
-  claro/oscuro persistentes. La aplicación funciona completamente sin conexión.
-- **Vistas diferenciadas**: landing de presentación premium, acceso mediante
-  contraseña (solo `PLANEX`, sin cuentas), aplicación protegida y previsualización
-  documental como vista de página completa (no modal) — ver
-  [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md).
+- **Colaboración multiusuario en un espacio compartido (Supabase)**: dos colaboradores
+  trabajan el mismo plan desde equipos y navegadores distintos con autenticación real,
+  autoguardado con control de concurrencia, sincronización en vivo (Realtime), historial de
+  versiones restaurable, registro de actividad con autoría, comentarios por sección y
+  prevención de conflictos con resolución explícita (comparar / cargar remota / copia local /
+  sobrescritura confirmada). Los datos se protegen con RLS en el servidor.
+- **Persistencia local de recuperación**: copia de trabajo por plan en el navegador para
+  reponer ediciones ante cierres inesperados o cortes de red; el servidor es la fuente de
+  verdad y la UI nunca marca un cambio como guardado sin confirmación real. Temas claro/oscuro
+  persistentes.
+- **Vistas diferenciadas**: landing de presentación premium, acceso con alias de colaborador
+  (Supabase Auth), panel de proyectos compartidos, editor protegido y previsualización
+  documental como vista de página completa (no modal).
 - **Validación y consistencia**: alertas clasificadas (error, inconsistencia, pendiente,
   supuesto, documental, legal) con navegación al apartado afectado; control de capacidad de
   servicios, insuficiencia/exceso de financiación, horizonte ≥ recuperación + 1 año y más.
@@ -192,6 +201,45 @@ restaurar su plantilla de origen en cualquier momento.
 | **Excel** (xlsx-js-style) | 18 hojas con fórmulas reales: el impuesto es `=MAX(0;(D$22*Parametros!$C$3))`; proyecciones referencian Servicios/Personal/Inversiones/Financiacion mediante `SUMIFS`/`SUMPRODUCT`/`SUM`; entradas en ámbar y fórmulas en verde; `fullCalcOnLoad` inyectado para recalcular al abrir; hoja «Reglas» documenta cada traducción y las no traducibles se exportan como valor con aviso explícito |
 | **JSON** | Esquema versionado (`planex.schemaVersion` 1.0.0) con validación e importación segura sin ejecución de código del archivo; conserva reglas y parámetros del usuario; las reglas desconocidas quedan deshabilitadas y marcadas |
 
+## Colaboración multiusuario con Supabase
+
+La misión **PLANEX-SUPABASE-001** añadió un espacio de trabajo compartido donde los
+dos colaboradores autorizados (`Colaborador1` / `Colaborador2`) consultan, editan, guardan,
+revisan y exportan los mismos planes desde computadoras y navegadores distintos.
+
+- **Autenticación real** con Supabase Auth (correo interno + contraseña, resuelto desde el
+  alias de la interfaz). La sesión la gestiona supabase-js (persistente, con refresco).
+- **Espacio compartido**: panel `#/proyectos` con título, plantilla de origen, autor de
+  creación, última actualización y autor, estado de elaboración, apertura, duplicado e
+  importación de JSON como plan compartido. Refresco en vivo por Realtime.
+- **Autoguardado por sección con concurrencia optimista**: cada escritura indica la versión
+  sobre la que trabaja; si el otro colaborador guardó antes, el servidor NO aplica la
+  escritura (0 filas) y la app preserva el trabajo local y ofrece resolución explícita
+  (comparar campo a campo / cargar remota / copia local de respaldo / sobrescribir con
+  confirmación). Nunca se fusionan cambios financieros incompatibles en silencio.
+- **Sincronización en vivo**: cada sesión recibe por Realtime (autorizado con RLS) los
+  cambios persistidos del otro, con identificación del autor; el motor recalcula las
+  dependencias y la vista documental refleja siempre el estado vigente.
+- **Historial y versiones**: instantáneas inmutables con autoría; restauración con copia de
+  seguridad automática previa y aviso de sustitución; registro de actividad append-only.
+- **Modo sin conexión**: aviso visible, cambios pendientes conservados (caché local de
+  recuperación) y reintento controlado; al volver, si el otro creó una versión nueva, se pide
+  resolución del conflicto antes de sobrescribir.
+- **Seguridad**: la SPA usa **solo la clave publicable**; todas las tablas tienen RLS con
+  condiciones reales de pertenencia al espacio, historial append-only y autoría sellada por
+  el servidor. Ver [`docs/supabase/POLITICAS_RLS.md`](docs/supabase/POLITICAS_RLS.md).
+
+Documentación completa: [`docs/supabase/`](docs/supabase/) — esquema de datos, políticas
+RLS y su justificación, procedimiento de configuración (cuentas, espacio, variables de
+compilación y GitHub Actions) y evidencia de las pruebas reales ejecutadas.
+
+### Variables de compilación (no secretas)
+
+La SPA se compila con variables públicas (véase `.env.example`): URL del proyecto Supabase,
+clave **publicable** y correos internos de los dos colaboradores (el login pide el alias).
+El flujo de GitHub Actions ya las define para el despliegue de Pages. **Nunca** se incluyen
+claves `sb_secret_`/`service_role`, contraseñas de base de datos ni contraseñas de usuarios.
+
 ## Arquitectura del proyecto
 
 ```
@@ -254,11 +302,12 @@ y viajan solo cuando el usuario exporta JSON/PDF/Excel).
 ### GitHub Pages (configurado, automático)
 
 El repositorio incluye el workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
-cada push a `main` construye el sitio estático con Bun y lo publica en
-**https://nardian90.github.io/PlanNegocios/** mediante GitHub Actions. No se necesita Vercel
-ni ningún otro proveedor: la app no requiere servidor, base de datos ni funciones en la nube.
-La navegación interna usa rutas por hash (`#/`, `#/login`, `#/app`, `#/preview`), de modo que
-ninguna vista produce 404 al recargar y los recursos resuelven bajo la subruta del repo.
+cada push a `main` construye el sitio estático con Bun (con las variables públicas de Supabase
+y el `basePath` de Pages) y lo publica en **https://nardian90.github.io/PlanNegocios/** mediante
+GitHub Actions. La colaboración la resuelve Supabase desde el navegador; no se necesita
+backend propio. La navegación interna usa rutas por hash (`#/`, `#/login`, `#/proyectos`,
+`#/editor?plan=…`, `#/preview?plan=…`), de modo que ninguna vista produce 404 al recargar y
+los recursos resuelven bajo la subruta del repo.
 
 Configuración necesaria (ya aplicada en este repositorio):
 
@@ -278,20 +327,27 @@ Al ser un sitio estático, `out/` puede servirse desde cualquier hosting:
 ## Guía de uso rápido
 
 1. **Landing y acceso**: abra el sitio; explore la presentación («Explorar funcionalidades»)
-   y pulse «Acceder a PLANEX». En la pantalla de acceso introduzca la contraseña (solo
-   contraseña, sin usuario) y pulse Entrar.
-2. **Primer uso en la app**: aparece el selector de plantillas. Elija «Clínica Estomatológica»
-   (ejemplo completo) o «Default» (estructura general vacía).
+   y pulse «Acceder a PLANEX». En la pantalla de acceso introduzca su alias de colaborador y
+   contraseña (Supabase Auth verifica en el servidor).
+2. **Panel de proyectos compartidos**: cree un plan desde la plantilla «Clínica Estomatológica»
+   (ejemplo completo) o «Default» (estructura general con ayudas), duplique uno existente o
+   importe un JSON como plan compartido. El otro colaborador verá sus planes sin recargar.
 3. **Explorar el modelo**: navegue por las secciones 4.1–4.12 en la barra lateral; las
    celdas calculadas muestran su fórmula al pasar el cursor y enlazan a la regla origen.
+   El indicador de estado muestra siempre la verdad frente al servidor (pendiente/guardando/
+   guardado/error/conflicto/sin conexión).
 4. **Cambiar un parámetro**: abra «Configuración de cálculos», edite la tasa del impuesto
-   (35 → 30 %) y observe el recálculo en cascada en la sección 4.7.
+   (35 → 30 %) y observe el recálculo en cascada en la sección 4.7 — el otro colaborador lo
+   verá en vivo.
 5. **Cambiar una fórmula**: en la misma configuración, edite la expresión del impuesto
    (constructor visual o editor de texto) con validación en vivo y prueba con datos actuales.
 6. **Previsualizar y exportar**: «Previsualizar plan» abre la vista documental dedicada
    (`#/preview`); desde su barra de acciones exporte PDF (documental), Excel (con fórmulas
-   vivas) o JSON, y «Volver a editar» regresa a la misma sección de edición.
-7. **Cerrar sesión**: el botón de la barra superior regresa a la landing y limpia la sesión
+   vivas) o JSON, y «Volver a editar» regresa a la misma sección de edición. Antes de exportar
+   se confirma lo pendiente y se advierte de conflictos sin resolver.
+7. **Colaborar**: «Colaboración» abre Historial de versiones, Actividad del plan y Comentarios;
+   el estado de elaboración se cambia desde la barra superior.
+8. **Cerrar sesión**: el botón de la barra superior regresa a la landing y limpia la sesión
    sin borrar los proyectos guardados.
 
 ## Pruebas
@@ -303,7 +359,9 @@ La suite automatizada cubre el motor de cálculo, los exportadores y el intercam
 | Motor | 35 | Valores esperados manuales, recálculo por parámetro, cambio de fórmula, sintaxis inválida, variables inexistentes, ciclos, división por cero, insuficiencia de financiación, horizonte, capacidad, round-trip JSON |
 | Excel | 16 | Fórmulas reales por hoja, referencias entre hojas, coincidencia de valores con el motor, recálculo al cambiar la tasa, sin referencias rotas (926+ fórmulas) |
 | PDF | 7 | Contenido, índice, cifras del modelo activo y advertencias |
-| Vistas y acceso (enmienda) | 20 | Landing sin sesión, flujo de acceso con contraseña, protección y redirección de vistas, cierre de sesión sin pérdida de datos, previsualización dedicada, sincronización de cifras, Atrás/Adelante, recargas sin 404, subruta, responsive, movimiento reducido, recursos externos y consola — detalle en [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) |
+| Colaboración E2E (dos navegadores reales) | 53 | Las 23 pruebas de la misión PLANEX-SUPABASE-001: login con ambos alias y rechazo de credenciales inválidas, sesión restaurada, espacio compartido en dos sesiones, creación/apertura en vivo, edición recibida sin recargar con autor identificado, ediciones simultáneas de secciones distintas, conflicto de la misma sección con resolución explícita, preservación de ediciones no guardadas, persistencia de parámetros con recálculo en vivo, autoguardado tras recarga, reconexión, RLS efectiva, tercero denegado, secretos fuera del bundle, historial y restauración, exportaciones PDF/Excel/JSON desde el estado compartido, despliegue estático, consola — detalle en [`docs/supabase/EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) |
+| RLS/REST con JWT reales | 28 | Visibilidad por pertenencia, concurrencia optimista (versión caducada → 0 filas), denegaciones (anónimo, autoconcesión de membresía/roles, espacios ajenos, alias inmutable, mover secciones, borrar historial) — [`e2e/REPORTE-RLS-REST.txt`](e2e/REPORTE-RLS-REST.txt) |
+| Vistas y acceso (enmienda) | 20 | Landing sin sesión, protección y redirección de vistas, cierre de sesión sin pérdida, previsualización dedicada, Atrás/Adelante, recargas sin 404, subruta, responsive, movimiento reducido — [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) |
 
 Además se verificó de extremo a extremo en navegador: carga de plantillas, edición de
 formularios y tablas, cascadas de recálculo, persistencia tras recarga, temas claro/oscuro
@@ -323,15 +381,34 @@ y ausencia de errores en consola. El detalle completo está en
 5. Validaciones legales, tributarias, sanitarias y de mercado **pendientes de confirmación
    por el usuario** antes de cualquier uso oficial (tasa de impuesto, tipo de cambio,
    certificaciones del MFP, licencias MINSAP, estudios de demanda).
-6. **La contraseña de acceso se verifica en el cliente** y puede eludirse inspeccionando
-   el código descargado: es una barrera demostrativa para uso personal, no autenticación
-   segura. No sustituye un mecanismo de control de acceso del lado del servidor.
+6. **Colaboración**: las contraseñas iniciales de los colaboradores fueron definidas por el
+   propietario y la plataforma exige ≥ 6 caracteres por API; se fijaron mediante una
+   actualización administrativa del hash verificando el login real (equivalente a cambiarlas
+   desde el Panel). Cambie las contraseñas en Supabase (Authentication → Users) cuando lo
+   desee: la app no las guarda en ningún sitio. La SPA usa solo la clave publicable; la
+   protección real es la autenticación + RLS. La pertenencia al espacio y las cuentas se
+   gestionan por la administración del proyecto Supabase (procedimiento en
+   [`docs/supabase/CONFIGURACION_SUPABASE.md`](docs/supabase/CONFIGURACION_SUPABASE.md)).
+7. **Cortes de red durante la edición**: los cambios pendientes se conservan y reintentan;
+   si el otro colaborador guardó mientras tanto, la app pide resolución del conflicto (no
+   fusiona datos financieros en silencio).
 
 ## Documentación adicional
 
+- [`docs/supabase/`](docs/supabase/) — Integración de colaboración (misión PLANEX-SUPABASE-001):
+  - [`ESQUEMA_DE_DATOS.md`](docs/supabase/ESQUEMA_DE_DATOS.md) — modelo relacional, secciones
+    sincronizables, triggers y Realtime.
+  - [`POLITICAS_RLS.md`](docs/supabase/POLITICAS_RLS.md) — políticas por tabla y justificación.
+  - [`CONFIGURACION_SUPABASE.md`](docs/supabase/CONFIGURACION_SUPABASE.md) — procedimiento
+    completo: migraciones, cuentas de colaborador, espacio compartido, variables de
+    compilación y ajustes de Auth.
+  - [`EVIDENCIA_PRUEBAS.md`](docs/supabase/EVIDENCIA_PRUEBAS.md) — mapa de las 23 pruebas de la
+    misión con su evidencia real.
+- [`supabase/migrations/`](supabase/migrations/) — migraciones SQL versionadas e idempotentes.
+- [`e2e/`](e2e/) — arnés de pruebas de colaboración con dos navegadores reales e informes
+  ejecutados (UI, RLS/REST, seguridad).
 - [`docs/ENMIENDA_VISTAS_Y_ACCESO.md`](docs/ENMIENDA_VISTAS_Y_ACCESO.md) — Enmienda:
-  landing premium, acceso mediante contraseña (con su limitación real de seguridad),
-  previsualización como vista dedicada y las 20 pruebas adicionales ejecutadas.
+  landing premium, vistas con URL propia y previsualización dedicada.
 - [`docs/INFORME_DE_IMPLEMENTACION.md`](docs/INFORME_DE_IMPLEMENTACION.md) — Informe completo
   de implementación y verificación: funciones, arquitectura, pruebas ejecutadas y resultados.
 - [`docs/ejemplos/`](docs/ejemplos/) — Salidas del ejemplo Clínica Estomatológica:

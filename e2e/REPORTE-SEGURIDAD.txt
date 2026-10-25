@@ -1,0 +1,52 @@
+== 15/23. Políticas RLS vigentes en el servidor ==
+  ✔ plan_activity_log: RLS=activado · 2 política(s)
+  ✔ plan_comments: RLS=activado · 4 política(s)
+  ✔ plan_section_assignments: RLS=activado · 3 política(s)
+  ✔ plan_sections: RLS=activado · 3 política(s)
+  ✔ plan_versions: RLS=activado · 2 política(s)
+  ✔ plans: RLS=activado · 3 política(s)
+  ✔ profiles: RLS=activado · 2 política(s)
+  ✔ workspace_members: RLS=activado · 1 política(s)
+  ✔ workspaces: RLS=activado · 1 política(s)
+[PASA] 23a. Las 9 tablas expuestas tienen RLS activado con políticas específicas
+  Detalle: 21 políticas:
+    plan_activity_log.activity_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plan_activity_log.activity_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plan_comments.comments_delete [DELETE] roles={authenticated} USING=sí WITH CHECK=—
+    plan_comments.comments_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plan_comments.comments_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plan_comments.comments_update [UPDATE] roles={authenticated} USING=sí WITH CHECK=sí
+    plan_section_assignments.assignments_delete [DELETE] roles={authenticated} USING=sí WITH CHECK=—
+    plan_section_assignments.assignments_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plan_section_assignments.assignments_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plan_sections.sections_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plan_sections.sections_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plan_sections.sections_update [UPDATE] roles={authenticated} USING=sí WITH CHECK=sí
+    plan_versions.versions_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plan_versions.versions_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plans.plans_insert [INSERT] roles={authenticated} USING=no WITH CHECK=sí
+    plans.plans_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    plans.plans_update [UPDATE] roles={authenticated} USING=sí WITH CHECK=sí
+    profiles.profiles_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    profiles.profiles_update [UPDATE] roles={authenticated} USING=sí WITH CHECK=sí
+    workspace_members.members_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+    workspaces.workspaces_select [SELECT] roles={authenticated} USING=sí WITH CHECK=—
+  Publicadas en supabase_realtime: plan_sections, plans
+[PASA] 23b. plans y plan_sections usan REPLICA IDENTITY FULL (eventos con registro previo)
+
+== 16. Denegación a un usuario NO autorizado (sin membresía) ==
+  cuenta de tercero creada para la prueba: sí (97e9852e-ea2e-449d-81ff-90d38e1e34b0)
+[PASA] 16a. La cuenta del tercero existe en Auth y puede obtener token (la denegación debe ser por RLS, no por auth)
+[PASA] 16b. El tercero NO ve ningún plan del espacio (HTTP 200, */0)
+[PASA] 16c. El tercero NO ve ningún espacio de trabajo (*/0)
+[PASA] 16d. El tercero NO puede crear planes (403 por WITH CHECK/RLS)
+  cuenta de tercero eliminada tras la prueba: sí
+
+== 17. Barrido de secretos en el código compilado (out/) ==
+[PASA] 17. El código compilado NO contiene claves secretas, service_role, JWT de servicio ni contraseñas
+  (la clave publicable y las URLs PÚBLICAS sí están, por diseño: no son secretos)
+  Nota: el texto «sb_secret_» aparece únicamente como clasificador interno de la
+  librería supabase-js (que rechaza claves secretas); el VALOR no está presente.
+
+
+== Resumen == fallas: 0

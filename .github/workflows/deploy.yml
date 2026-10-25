@@ -6,7 +6,17 @@
 #
 # Requisitos (ya configurados):
 #   - Repositorio → Settings → Pages → Source: "GitHub Actions"
-#   - La aplicación es 100% estática, no requiere servidor.
+#   - La aplicación es 100 % estática en su interfaz; la colaboración la
+#     resuelve Supabase (Auth, PostgreSQL con RLS y Realtime) desde el
+#     navegador, sin servidor propio.
+#
+# Variables de compilación (NO secretas: viajan al navegador compilado):
+#   - NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+#     identificación del proyecto Supabase con la clave PUBLICABLE.
+#     NUNCA poner aquí claves sb_secret_/service_role ni contraseñas.
+#   - Correos internos de las cuentas de colaborador (los alias
+#     «Colaborador1»/«Colaborador2» de la interfaz se resuelven a estos
+#     correos para iniciar sesión con Supabase Auth).
 # ============================================================================
 name: Deploy to GitHub Pages
 
@@ -23,6 +33,16 @@ permissions:
 concurrency:
   group: pages
   cancel-in-progress: true
+
+env:
+  # Proyecto Supabase (público: la clave publicable no es un secreto; los
+  # datos quedan protegidos por autenticación y políticas RLS).
+  NEXT_PUBLIC_SUPABASE_URL: https://huxxoiifdnmmrxcdxith.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_9wEJACvdrcEYZ8T2-M86ng_8xmynW4A
+  # Correos internos de los colaboradores (cuentas ya creadas en Supabase
+  # Auth por la administración del proyecto).
+  NEXT_PUBLIC_PLANEX_COLABORADOR1_EMAIL: colaborador1@planex.app
+  NEXT_PUBLIC_PLANEX_COLABORADOR2_EMAIL: colaborador2@planex.app
 
 jobs:
   build:

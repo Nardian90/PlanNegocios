@@ -1,0 +1,43 @@
+== Autenticación ==
+  ✔ [1] Colaborador1 inicia sesión (colaborador1@planex.app, contraseña de 1 carácter)
+  ✔ [2] Colaborador2 inicia sesión
+  ✔ [3] Contraseña incorrecta rechazada
+
+== Perfiles y pertenencia (RLS) ==
+  ✔ [4] Perfil propio legible con alias colaborador1
+  ✔ [5] Espacio compartido visible: PLANEX — Espacio compartido
+  ✔ [6] Colaborador1 ve los 2 miembros del espacio (ve 2)
+
+== Creación de plan y secciones ==
+  ✔ [7] Colaborador1 crea un plan en el espacio
+  ✔ [8] created_by sellado por el servidor: sí
+  ✔ [9] updated_by_name: Colaborador1
+  ✔ [10] Secciones creadas con claves estables
+  ✔ [11] section_version inicial: 1
+  ✔ [12] updated_by de sección sellado: sí
+  ✔ [13] Colaborador2 VE el plan creado por Colaborador1 (espacio compartido)
+
+== Control de concurrencia optimista ==
+  ✔ [14] Escritura con versión correcta → aplica y sube a versión 2
+  ✔ [15] Escritura con versión caducada (v1) → 0 filas: conflicto detectado, nada se sobrescribe en silencio
+  ✔ [16] Colaborador2 reescribe con la versión fresca → aplica
+
+== Restricciones de seguridad ==
+  ✔ [17] Anónimo NO lee planes (HTTP 200)
+  ✔ [18] Autoconcesión de membresía/rol DENEGADA (HTTP 403)
+  ✔ [19] Creación de espacios por usuarios DENEGADA (HTTP 403)
+  ✔ [20] Modificar el perfil de otro DENEGADO (0 filas afectadas, HTTP 200)
+  ✔ [21] Cambiar el propio alias DENEGADO por el trigger (HTTP 400) {"code":"P0001","details":null,"hint":null,"message":"El alias (username) del pe
+  ✔ [22] Mover sección a otro plan DENEGADO (HTTP 400)
+
+== Historial ==
+  ✔ [23] Registro de actividad: 4 entradas
+  ✔ [24] operaciones registradas: parametros:seccion_creada, identificacion:seccion_creada, identificacion:seccion_actualizada, identificacion:seccion_actualizada
+  ✔ [25] autores en el registro: Colaborador1, Colaborador2
+  ✔ [26] Instantánea de versión guardada
+  ✔ [27] Borrado del historial DENEGADO para usuarios (0 filas, HTTP 200)
+
+== Limpieza de datos de prueba (vía administrativa) ==
+  ✔ [28] plan de prueba eliminado; planes restantes: 2
+
+Resultado: TODO OK (28 comprobaciones)

@@ -1,10 +1,15 @@
 'use client';
 
 // ============================================================================
-// PLANEX — vista de acceso (solo contraseña).
-// Sin usuario, correo ni registro de cuentas: una única contraseña,
-// comparación exacta y sensible a mayúsculas. La sesión vive en
-// sessionStorage; la contraseña introducida nunca se almacena.
+// PLANEX — vista de acceso con alias de colaborador.
+//
+// Se pide USUARIO (alias) y CONTRASEÑA; nunca el correo. El alias se resuelve
+// al correo interno de Supabase Auth (variable de compilación pública) y la
+// verificación de la contraseña la hace el SERVIDOR con el método estándar
+// de correo y contraseña. Las contraseñas no se almacenan en el navegador.
+//
+// Tras autenticar se comprueba, en el servidor (RLS), que la cuenta tenga
+// perfil y pertenezca al espacio de trabajo autorizado; si no, no entra.
 // ============================================================================
 
 import * as React from 'react';
@@ -12,7 +17,8 @@ import { Fraunces } from 'next/font/google';
 import { Eye, EyeOff, ArrowLeft, AlertCircle } from 'lucide-react';
 import './landing.css';
 import { navegar } from '../navegacion';
-import { contrasenaCorrecta, iniciarSesion, sesionActiva, consumirDestino } from '@/lib/planex/auth';
+import { useAuth, consumirDestino } from '@/lib/supabase/auth';
+import { aliasesAdmitidos, normalizarAlias } from '@/lib/supabase/alias';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -22,40 +28,36 @@ const fraunces = Fraunces({
 });
 
 export function Login() {
+  const [usuario, setUsuario] = React.useState('');
   const [contrasena, setContrasena] = React.useState('');
   const [visible, setVisible] = React.useState(false);
-  const [error, setError] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [procesando, setProcesando] = React.useState(false);
-  const [yaSesion, setYaSesion] = React.useState(false);
-  const entrada = React.useRef<HTMLInputElement>(null);
+  const entrar = useAuth((s) => s.entrar);
+  const estado = useAuth((s) => s.estado);
+  const entradaUsuario = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
-    // Se comprueba tras el montaje para evitar divergencias de hidratación.
-    setYaSesion(sesionActiva());
-    entrada.current?.focus();
+    entradaUsuario.current?.focus();
   }, []);
 
-  const enviar = (e: React.FormEvent) => {
+  const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (procesando) return;
     setProcesando(true);
-    setError(false);
-    // Indicador discreto de procesamiento antes de resolver la comprobación.
-    window.setTimeout(() => {
-      if (contrasenaCorrecta(contrasena)) {
-        iniciarSesion();
-        navegar(consumirDestino() ?? '/app');
-      } else {
-        setProcesando(false);
-        setError(true);
-        entrada.current?.select();
-      }
-    }, 380);
+    setError(null);
+    const r = await entrar(usuario, contrasena);
+    if (r.ok) {
+      navegar(consumirDestino() ?? '/proyectos');
+      return;
+    }
+    setProcesando(false);
+    setError(r.error ?? 'No se pudo iniciar sesión.');
+    if (!normalizarAlias(usuario)) entradaUsuario.current?.select();
+    else entradaUsuario.current?.focus();
   };
 
-  const entrarConSesion = () => {
-    navegar(consumirDestino() ?? '/app');
-  };
+  const aliasAyuda = aliasesAdmitidos().join(' · ');
 
   return (
     <div className={`plx-escena ${fraunces.variable}`}>
@@ -76,20 +78,36 @@ export function Login() {
             </div>
 
             <h1 className="plx-login-titulo">Acceso a PLANEX</h1>
-            <p className="plx-login-sub">Introduzca la contraseña de acceso para continuar a la aplicación.</p>
+            <p className="plx-login-sub">
+              Introduzca su alias de colaborador y su contraseña para entrar al espacio compartido.
+            </p>
 
             <form onSubmit={enviar} noValidate>
-              <label htmlFor="plx-contrasena">Contraseña</label>
+              <label htmlFor="plx-usuario">Usuario</label>
+              <div className="plx-campo">
+                <input
+                  id="plx-usuario"
+                  ref={entradaUsuario}
+                  type="text"
+                  value={usuario}
+                  onChange={(e) => { setUsuario(e.target.value); if (error) setError(null); }}
+                  placeholder="Colaborador1"
+                  autoComplete="username"
+                  aria-invalid={!!error}
+                  disabled={procesando}
+                />
+              </div>
+
+              <label htmlFor="plx-contrasena" style={{ marginTop: 12 }}>Contraseña</label>
               <div className="plx-campo">
                 <input
                   id="plx-contrasena"
-                  ref={entrada}
                   type={visible ? 'text' : 'password'}
                   value={contrasena}
-                  onChange={(e) => { setContrasena(e.target.value); if (error) setError(false); }}
+                  onChange={(e) => { setContrasena(e.target.value); if (error) setError(null); }}
                   placeholder="Contraseña"
                   autoComplete="current-password"
-                  aria-invalid={error}
+                  aria-invalid={!!error}
                   aria-describedby={error ? 'plx-error-contrasena' : undefined}
                   disabled={procesando}
                 />
@@ -108,7 +126,7 @@ export function Login() {
                 {error && (
                   <span style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                     <AlertCircle className="size-4 shrink-0" style={{ marginTop: 2 }} />
-                    Contraseña incorrecta. Vuelva a intentarlo.
+                    {error}
                   </span>
                 )}
               </div>
@@ -125,13 +143,18 @@ export function Login() {
               </button>
             </form>
 
-            {yaSesion && (
+            {estado === 'autenticado' && (
               <div className="plx-login-sesion">
-                Ya existe una sesión activa en esta pestaña.
+                Ya existe una sesión activa en este navegador.
                 <br />
-                <button type="button" onClick={entrarConSesion}>Entrar a la aplicación</button>
+                <button type="button" onClick={() => navegar(consumirDestino() ?? '/proyectos')}>Entrar a la aplicación</button>
               </div>
             )}
+
+            <p className="plx-login-pie" style={{ marginTop: 18, fontSize: 11.5 }}>
+              Alias admitidos: {aliasAyuda}. La autenticación se realiza contra Supabase Auth; las contraseñas
+              no se guardan en este navegador.
+            </p>
 
             <button type="button" className="plx-login-volver" onClick={() => navegar('/')}>
               <ArrowLeft className="size-4" /> Volver a la presentación
@@ -139,7 +162,7 @@ export function Login() {
           </div>
         </main>
 
-        <footer className="plx-login-pie">La sesión se mantiene en esta pestaña; los proyectos guardados no se eliminan al cerrar sesión.</footer>
+        <footer className="plx-login-pie">La sesión se gestiona con Supabase Auth; los proyectos guardados no se eliminan al cerrar sesión.</footer>
       </div>
     </div>
   );

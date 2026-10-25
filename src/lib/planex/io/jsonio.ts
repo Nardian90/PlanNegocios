@@ -83,8 +83,13 @@ export function parsearProyectoJSON(texto: string): ResultadoImportacion {
   };
 }
 
-export function descargarArchivo(nombre: string, contenido: string | Blob, tipo = 'application/json') {
-  const blob = typeof contenido === 'string' ? new Blob([contenido], { type: `${tipo};charset=utf-8` }) : contenido;
+export function descargarArchivo(nombre: string, contenido: string | Blob | ArrayBuffer, tipo = 'application/json') {
+  const blob =
+    typeof contenido === 'string'
+      ? new Blob([contenido], { type: `${tipo};charset=utf-8` })
+      : contenido instanceof Blob
+        ? contenido
+        : new Blob([contenido], { type: tipo });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -29,6 +29,10 @@ interface EstadoPlanex {
   abrirPlantilla: (tipo: 'clinica' | 'default') => void;
   proyectoNuevo: () => void;
   reemplazarProyecto: (p: PlanexProject) => void;
+  /** Sustituye el proyecto (p. ej. carga remota o realtime) SIN tocar la
+   *  bandera de «sucio» ni la sección activa: se usa para reflejar datos
+   *  sincronizados por Supabase sin interrumpir la edición en curso. */
+  fijarProyecto: (p: PlanexProject) => void;
   duplicarProyecto: () => void;
   guardar: () => void;
   setSeccion: (s: string) => void;
@@ -102,6 +106,8 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
     }),
 
   reemplazarProyecto: (p) => set({ proyecto: p, sucio: false, guardadoEn: null, seccion: 'general' }),
+
+  fijarProyecto: (p) => set({ proyecto: p }),
 
   duplicarProyecto: () =>
     set((st) => {

@@ -1,10 +1,17 @@
 'use client';
 
 // ============================================================================
-// PLANEX Cuba — shell de la aplicación (página única).
-// Barra superior, navegación por apartados, panel de alertas, selector de
-// plantillas, previsualización, exportaciones (PDF/XLSX/JSON), persistencia
-// automática local y selector de tema Dark/Light.
+// PLANEX Cuba — shell del editor (vista #/editor?plan=<uuid>).
+//
+// El plan abierto vive en el espacio compartido de Supabase: cada cambio
+// dispara el autoguardado con control de concurrencia (motor de
+// sincronización); la barra muestra el estado REAL frente al servidor
+// (pendiente/guardando/guardado/error/conflicto/sin conexión). Las
+// exportaciones se hacen desde una versión consistente: antes de exportar
+// se confirma lo pendiente y se advierte de conflictos sin resolver.
+//
+// Barra superior, navegación por apartados, panel de alertas, historial de
+// versiones, actividad y comentarios. Tema Dark/Light persistente.
 // ============================================================================
 
 import * as React from 'react';
@@ -12,24 +19,36 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useTheme } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, ArrowDownToLine, Bell, Calculator, ChevronLeft, ChevronRight, Copy, Eye, FileDown, FileSpreadsheet,
-  FolderOpen, HardDriveDownload, LayoutTemplate, ListChecks, LogOut, Moon, Save, Stethoscope, Sun, TriangleAlert, Undo2,
+  AlertTriangle, ArrowDownToLine, Bell, ChevronLeft, ChevronRight, CloudOff, Eye, FileDown, FileSpreadsheet,
+  FolderOpen, HardDriveDownload, History, LayoutTemplate, ListChecks, LogOut, MessageSquare, Moon,
+  Save, ScrollText, Stethoscope, Sun, TriangleAlert, Upload,
 } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { computeProject } from '@/lib/planex/engine/engine';
 import { calcularCumplimiento } from '@/lib/planex/model/cumplimiento';
-import { cargarActual, guardarActual } from '@/lib/planex/io/persistence';
-import { parsearProyectoJSON, proyectoAJSON, descargarArchivo, nombreArchivoSeguro } from '@/lib/planex/io/jsonio';
-import { cerrarSesion } from '@/lib/planex/auth';
-import { navegar } from './navegacion';
-import { ComputedModel, PlanexProject } from '@/lib/planex/types';
+import { proyectoAJSON, descargarArchivo, nombreArchivoSeguro } from '@/lib/planex/io/jsonio';
+import { useAuth } from '@/lib/supabase/auth';
+import {
+  actualizarEstadoPlan,
+  cargarPlan,
+  descargarPlan,
+  recuperarCambiosLocales,
+  resumenConflictos,
+  seccionesPendientes,
+  sincronizarAhora,
+  useSync,
+} from '@/lib/supabase/sync';
+import type { PlanRow } from '@/lib/supabase/tipos';
+import { navegar, parametrosDesdeHash } from './navegacion';
+import { nombreSeccion } from '@/lib/planex/secciones-sync';
 import { EtiquetaIssue } from './comunes';
+import { EstadoSincronizacion, DialogoConflictos, DialogoHistorial, DialogoActividad, DialogoComentarios } from './Colaboracion';
 import { SeccionGeneral, SeccionResumen, SeccionNegocio } from './secciones/secciones1';
 import { SeccionTecnico, SeccionFinanciero } from './secciones/secciones2';
 import { SeccionMercado, SeccionFuerza, SeccionInversiones, SeccionBeneficios, SeccionConclusiones } from './secciones/secciones3';
@@ -49,74 +68,70 @@ const NAV: { id: string; num: string; titulo: string }[] = [
   { id: 'config', num: '⚙', titulo: 'Configuración de cálculos' },
 ];
 
+const ETIQUETA_ESTADO: Record<PlanRow['status'], string> = {
+  borrador: 'Borrador',
+  en_revision: 'En revisión',
+  finalizado: 'Finalizado',
+};
+
 export function PlanexApp() {
   const proyecto = usePlanex((s) => s.proyecto);
-  const sucio = usePlanex((s) => s.sucio);
-  const guardadoEn = usePlanex((s) => s.guardadoEn);
   const seccion = usePlanex((s) => s.seccion);
   const store = usePlanex();
   const { theme, setTheme } = useTheme();
+  const usuario = useAuth((s) => s.usuario);
+  const salir = useAuth((s) => s.salir);
+  const planId = useSync((s) => s.planId);
+  const planMeta = useSync((s) => s.plan);
+  const cargandoSync = useSync((s) => s.cargando);
+  const errorCarga = useSync((s) => s.errorCarga);
+  const conectado = useSync((s) => s.conectado);
+  const tienePendientesLocal = useSync((s) => s.tienePendientesLocal);
+  const conflictos = useSync((s) => s.conflictos);
+
   const [montado, setMontado] = React.useState(false);
+  const [planRuta, setPlanRuta] = React.useState<string | null>(() => parametrosDesdeHash().plan ?? null);
   const [verAlertas, setVerAlertas] = React.useState(false);
-  const [verPlantillas, setVerPlantillas] = React.useState(false);
+  const [verConflictos, setVerConflictos] = React.useState(false);
+  const [verHistorial, setVerHistorial] = React.useState(false);
+  const [verActividad, setVerActividad] = React.useState(false);
+  const [verComentarios, setVerComentarios] = React.useState(false);
   const [exportando, setExportando] = React.useState(false);
-  const inputJson = React.useRef<HTMLInputElement>(null);
-  const proyectoRef = React.useRef(proyecto);
 
   React.useEffect(() => setMontado(true), []);
 
-  // Referencia viva del proyecto para el volcado síncrono al desmontar la
-  // vista de edición (p. ej. al pasar a la previsualización): ningún cambio
-  // queda sin persistir aunque esté pendiente el autoguardado por debounce.
+  // Plan solicitado por la URL (#/editor?plan=<uuid>): entradas directas,
+  // recargas y navegación con Atrás/Adelante funcionan; sin parámetro se
+  // vuelve al panel de proyectos.
   React.useEffect(() => {
-    proyectoRef.current = proyecto;
-  });
-  React.useEffect(
-    () => () => {
-      try {
-        guardarActual(proyectoRef.current);
-      } catch {
-        /* almacenamiento no disponible */
-      }
-    },
-    [],
-  );
+    const leer = () => setPlanRuta(parametrosDesdeHash().plan ?? null);
+    window.addEventListener('hashchange', leer);
+    return () => window.removeEventListener('hashchange', leer);
+  }, []);
 
-  // Persistencia automática local (debounce 700 ms)
-  React.useEffect(() => {
-    const t = setTimeout(() => {
-      import('@/lib/planex/io/persistence').then(({ guardarActual }) => guardarActual(proyecto));
-    }, 700);
-    return () => clearTimeout(t);
-  }, [proyecto]);
-
-  // Primera visita: mostrar plantillas; si hay proyecto guardado, restaurarlo.
   React.useEffect(() => {
     if (!montado) return;
-    try {
-      const guardado = cargarActual();
-      if (guardado) {
-        if (guardado.id !== proyecto.id || guardado.actualizado !== proyecto.actualizado) {
-          store.reemplazarProyecto(guardado);
-        }
-      } else {
-        setVerPlantillas(true);
-      }
-    } catch {
-      /* almacenamiento no disponible: la app funciona en memoria */
+    if (!planRuta) {
+      navegar('/proyectos');
+      return;
     }
-  }, [montado]);
+    void cargarPlan(planRuta).then((r) => {
+      if (!r.ok && r.error) {
+        toast.error('No se pudo abrir el plan', { description: r.error, duration: 9000 });
+      }
+    });
+  }, [planRuta, montado]);
 
-  // Aviso antes de salir si quedan cambios sin sincronizar
+  // Aviso antes de salir si quedan cambios sin confirmar en el servidor.
   React.useEffect(() => {
     const h = (e: BeforeUnloadEvent) => {
-      if (sucio) {
+      if (seccionesPendientes().length > 0) {
         e.preventDefault();
       }
     };
     window.addEventListener('beforeunload', h);
     return () => window.removeEventListener('beforeunload', h);
-  }, [sucio]);
+  }, []);
 
   const modelo = React.useMemo(() => computeProject(proyecto), [proyecto]);
   const cumplimiento = React.useMemo(() => calcularCumplimiento(proyecto, modelo), [proyecto, modelo]);
@@ -124,40 +139,51 @@ export function PlanexApp() {
   const pendientes = modelo.issues.filter((i) => i.tipo === 'pendiente');
   const incidencias = modelo.issues.filter((i) => i.tipo === 'inconsistencia');
   const idxNav = NAV.findIndex((n) => n.id === seccion);
+  const listaConflictos = resumenConflictos();
 
   // ------------------------------------------------------------------ acciones
-  const confirmarPerderCambios = (accion: () => void, mensaje: string) => {
-    if (sucio && !confirm(`${mensaje}\n\nEl proyecto actual se guarda automáticamente en este navegador; para conservar una copia independiente use «Guardar copia» o exporte JSON antes de continuar. ¿Desea continuar?`)) return;
-    accion();
-  };
-
-  const guardar = () => {
-    store.guardar();
-    toast.success('Proyecto guardado en este navegador');
+  const guardar = async () => {
+    const r = await sincronizarAhora();
+    if (r.conflictos > 0) {
+      setVerConflictos(true);
+      return;
+    }
+    if (r.errores > 0) {
+      toast.error('No se pudieron confirmar todos los cambios', {
+        description: 'Su trabajo se conserva en este navegador y se reintentará automáticamente.',
+      });
+      return;
+    }
+    toast.success('Cambios guardados en Supabase', { description: 'Ambos colaboradores verán esta versión.' });
   };
 
   const exportarJson = () => {
     descargarArchivo(`${nombreArchivoSeguro(proyecto.titulo.nombreProyecto || proyecto.nombre)}.planex.json`, proyectoAJSON(proyecto));
-    toast.success('Proyecto exportado como JSON (esquema versionado)');
+    toast.success('Proyecto exportado como JSON (esquema versionado)', {
+      description: 'Incluye secciones, datos narrativos, tablas, parámetros y reglas de cálculo.',
+    });
   };
 
-  const importarJson = async (archivo: File) => {
-    const texto = await archivo.text();
-    const res = parsearProyectoJSON(texto);
-    if (!res.ok) {
-      toast.error('JSON rechazado', { description: res.errores.join(' · ') });
-      return;
+  /** Exporta solo tras confirmar lo pendiente y advertir de conflictos. */
+  const preparadoParaExportar = async (): Promise<boolean> => {
+    const r = await sincronizarAhora();
+    if (r.conflictos > 0) {
+      setVerConflictos(true);
+      return confirm(
+        'Hay conflictos de edición sin resolver. La exportación usaría sus datos locales vigentes, que pueden no coincidir con la última versión confirmada en el servidor. ¿Exportar de todos modos?',
+      );
     }
-    confirmarPerderCambios(() => {
-      store.reemplazarProyecto(res.proyecto!);
-      toast.success('Proyecto importado y recalculado', {
-        description: res.avisos.join(' ') || 'Las reglas y parámetros del archivo se conservaron.',
-      });
-    }, 'Va a sustituir el proyecto abierto por el archivo JSON.');
+    if (r.errores > 0) {
+      return confirm(
+        'No se pudieron confirmar todos los cambios en el servidor (¿ conexión ?). La exportación usará los datos locales pendientes. ¿Continuar?',
+      );
+    }
+    return true;
   };
 
   const exportarPdf = async () => {
     if (errores.length > 0 && !confirm(`Hay ${errores.length} error(es) de cálculo. El PDF se generará con las partidas afectadas marcadas. ¿Continuar?`)) return;
+    if (!(await preparadoParaExportar())) return;
     setExportando(true);
     try {
       const { exportarPDF } = await import('@/lib/planex/io/pdf');
@@ -173,6 +199,7 @@ export function PlanexApp() {
 
   const exportarExcel = async () => {
     if (errores.length > 0 && !confirm(`Hay ${errores.length} error(es) de cálculo: las partidas afectadas se exportarán marcadas como #ERROR y documentadas en la hoja «Reglas». ¿Continuar?`)) return;
+    if (!(await preparadoParaExportar())) return;
     setExportando(true);
     try {
       const { exportarXLSX } = await import('@/lib/planex/io/xlsx');
@@ -192,6 +219,19 @@ export function PlanexApp() {
     }
   };
 
+  const cambiarEstadoPlan = async (estado: PlanRow['status']) => {
+    if (!planId) return;
+    const ok = await actualizarEstadoPlan(planId, estado);
+    if (ok) toast.success(`Estado del plan: ${ETIQUETA_ESTADO[estado]}`);
+    else toast.error('No se pudo actualizar el estado');
+  };
+
+  const salirAplicacion = async () => {
+    descargarPlan();
+    await salir();
+    navegar('/');
+  };
+
   const irAAlerta = (issue: (typeof modelo.issues)[number]) => {
     if (issue.seccion) store.setSeccion(issue.seccion);
     setVerAlertas(false);
@@ -202,6 +242,29 @@ export function PlanexApp() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-sm text-muted-foreground">Cargando PLANEX Cuba…</div>
+      </div>
+    );
+  }
+
+  if (cargandoSync || (planRuta && planId !== planRuta)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-sm text-muted-foreground animate-pulse">Cargando el plan compartido…</div>
+      </div>
+    );
+  }
+
+  if (errorCarga && !planMeta) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="max-w-md rounded-xl border bg-card p-6 text-sm space-y-3">
+          <div className="flex items-center gap-2 font-semibold"><TriangleAlert className="size-4 text-destructive" /> No se pudo abrir el plan</div>
+          <p className="text-muted-foreground text-xs">{errorCarga}</p>
+          <div className="flex gap-2 pt-1">
+            <Button size="sm" variant="outline" onClick={() => planRuta && void cargarPlan(planRuta)}>Reintentar</Button>
+            <Button size="sm" variant="outline" onClick={() => navegar('/proyectos')}>Volver a proyectos</Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -231,23 +294,13 @@ export function PlanexApp() {
                 <>
                   <Stethoscope className="size-2.5 mr-1" /> Clínica (demo)
                 </>
-              ) : proyecto.planex.plantillaOrigen === 'default' ? (
+              ) : (
                 <>
                   <LayoutTemplate className="size-2.5 mr-1" /> Default
                 </>
-              ) : (
-                'Nuevo'
               )}
             </Badge>
-            <span className="text-[11px] text-muted-foreground hidden lg:inline">
-              {sucio ? (
-                <span className="text-amber-600 dark:text-amber-400">Cambios sin guardar…</span>
-              ) : guardadoEn ? (
-                `Guardado ${new Date(guardadoEn).toLocaleTimeString('es-ES')}`
-              ) : (
-                'Autoguardado local activo'
-              )}
-            </span>
+            <EstadoSincronizacion />
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -256,17 +309,33 @@ export function PlanexApp() {
               <Progress value={cumplimiento.total} className="h-1.5 w-16" />
               <span className="text-[11px] tabular-nums text-muted-foreground">{cumplimiento.total}%</span>
             </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" aria-label="Estado de elaboración">
+                  {planMeta ? ETIQUETA_ESTADO[planMeta.status] : '—'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => void cambiarEstadoPlan('borrador')} disabled={planMeta?.status === 'borrador'}>Marcar como borrador</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void cambiarEstadoPlan('en_revision')} disabled={planMeta?.status === 'en_revision'}>Marcar en revisión</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void cambiarEstadoPlan('finalizado')} disabled={planMeta?.status === 'finalizado'}>Marcar finalizado</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setVerAlertas(true)} aria-label="Alertas de consistencia">
               <Bell className="size-3.5" />
               {errores.length > 0 && <span className="size-1.5 rounded-full bg-destructive animate-pulse" />}
               <span className="text-[11px] tabular-nums">{errores.length + incidencias.length + pendientes.length}</span>
             </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setVerPlantillas(true)}>
-              <LayoutTemplate className="size-3.5" /> <span className="hidden md:inline">Plantillas</span>
+
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => navegar('/proyectos')}>
+              <FolderOpen className="size-3.5" /> <span className="hidden md:inline">Proyectos</span>
             </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={guardar}>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void guardar()}>
               <Save className="size-3.5" /> <span className="hidden md:inline">Guardar</span>
             </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 gap-1.5">
@@ -278,33 +347,39 @@ export function PlanexApp() {
                 <DropdownMenuItem onClick={() => navegar('/preview')} className="gap-2">
                   <Eye className="size-4" /> Previsualizar plan (vista dedicada)
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportarPdf} disabled={exportando} className="gap-2">
+                <DropdownMenuItem onClick={() => void exportarPdf()} disabled={exportando} className="gap-2">
                   <ArrowDownToLine className="size-4" /> Exportar PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportarExcel} disabled={exportando} className="gap-2">
+                <DropdownMenuItem onClick={() => void exportarExcel()} disabled={exportando} className="gap-2">
                   <FileSpreadsheet className="size-4" /> Exportar libro Excel (.xlsx)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={exportarJson} className="gap-2">
                   <HardDriveDownload className="size-4" /> Exportar JSON del proyecto
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => inputJson.current?.click()} className="gap-2">
-                  <FolderOpen className="size-4" /> Abrir proyecto JSON…
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                  <MessageSquare className="size-3.5" /> <span className="hidden lg:inline">Colaboración</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Espacio compartido · {usuario?.perfil?.display_name ?? usuario?.alias}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => setVerHistorial(true)} className="gap-2">
+                  <History className="size-4" /> Historial de versiones
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => confirmarPerderCambios(() => store.duplicarProyecto(), 'Se creará una copia independiente del proyecto actual.')} className="gap-2">
-                  <Copy className="size-4" /> Guardar copia independiente
+                <DropdownMenuItem onClick={() => setVerActividad(true)} className="gap-2">
+                  <ScrollText className="size-4" /> Actividad del plan
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    confirmarPerderCambios(() => store.abrirPlantilla(proyecto.planex.plantillaOrigen === 'clinica' ? 'clinica' : 'default'), 'Se restaurará la plantilla de origen y se perderán los cambios del proyecto actual.')
-                  }
-                  className="gap-2"
-                >
-                  <Undo2 className="size-4" /> Restaurar plantilla de origen
+                <DropdownMenuItem onClick={() => setVerComentarios(true)} className="gap-2">
+                  <MessageSquare className="size-4" /> Comentarios
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
             <Button
               variant="ghost"
               size="icon"
@@ -319,10 +394,7 @@ export function PlanexApp() {
               variant="ghost"
               size="icon"
               className="size-8"
-              onClick={() => {
-                cerrarSesion();
-                navegar('/');
-              }}
+              onClick={() => void salirAplicacion()}
               aria-label="Cerrar sesión"
               title="Cerrar sesión y volver a la presentación (los proyectos guardados se conservan)"
             >
@@ -330,7 +402,42 @@ export function PlanexApp() {
             </Button>
           </div>
         </div>
-        <input ref={inputJson} type="file" accept=".json,application/json" className="hidden" onChange={(e) => e.target.files?.[0] && importarJson(e.target.files[0])} />
+
+        {/* -------------------------------------------------- avisos de sincronización */}
+        {listaConflictos.length > 0 && (
+          <div className="px-3 pb-2">
+            <button
+              className="w-full rounded-md border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive text-left flex items-center gap-2 hover:bg-destructive/15"
+              onClick={() => setVerConflictos(true)}
+            >
+              <AlertTriangle className="size-3.5 shrink-0" />
+              <b>{listaConflictos.length} sección(es) con conflicto de edición</b>
+              <span className="truncate">
+                — {listaConflictos.map((c) => nombreSeccion(c.clave)).join(', ')}
+              </span>
+              <span className="ml-auto shrink-0 underline">Revisar ahora</span>
+            </button>
+          </div>
+        )}
+        {!conectado && (
+          <div className="px-3 pb-2">
+            <div className="rounded-md border border-amber-400/50 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+              <CloudOff className="size-3.5 shrink-0" />
+              Sin conexión con el servidor: los cambios se conservan localmente y se reintentarán; no se marcan
+              como guardados en Supabase.
+            </div>
+          </div>
+        )}
+        {tienePendientesLocal && (
+          <div className="px-3 pb-2">
+            <div className="rounded-md border border-amber-400/50 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+              <Upload className="size-3.5 shrink-0" />
+              Se detectaron cambios locales no confirmados de una sesión anterior.
+              <button className="underline ml-1 shrink-0" onClick={() => recuperarCambiosLocales()}>Recuperarlos</button>
+              <button className="ml-2 text-muted-foreground shrink-0" onClick={() => useSync.getState().fijar({ tienePendientesLocal: false })} aria-label="Descartar aviso">Ignorar</button>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* -------------------------------------------------- cuerpo */}
@@ -390,62 +497,11 @@ export function PlanexApp() {
             {seccion === 'beneficios' && <SeccionBeneficios modelo={modelo} />}
             {seccion === 'conclusiones' && <SeccionConclusiones modelo={modelo} />}
             {seccion === 'config' && <SeccionConfig modelo={modelo} />}
-            {seccion === 'inicio' && <PantallaInicio modelo={modelo} />}
           </div>
         </main>
       </div>
 
       {/* -------------------------------------------------- diálogos */}
-      <Dialog open={verPlantillas} onOpenChange={setVerPlantillas}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Plantillas y proyectos</DialogTitle>
-            <DialogDescription>Las plantillas se mantienen separadas de los proyectos modificados: crear un plan nunca altera las originales.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              className="rounded-xl border p-4 text-left hover:border-primary transition-colors"
-              onClick={() => confirmarPerderCambios(() => { store.abrirPlantilla('clinica'); setVerPlantillas(false); }, 'Se abrirá la plantilla de la clínica como un plan nuevo.')}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <Stethoscope className="size-4 text-primary" /> Clínica Estomatológica
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Ejemplo completo con datos ficticios coherentes: servicios, aportaciones, inversión, fuerza de trabajo, cronograma, beneficios al país y proyección de 10 años con recuperación ≈ año 4. Ideal para explorar el motor de cálculo.
-              </p>
-              <Badge variant="secondary" className="mt-2 text-[10px]">Ejemplo ilustrativo</Badge>
-            </button>
-            <button
-              className="rounded-xl border p-4 text-left hover:border-primary transition-colors"
-              onClick={() => confirmarPerderCambios(() => { store.abrirPlantilla('default'); setVerPlantillas(false); }, 'Se abrirá la plantilla general como un plan nuevo.')}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <LayoutTemplate className="size-4 text-primary" /> Default (general)
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Estructura metodológica completa con formularios, ayudas por apartado y reglas de cálculo activas. Los cálculos con datos no completados indican qué falta: no se presentan resultados definitivos con datos inexistentes.
-              </p>
-              <Badge variant="secondary" className="mt-2 text-[10px]">Vacía · con ayudas</Badge>
-            </button>
-            <button className="rounded-xl border p-4 text-left hover:border-primary transition-colors" onClick={() => inputJson.current?.click()}>
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <FolderOpen className="size-4 text-primary" /> Abrir proyecto JSON
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5">Importa un proyecto exportado previamente. Se valida el esquema, se recalcula y se conservan sus reglas y parámetros.</p>
-            </button>
-            <button
-              className="rounded-xl border p-4 text-left hover:border-primary transition-colors"
-              onClick={() => confirmarPerderCambios(() => { store.proyectoNuevo(); setVerPlantillas(false); }, 'Se creará un plan nuevo desde cero (estructura Default sin textos).')}
-            >
-              <div className="flex items-center gap-2 font-semibold text-sm">
-                <Calculator className="size-4 text-primary" /> Crear plan nuevo
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5">Estructura metodológica y motor activos, sin datos precargados ni textos de ejemplo.</p>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={verAlertas} onOpenChange={setVerAlertas}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -453,7 +509,9 @@ export function PlanexApp() {
               <Bell className="size-4" /> Alertas de consistencia y cumplimentación
             </DialogTitle>
             <DialogDescription>
-              Se distingue entre error que impide calcular, inconsistencia que requiere revisión, campo pendiente, supuesto no verificado, advertencia documental y requisito legal a validar. Pulse una alerta para ir a su sección.
+              Se distingue entre error que impide calcular, inconsistencia que requiere revisión, campo pendiente,
+              supuesto no verificado, advertencia documental y requisito legal a validar. Pulse una alerta para ir a
+              su sección.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -468,52 +526,14 @@ export function PlanexApp() {
         </DialogContent>
       </Dialog>
 
+      <DialogoConflictos abierto={verConflictos} alCerrar={() => setVerConflictos(false)} />
+      <DialogoHistorial abierto={verHistorial} alCerrar={() => setVerHistorial(false)} />
+      <DialogoActividad abierto={verActividad} alCerrar={() => setVerActividad(false)} />
+      <DialogoComentarios abierto={verComentarios} alCerrar={() => setVerComentarios(false)} />
+
       <Toaster richColors position="bottom-right" />
     </div>
   );
 }
 
-function PantallaInicio({ modelo }: { modelo: ComputedModel }) {
-  const store = usePlanex();
-  return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border bg-gradient-to-br from-primary/10 via-transparent to-transparent p-6">
-        <h1 className="text-2xl font-bold">PLANEX Cuba</h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          Aplicación local para elaborar planes de negocios de propuestas con inversión extranjera conforme a las Bases Metodológicas de la GOC-2026-O57. Motor de cálculo configurable (parámetros y fórmulas), previsualización documental, exportación PDF y Excel con fórmulas reales, e intercambio de proyectos por JSON. Funciona sin cuentas en línea y sin enviar información a servicios externos.
-        </p>
-        <div className="flex gap-2 mt-4 flex-wrap">
-          <Button onClick={() => store.abrirPlantilla('clinica')} className="gap-1.5">
-            <Stethoscope className="size-4" /> Abrir ejemplo «Clínica Estomatológica»
-          </Button>
-          <Button variant="outline" onClick={() => store.abrirPlantilla('default')} className="gap-1.5">
-            <LayoutTemplate className="size-4" /> Plantilla general (Default)
-          </Button>
-        </div>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3 text-sm">
-        <div className="rounded-lg border p-3">
-          <div className="text-xs text-muted-foreground">Estado del modelo</div>
-          <div className="font-semibold mt-1 flex items-center gap-1.5">
-            {modelo.ok ? 'Sin errores de cálculo' : `${modelo.issues.filter((i) => i.tipo === 'error').length} error(es)`}
-            {modelo.ok && <span className="size-1.5 rounded-full bg-emerald-500" />}
-          </div>
-        </div>
-        <div className="rounded-lg border p-3">
-          <div className="text-xs text-muted-foreground">Período de recuperación</div>
-          <div className="font-semibold mt-1">{modelo.indicadores.recuperacionAnios === null ? 'No recuperado en el horizonte' : `${modelo.indicadores.recuperacionAnios.toFixed(1)} años`}</div>
-        </div>
-        <div className="rounded-lg border p-3">
-          <div className="text-xs text-muted-foreground">Beneficios al país (acum.)</div>
-          <div className="font-semibold mt-1 tabular-nums">{new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(modelo.indicadores.beneficiosPaisAcumulados)} kUSD</div>
-        </div>
-      </div>
-      <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-900 dark:text-amber-200 flex gap-2">
-        <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-        La plantilla de clínica contiene datos ficticios de demostración. La tasa del impuesto sobre utilidades (35 %) es un supuesto editable, no la tasa legal aplicable.
-      </div>
-    </div>
-  );
-}
-
-export type { PlanexProject };
+export type { PlanexProject } from '@/lib/planex/types';
