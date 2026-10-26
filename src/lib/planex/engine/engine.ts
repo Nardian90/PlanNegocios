@@ -40,6 +40,8 @@ import {
   RecursoCalculado,
   ADVERTENCIA_DATOS_FICTICIOS,
   InversionRow,
+  EscudoFiscalInfo,
+  ClaseEscudoFiscal,
 } from '../types';
 import { parsear, Nodo, extraerVariables, extraerLags } from './parser';
 import { evalNodo, EvalContexto, Valor } from './evaluator';
@@ -48,7 +50,11 @@ import { fmtK, fmtPct } from '../format';
 import { calcularDepreciacion } from './depreciacion';
 import { calcularDeuda } from './deuda';
 import { capacidadAnio, ampliacionesActivas } from './capacidad';
-import { calcularRecuperacion, acumular, conciliarArranque } from './flujos';
+import { calcularRecuperacion, acumular } from './flujos';
+import {
+  conciliarArranqueDesdeInventario,
+  calcularCoberturaFinanciacion,
+} from './cobertura';
 
 const CAMPOS_SERVICIO: Record<string, (s: PlanexProject['servicios'][number]) => Valor> = {
   precio_base: (s) => s.precioBase,
@@ -330,12 +336,14 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   const fcfeCache: Record<number, number> = {};
   const fcfeAcumCache: Record<number, number> = {};
   const escudoCache: Record<number, number> = {};
+  /** Años en los que la regla de impuestos (que depende de la base afectada
+   *  por los intereses) no pudo reevaluarse en el escenario contrafactual:
+   *  el escudo se tomó como 0 y los flujos quedan marcados como NO
+   *  confiables (misión DOC-002-R2 §3: prohibido el fallback silencioso). */
+  const escudoNoCalculable: Record<number, string> = {};
+  const escudoEnCurso = new Set<number>();
   const dividendosPasos: Record<number, DividendosAnio> = {};
   let dividendosHasta = -1;
-  // Contexto de evaluación del año en curso: permite derivar el escudo fiscal
-  // reevaluando la PROPIA regla de impuestos del proyecto con una base
-  // hipotética sin intereses (misión DOC-002 §4.1).
-  let ctxEvaluacionAnio: EvalContexto | null = null;
 
   const udiDe = (t: number, pos: number): number => {
     const r = reglaMap.get('utilidad_despues_impuestos_k');
@@ -352,16 +360,80 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     return v;
   };
 
-  /** Escudo fiscal del interés devengado en el año t (misión DOC-002 §4.1).
+  /** Escudo fiscal del interés devengado en el año t (DOC-002 §4.1,
+   *  robustecido por R2 §3).
    *
    *  escudo_t = impuesto(sin deducir intereses)_t − impuesto(regla activa)_t
    *
-   *  Se DERIVA de la propia regla «impuesto_utilidades_k» del proyecto:
-   *  se reevalúa con la base hipotética (UAI + intereses devengados) para no
-   *  imponer una forma tributaria ajena al modelo. Si la regla no depende de
-   *  la base después de intereses, o no puede reevaluarse, el escudo es 0 y
-   *  el FCFF reincorpora el interés completo (coherente con el tratamiento
-   *  fiscal real del modelo). */
+   *  Se DERIVA de la propia regla «impuesto_utilidades_k» del proyecto,
+   *  reevaluada con la base hipotética (UAI + intereses devengados). La
+   *  reevaluación es TRANSITIVA: las bases intermedias que dependen de la UAI
+   *  se recalculan con la base hipotética en lugar de leer su valor
+   *  precomputado (leer el valor ya calculado produciría un escudo 0 FALSO
+   *  aparentemente válido). Clasificación de la regla activa:
+   *    · INDEPENDIENTE de la base afectada → escudo 0 LEGÍTIMO (documentado
+   *      en indicadores.escudoFiscalInfo, sin hallazgo de error).
+   *    · dependencia DIRECTA de la UAI     → reevaluación con base sustituida.
+   *    · dependencia INDIRECTA (bases intermedias) → reevaluación transitiva.
+   *    · la reevaluación FALLA             → escudo 0 + hallazgo explícito
+   *      ESCUDO_FISCAL_NO_CALCULABLE y flujos marcados como NO confiables:
+   *      está prohibido el cero silencioso y la aproximación plana oculta. */
+
+  /** ¿La regla «id» depende (transitivamente, a través de referencias a otras
+   *  reglas de ámbito anual) de «utilidad_antes_impuestos_k»? Memoizado. */
+  const memoDependeUAI = new Map<string, boolean>();
+  const refsReglaAnio = (id: string): string[] => {
+    const r = reglaMap.get(id);
+    if (!r || r.ambito !== 'anio') return [];
+    const ast = asts.get(id);
+    return ast ? [...new Set(extraerVariables(ast))].filter((x) => reglaMap.get(x)?.ambito === 'anio') : [];
+  };
+  const dependeDeUAI = (id: string, enCamino?: Set<string>): boolean => {
+    if (id === 'utilidad_antes_impuestos_k') return true;
+    if (memoDependeUAI.has(id)) return memoDependeUAI.get(id)!;
+    const camino = enCamino ?? new Set<string>();
+    if (camino.has(id)) return false; // ciclo: la dependencia ya se está evaluando
+    camino.add(id);
+    const res = refsReglaAnio(id).some((r) => dependeDeUAI(r, camino));
+    camino.delete(id);
+    memoDependeUAI.set(id, res);
+    return res;
+  };
+
+  /** Contexto contrafactual para el año t: resuelve «utilidad_antes_impuestos_k»
+   *  con la base hipotética y REEVALÚA de forma transitiva (y con memoización)
+   *  toda regla anual que dependa de la UAI; el resto (parámetros, reglas no
+   *  dependientes, variables del motor, LAG a años ya calculados) conserva sus
+   *  valores reales: el contrafactual solo elimina el efecto del interés del
+   *  período en la base, sin cambiar la deuda ni los períodos pasados. */
+  const contextoContrafactual = (t: number, uaiContrafactual: number): EvalContexto => {
+    const base = contextoAnioPara(t);
+    const memo = new Map<string, number>();
+    const enCamino = new Set<string>();
+    const resolver = (nombre: string, pos: number): Valor => {
+      if (nombre === 'utilidad_antes_impuestos_k') return uaiContrafactual;
+      const p = valorParam(nombre);
+      if (p !== undefined) return p;
+      const r = reglaMap.get(nombre);
+      if (r && r.ambito === 'anio' && asts.has(nombre) && dependeDeUAI(nombre)) {
+        if (enCamino.has(nombre)) {
+          throw new FormulaError(`la reevaluación contrafactual de «${nombre}» entra en un ciclo (la regla de impuestos depende, directa o indirectamente, de una partida que depende de ella)`, pos);
+        }
+        if (memo.has(nombre)) return memo.get(nombre)!;
+        enCamino.add(nombre);
+        try {
+          const v = evaluarRegla(asts.get(nombre)!, { ...base, resolver });
+          memo.set(nombre, v);
+          return v;
+        } finally {
+          enCamino.delete(nombre);
+        }
+      }
+      return base.resolver(nombre, pos);
+    };
+    return { ...base, resolver };
+  };
+
   const escudoFiscalDe = (t: number): number => {
     if (t in escudoCache) return escudoCache[t];
     let escudo = 0;
@@ -370,24 +442,25 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     const impuestoReal = valores['impuesto_utilidades_k']?.[t];
     const interes = motorAnio['mtr_interes_devengado_k'][t] ?? 0;
     if (astImp && Number.isFinite(uai) && Number.isFinite(impuestoReal) && interes > 0) {
-      const base = ctxEvaluacionAnio && ctxEvaluacionAnio.periodo === t ? ctxEvaluacionAnio : null;
-      if (base) {
-        try {
-          const impuestoSinDeuda = evaluarRegla(astImp, {
-            ...base,
-            resolver: (nombre: string, pos: number): Valor =>
-              nombre === 'utilidad_antes_impuestos_k' ? uai + interes : base.resolver(nombre, pos),
-          });
-          escudo = Math.max(0, impuestoSinDeuda - impuestoReal);
-        } catch {
-          escudo = 0;
-        }
+      if (!dependeDeUAI('impuesto_utilidades_k')) {
+        // Regla que NO depende de la base afectada por los intereses: escudo
+        // LEGÍTIMAMENTE cero; el FCFF reincorpora el interés completo.
+        escudo = 0;
+      } else if (escudoEnCurso.has(t)) {
+        // La regla (o una base intermedia) referencia el propio flujo que
+        // depende del escudo: contrafactual circular, no confiable.
+        escudo = 0;
+        escudoNoCalculable[t] = 'la regla de impuestos (o una base intermedia) referencia el propio flujo que depende del escudo fiscal: el escenario contrafactual es circular';
       } else {
-        // Fuera del ciclo de reglas: aproximación plana de la regla por defecto
-        // (MAX(0, UAI × tasa)). Solo se alcanña como respaldo defensivo.
-        const tasa = valorParam('tasa_impuesto_utilidades') ?? 0;
-        if (Number.isFinite(tasa) && tasa > 0) {
-          escudo = Math.max(0, Math.max(0, (uai + interes) * (tasa as number)) - Math.max(0, uai * (tasa as number)));
+        escudoEnCurso.add(t);
+        try {
+          const impuestoSinDeuda = evaluarRegla(astImp, contextoContrafactual(t, (uai as number) + interes));
+          escudo = Math.max(0, impuestoSinDeuda - (impuestoReal as number));
+        } catch (e) {
+          escudo = 0;
+          escudoNoCalculable[t] = (e as FormulaError).message ?? String(e);
+        } finally {
+          escudoEnCurso.delete(t);
         }
       }
     }
@@ -802,76 +875,83 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   };
 
   // ------------------------------------------------- 3c. Reglas de año
-  const evaluarAnio = (t: number) => {
-    const sumaServiciosFn = (expr: Nodo): number => {
-      if (t === 0) return 0;
-      let s = 0;
-      for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
-        const row = proyecto.servicios[idx];
-        const svc = serviciosCalc[idx];
-        const resolver = (nombre: string, pos: number): Valor => {
-          const campo = CAMPOS_SERVICIO[nombre];
-          if (campo) return campo(row);
-          if (nombre === 'PERIODO') return t;
-          if (nombre === 'PERIODOS') return N;
-          if (nombre === 'MESES_ANIO') return 12;
-          if (nombre.startsWith(PREFIJO_MOTOR)) {
-            const c = capacidadCache[t]?.[row.id];
-            if (nombre === 'mtr_capacidad_mensual') return c ? c.capacidadMensual : 0;
-            if (nombre === 'mtr_cantidad_real_mensual') return c ? c.cantidadRealMensual : 0;
-            if (nombre === 'mtr_utilizacion_capacidad') return c ? c.utilizacion : 0;
-            if (nombre === 'mtr_demanda_mensual') {
-              const v = svc.valores[t]?.[REGLA_DEMANDA];
-              return Number.isFinite(v) ? v : 0;
-            }
-            throw new FormulaError(`Variable del motor no disponible en SUMA_SERVICIOS: "${nombre}"`, pos);
+  /** Agregación SUMA_SERVICIOS para el año t (elevada al ámbito del motor:
+   *  el contexto contrafactual del escudo fiscal necesita reconstruirla). */
+  const sumaServiciosFnDe = (t: number) => (expr: Nodo): number => {
+    if (t === 0) return 0;
+    let s = 0;
+    for (let idx = 0; idx < (proyecto.servicios?.length ?? 0); idx++) {
+      const row = proyecto.servicios[idx];
+      const svc = serviciosCalc[idx];
+      const resolver = (nombre: string, pos: number): Valor => {
+        const campo = CAMPOS_SERVICIO[nombre];
+        if (campo) return campo(row);
+        if (nombre === 'PERIODO') return t;
+        if (nombre === 'PERIODOS') return N;
+        if (nombre === 'MESES_ANIO') return 12;
+        if (nombre.startsWith(PREFIJO_MOTOR)) {
+          const c = capacidadCache[t]?.[row.id];
+          if (nombre === 'mtr_capacidad_mensual') return c ? c.capacidadMensual : 0;
+          if (nombre === 'mtr_cantidad_real_mensual') return c ? c.cantidadRealMensual : 0;
+          if (nombre === 'mtr_utilizacion_capacidad') return c ? c.utilizacion : 0;
+          if (nombre === 'mtr_demanda_mensual') {
+            const v = svc.valores[t]?.[REGLA_DEMANDA];
+            return Number.isFinite(v) ? v : 0;
           }
-          const p = valorParam(nombre);
-          if (p !== undefined) return p;
-          if (nombre in svc.valores[t]) return svc.valores[t][nombre];
-          throw new FormulaError(`Variable no definida dentro de SUMA_SERVICIOS: "${nombre}"`, pos);
-        };
-        s += num(evalNodo(expr, { resolver, periodo: t, periodos: N, lag: () => { throw new FormulaError('LAG no disponible aquí'); } }), -1);
-      }
-      return s;
-    };
+          throw new FormulaError(`Variable del motor no disponible en SUMA_SERVICIOS: "${nombre}"`, pos);
+        }
+        const p = valorParam(nombre);
+        if (p !== undefined) return p;
+        if (nombre in svc.valores[t]) return svc.valores[t][nombre];
+        throw new FormulaError(`Variable no definida dentro de SUMA_SERVICIOS: "${nombre}"`, pos);
+      };
+      s += num(evalNodo(expr, { resolver, periodo: t, periodos: N, lag: () => { throw new FormulaError('LAG no disponible aquí'); } }), -1);
+    }
+    return s;
+  };
 
-    const sumaPersonalFn = (expr: Nodo): number => {
-      let s = 0;
-      for (const row of (proyecto.personal ?? []).filter((p) =>
-        t === 0 ? p.etapa === 'montaje' : p.etapa === 'operacion'
-      )) {
-        const resolver = (nombre: string, pos: number): Valor => {
-          const campo = CAMPOS_PERSONAL[nombre];
-          if (campo) return campo(row);
-          if (nombre === 'PERIODO') return t;
-          if (nombre === 'PERIODOS') return N;
-          if (nombre === 'MESES_ANIO') return 12;
-          const p = valorParam(nombre);
-          if (p !== undefined) return p;
-          if (personalVal[row.id]?.[nombre]?.[t] !== undefined) return personalVal[row.id][nombre][t];
-          throw new FormulaError(`Variable no definida dentro de SUMA_PERSONAL: "${nombre}"`, pos);
-        };
-        s += num(evalNodo(expr, { resolver, periodo: t, periodos: N, lag: () => { throw new FormulaError('LAG no disponible aquí'); } }), -1);
-      }
-      return s;
-    };
+  /** Agregación SUMA_PERSONAL para el año t. */
+  const sumaPersonalFnDe = (t: number) => (expr: Nodo): number => {
+    let s = 0;
+    for (const row of (proyecto.personal ?? []).filter((p) =>
+      t === 0 ? p.etapa === 'montaje' : p.etapa === 'operacion'
+    )) {
+      const resolver = (nombre: string, pos: number): Valor => {
+        const campo = CAMPOS_PERSONAL[nombre];
+        if (campo) return campo(row);
+        if (nombre === 'PERIODO') return t;
+        if (nombre === 'PERIODOS') return N;
+        if (nombre === 'MESES_ANIO') return 12;
+        const p = valorParam(nombre);
+        if (p !== undefined) return p;
+        if (personalVal[row.id]?.[nombre]?.[t] !== undefined) return personalVal[row.id][nombre][t];
+        throw new FormulaError(`Variable no definida dentro de SUMA_PERSONAL: "${nombre}"`, pos);
+      };
+      s += num(evalNodo(expr, { resolver, periodo: t, periodos: N, lag: () => { throw new FormulaError('LAG no disponible aquí'); } }), -1);
+    }
+    return s;
+  };
 
+  /** Contexto completo de evaluación para las reglas del año t (mismo contexto
+   *  que usa el ciclo de reglas; el escudo fiscal lo reutiliza para el
+   *  escenario contrafactual, dentro o fuera del ciclo — R2 §3). */
+  const contextoAnioPara = (t: number): EvalContexto => ({
+    resolver: resolverAnio(t),
+    periodo: t,
+    periodos: N,
+    lag: lagAnio(t),
+    sumaServicios: sumaServiciosFnDe(t),
+    sumaPersonal: sumaPersonalFnDe(t),
+    sumaInversiones: sumaInversionesFn,
+    sumaAportaciones: sumaAportacionesFn,
+  });
+
+  const evaluarAnio = (t: number) => {
     for (const id of ordAnio.orden) {
       const r = reglaMap.get(id)!;
       if (estados[id] && !estados[id].ok) continue; // ya falló en un año anterior: mantener error
       try {
-        const ctx: EvalContexto = {
-          resolver: resolverAnio(t),
-          periodo: t,
-          periodos: N,
-          lag: lagAnio(t),
-          sumaServicios: sumaServiciosFn,
-          sumaPersonal: sumaPersonalFn,
-          sumaInversiones: sumaInversionesFn,
-          sumaAportaciones: sumaAportacionesFn,
-        };
-        ctxEvaluacionAnio = ctx;
+        const ctx = contextoAnioPara(t);
         const v = evaluarRegla(asts.get(id)!, ctx);
         valores[id] ??= {};
         valores[id][t] = v;
@@ -887,7 +967,6 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
         falla(r, e);
       }
     }
-    ctxEvaluacionAnio = null;
   };
 
   for (const t of years) {
@@ -934,6 +1013,46 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
   }
   const fcffAcum = acumular(fcff, years);
   const fcfeAcum = acumular(fcfe, years);
+
+  // Clasificación de la regla de impuestos a efectos del escudo fiscal
+  // (R2 §3): qué depende, si puede reevaluarse y si el resultado es confiable.
+  const astImpuesto = asts.get('impuesto_utilidades_k');
+  const interesTotalHorizonte = years.reduce(
+    (s, t) => s + (motorAnio['mtr_interes_devengado_k'][t] ?? 0),
+    0
+  );
+  let claseEscudo: ClaseEscudoFiscal;
+  let detalleEscudo: string;
+  if (!astImpuesto) {
+    claseEscudo = 'sin_regla';
+    detalleEscudo =
+      'No existe una regla «impuesto_utilidades_k» habilitada: no hay impuesto que reevaluar y el escudo fiscal es cero por definición.';
+  } else if (interesTotalHorizonte <= 1e-9) {
+    claseEscudo = 'sin_deuda';
+    detalleEscudo =
+      'No hay intereses devengados en el horizonte (sin crédito o importe cero): el escudo fiscal es cero por definición y no se requiere reevaluación contrafactual.';
+  } else if (!dependeDeUAI('impuesto_utilidades_k')) {
+    claseEscudo = 'independiente_de_la_base';
+    detalleEscudo =
+      'La regla de impuestos activa NO depende (directa ni indirectamente) de la utilidad antes de impuestos: los intereses no alteran el impuesto, el escudo es LEGÍTIMAMENTE cero y el FCFF reincorpora el interés completo. Clasificación derivada del análisis de dependencias de la propia fórmula.';
+  } else if (refsReglaAnio('impuesto_utilidades_k').includes('utilidad_antes_impuestos_k')) {
+    claseEscudo = 'base_directa';
+    detalleEscudo =
+      'La regla de impuestos grava directamente la utilidad antes de intereses (referencia directa a «utilidad_antes_impuestos_k»): el escudo se calcula reevaluando la MISMA regla con la base hipotética sin intereses, respetando topes, mínimos y condiciones de su fórmula.';
+  } else {
+    claseEscudo = 'base_indirecta';
+    detalleEscudo =
+      'La regla de impuestos depende de bases intermedias que a su vez dependen de la utilidad antes de impuestos: el escenario contrafactual reevalúa de forma TRANSITIVA esas bases intermedias (no lee sus valores precalculados), de modo que umbrales y topes intermedios se respetan.';
+  }
+  const noCalculableAnios = Object.keys(escudoNoCalculable)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const escudoFiscalInfo: EscudoFiscalInfo = {
+    clase: claseEscudo,
+    detalle: detalleEscudo,
+    noCalculableAnios,
+    confiable: noCalculableAnios.length === 0,
+  };
 
   const reglaAcumProyecto = valores['flujo_acumulado_proyecto_k'];
   const reglaAcumSocios = valores['flujo_acumulado_socios_k'];
@@ -1042,8 +1161,28 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     fcfe,
     fcfeAcumulado: fcfeAcum,
     escudoFiscal,
+    escudoFiscalInfo,
     capexAmpliaciones: capexAmp,
   };
+
+  // --------------------------- 4b. Arranque y cobertura temporal (R2 §1–§2)
+  // Fuente única: el inventario de salidas de caja del año 0 y el calendario
+  // de aportaciones/crédito alimentan la conciliación del arranque (brecha
+  // TEMPORAL) y la cobertura por período; análisis, controles, documento e
+  // interfaz consumen ESTE resultado precomputado.
+  const arranque = conciliarArranqueDesdeInventario(
+    { valores, estados, deuda: deuda.filas },
+    proyecto
+  );
+  const cobertura = calcularCoberturaFinanciacion(proyecto, {
+    years,
+    valores,
+    estados,
+    deuda: deuda.filas,
+    dividendos: dividendosFinales,
+    indicadores,
+    arranque,
+  });
 
   // ---------------------------------------------------------- 5. Issues
   // Capacidad: demanda no atendible (misión §7).
@@ -1106,31 +1245,85 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
       });
     }
   }
-  // Conciliación del desembolso inicial (misión DOC-002-R1 §2): la brecha del
-  // año 0 se obtiene de PARTIDAS DE SALIDA DE CAJA EXPLÍCITAS (nómina de
-  // montaje, interés PAGADO e impuesto del año 0, menos ingresos explícitos
-  // del año 0), no del resultado contable después de impuestos. El capital de
-  // trabajo ya está dentro de la inversión total y nunca se duplica.
+  // Conciliación del desembolso inicial (DOC-002-R1 §2, temporal en R2 §1): la
+  // brecha del año 0 se mide contra las fuentes con desembolso EFECTIVO en el
+  // año 0 (aportaciones del año 0 + otras fuentes + principal del crédito
+  // desembolsado en el año 0), a partir de PARTIDAS DE SALIDA DE CAJA
+  // EXPLÍCITAS e INVENTARIADAS (nómina de montaje, interés PAGADO e impuesto
+  // DEVENGADO del año 0, menos ingresos explícitos), nunca desde el resultado
+  // contable después de impuestos. El capital de trabajo ya está dentro de la
+  // inversión total y nunca se duplica.
   {
-    const arranque = conciliarArranque({ valores, deuda: deuda.filas });
-    const gastoAnio0 = arranque.gastoCajaAnio0;
-    if (
-      (arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) &&
-      arranque.brecha < -0.05
-    ) {
+    // La brecha temporal del año 0 se dispara SIEMPRE que las fuentes con
+    // desembolso efectivo en el año 0 no cubran la necesidad (inversión +
+    // salidas no capitalizables inventariadas): la propia inversión es una
+    // necesidad del año 0, con o sin gastos de montaje.
+    if (arranque.brecha < -0.05) {
       const partes = [
         arranque.nominaMontaje > 0.005 ? `nómina de montaje ${fmtK(arranque.nominaMontaje)}` : '',
         arranque.interesPagado > 0.005 ? `interés pagado ${fmtK(arranque.interesPagado)}` : '',
-        arranque.impuestoPagado > 0.005 ? `impuesto del año ${fmtK(arranque.impuestoPagado)}` : '',
+        arranque.impuestoPagado > 0.005 ? `impuesto devengado del año 0 ${fmtK(arranque.impuestoPagado)}` : '',
       ].filter(Boolean);
-      const menos = arranque.ingresosAnio0 > 0.005 ? `, menos ingresos explícitos del año 0 por ${fmtK(arranque.ingresosAnio0)}` : '';
+      const menos =
+        arranque.ingresosAnio0 > 0.005
+          ? `, menos ingresos explícitos del año 0 por ${fmtK(arranque.ingresosAnio0)}`
+          : '';
+      const detalleGastos = partes.length
+        ? ` — salidas de caja explícitas no capitalizables y NO incluidas en la inversión total (${partes.join(' + ')}${menos}: total ${fmtK(arranque.gastoCajaAnio0)} kUSD) —`
+        : ' — sin salidas de caja no capitalizables identificadas en el año 0: la necesidad es la propia inversión —';
+      const cierreTemporal =
+        arranque.brechaNominal >= -0.05
+          ? ` La financiación COMPROMETIDA para todo el proyecto (${fmtK(arranque.financiacionDisponible)} kUSD) sí cubre la necesidad total, pero los desembolsos llegan DESPUÉS de que las necesidades se producen: concilie el calendario de aportaciones y el año de desembolso del crédito con la inversión.`
+          : ` La financiación comprometida total (${fmtK(arranque.financiacionDisponible)} kUSD) tampoco cubre la necesidad total (${fmtK(arranque.necesidadTotal)} kUSD): brecha nominal de ${fmtK(Math.abs(arranque.brechaNominal))} kUSD.`;
       issues.push({
         tipo: 'inconsistencia',
         codigo: 'FINANCIACION_ANO0',
-        mensaje: `Los gastos de la fase de montaje del año 0 — salidas de caja explícitas no capitalizables y NO incluidas en la inversión total (${partes.join(' + ')}${menos}: total ${fmtK(gastoAnio0)} kUSD) — quedan SIN cobertura: las fuentes declaradas cubren la inversión total (${fmtK(arranque.inversionTotal)} kUSD), pero la necesidad total del arranque (inversión + salidas de caja netas del año 0 = ${fmtK(arranque.necesidadTotal)} kUSD) excede la financiación disponible (${fmtK(arranque.financiacionDisponible)} kUSD) en ${fmtK(Math.abs(arranque.brecha))} kUSD. Financie esa brecha (mayor capital de trabajo o aporte adicional) o declárela expresamente como supuesto pendiente. El gasto NO se deduce del resultado contable después de impuestos del año 0.`,
+        mensaje: `Arranque del año 0${detalleGastos} queda SIN cobertura temporal: la necesidad total del arranque (inversión ${fmtK(arranque.inversionTotal)} + salidas netas del año 0 = ${fmtK(arranque.necesidadTotal)} kUSD) excede las fuentes con desembolso efectivo en el año 0 (${fmtK(arranque.fuentesAnio0)} kUSD) en ${fmtK(Math.abs(arranque.brecha))} kUSD.${cierreTemporal} Financie esa brecha (mayor capital de trabajo, aporte anticipado o crédito con desembolso en el año 0) o declárela expresamente como supuesto pendiente. El gasto NO se deduce del resultado contable después de impuestos del año 0.`,
         seccion: 'financiero',
       });
     }
+    // Reglas de gasto con valor en el año 0 que el inventario NO cubre
+    // (R2 §2): no se presumen universales; se exige declaración expresa.
+    if (arranque.noInventariadas.length > 0) {
+      const detalle = arranque.noInventariadas
+        .map((x) => `«${x.id}» (${fmtK(x.monto)} kUSD)`)
+        .join(', ');
+      issues.push({
+        tipo: 'inconsistencia',
+        codigo: 'SALIDA_CAJA_ANIO0_NO_INVENTARIADA',
+        mensaje: `El estado de resultados del año 0 contiene gasto(s) en partida(s) NO cubierta(s) por el inventario de salidas de caja del arranque: ${detalle}. Ese gasto no está ni dentro de la inversión capitalizada ni en la necesidad de caja del arranque: declare su tratamiento (salida de caja del año 0, gasto cubierto por otra partida o gasto no monetario) o incorpórelo a una partida inventariada. El modelo lo señala en lugar de ignorarlo en silencio.`,
+        seccion: 'financiero',
+      });
+    }
+  }
+  // Cobertura temporal (R2 §1): déficits de tesorería proyectada en años de
+  // operación (el año 0 lo cubre FINANCIACION_ANO0). La detección es por
+  // PERÍODO: una necesidad no cubierta se reporta el año en que se produce.
+  {
+    const deficitOp = cobertura.deficitCaja.filter((d) => d.anio >= 1);
+    if (deficitOp.length > 0) {
+      const textoDeficit = deficitOp
+        .map(
+          (d) =>
+            `año ${d.anio}: faltan ${fmtK(d.monto)} kUSD${d.cubiertoEn !== null ? ` (cubiertas desde el año ${d.cubiertoEn})` : ' (no cubiertas dentro del horizonte)'}`
+        )
+        .join('; ');
+      issues.push({
+        tipo: 'inconsistencia',
+        codigo: 'DEFICIT_CAJA_PROYECTADA',
+        mensaje: `La tesorería proyectada (aportaciones fechadas + otras fuentes + desembolsos del crédito + flujos operativos − dividendos) es NEGATIVA en: ${textoDeficit}. Aunque la financiación total pueda cuadrar en el horizonte completo, las necesidades no están cubiertas cuando se producen: reprogramen desembolsos, amplié el capital de trabajo o declare el supuesto.`,
+        seccion: 'financiero',
+      });
+    }
+  }
+  // Escudo fiscal no calculable (R2 §3): prohibido el cero silencioso.
+  if (!escudoFiscalInfo.confiable) {
+    issues.push({
+      tipo: 'inconsistencia',
+      codigo: 'ESCUDO_FISCAL_NO_CALCULABLE',
+      mensaje: `La regla de impuestos activa depende de la base afectada por los intereses (clasificación: ${escudoFiscalInfo.clase}), pero NO pudo reevaluarse en el escenario contrafactual en el/los año(s) ${escudoFiscalInfo.noCalculableAnios.join(', ')} (${escudoNoCalculable[escudoFiscalInfo.noCalculableAnios[0]] ?? 'error de reevaluación'}). El escudo fiscal se ha tomado como CERO y los flujos FCFF/FCFE, las recuperaciones y los dividendos derivados quedan marcados como NO CONFIABLES: corrija la regla (dependencias circulares o referencias al propio flujo) antes de valorar el plan.`,
+      seccion: 'financiero',
+    });
   }
   // Recuperación y horizonte (indicador del proyecto)
   if (reglaAcumProyecto) {
@@ -1277,6 +1470,8 @@ export function computeProject(proyecto: PlanexProject): ComputedModel {
     dividendos: dividendosFinales,
     capacidadServicios: capacidadFinal,
     recursosCalculados,
+    arranque,
+    cobertura,
   };
 }
 

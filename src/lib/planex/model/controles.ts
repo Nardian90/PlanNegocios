@@ -115,7 +115,10 @@ const CONSECUENCIAS: Record<string, { consecuencia: string; correccion: string; 
   CALCULO: { consecuencia: 'Existe una cadena de cálculo rota: cualquier cifra dependiente es inválida.', correccion: 'Revise la regla indicada y sus entradas.', afecta: true },
   DEPENDENCIA_CIRCULAR: { consecuencia: 'Las reglas implicadas no producen valor alguno.', correccion: 'Elimine la referencia mutua entre las fórmulas.', afecta: true },
   FINANCIACION_INSUFICIENTE: { consecuencia: 'El plan no es ejecutable bajo las premisas actuales: la inversión no tiene cobertura.', correccion: 'Aumente aportaciones, gestión de crédito o reduzca la inversión.', afecta: true },
-  FINANCIACION_ANO0: { consecuencia: 'La necesidad total de arranque (inversión más gastos del año 0) excede la financiación declarada: el plan presenta una brecha de caja no resuelta.', correccion: 'Amplíe el capital de trabajo o las fuentes, o declare la brecha como supuesto pendiente de resolver.', afecta: true },
+  FINANCIACION_ANO0: { consecuencia: 'La necesidad total de arranque (inversión más salidas de caja del año 0) excede las fuentes con desembolso efectivo en el año 0: el plan presenta una brecha de caja no resuelta cuando se produce.', correccion: 'Amplíe el capital de trabajo, antícipe aportes o el desembolso del crédito, o declare la brecha como supuesto pendiente de resolver.', afecta: true },
+  DEFICIT_CAJA_PROYECTADA: { consecuencia: 'La tesorería proyectada es negativa en años de operación: las necesidades no están cubiertas el año en que se producen, aunque el agregado del horizonte pueda cuadrar.', correccion: 'Reprograme desembolsos, amplíe el capital de trabajo o declare el supuesto de déficit temporal.', afecta: true },
+  SALIDA_CAJA_ANIO0_NO_INVENTARIADA: { consecuencia: 'Existe gasto del año 0 que no está ni en la inversión capitalizada ni en la necesidad de caja del arranque: la conciliación del arranque puede estar subestimada.', correccion: 'Declare el tratamiento de la partida (salida de caja del año 0, gasto cubierto por otra partida o gasto no monetario) o incorpórela a una partida inventariada.', afecta: true },
+  ESCUDO_FISCAL_NO_CALCULABLE: { consecuencia: 'El escudo fiscal no pudo derivarse de la regla de impuestos en el escenario contrafactual: se tomó como CERO y los flujos FCFF/FCFE, las recuperaciones y los dividendos derivados NO son confiables.', correccion: 'Corrija la regla de impuestos (dependencias circulares, errores de dominio con la base hipotética o referencias al propio flujo) antes de valorar el plan.', afecta: true },
   CAPACIDAD: { consecuencia: 'Los ingresos por encima de la capacidad no son reales: la proyección queda limitada y la recuperación se recalcula con lo atendible.', correccion: 'Amplíe recursos (escenario B), reduzca demanda prevista o ajuste precios.', afecta: true },
   NO_RECUPERACION: { consecuencia: 'El plan no puede afirmar recuperación de la inversión dentro del horizonte.', correccion: 'Amplíe el horizonte o revise supuestos de ingresos y costos.', afecta: true },
   HORIZONTE_CORTO: { consecuencia: 'Incumple el requisito metodológico de analizar al menos recuperación + 1.', correccion: 'Amplíe el horizonte de análisis.', afecta: true },
@@ -308,25 +311,66 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
     }
   }
 
-  // Conciliación del desembolso inicial (DOC-002-R1 §2): la necesidad total
-  // (inversión + salidas de caja EXPLÍCITAS del año 0) frente a las fuentes
-  // declaradas. El motor emite FINANCIACION_ANO0 cuando hay brecha; aquí se
-  // verifica además que las APORTACIONES se registren en el año 0 con el
-  // mismo significado que tienen en los flujos (montos[0] = año 0/montaje).
-  // El gasto NO se deduce del resultado contable después de impuestos.
+  // Conciliación del desembolso inicial (DOC-002-R1 §2, TEMPORAL en R2 §1):
+  // la necesidad total (inversión + salidas de caja EXPLÍCITAS e INVENTARIADAS
+  // del año 0) frente a las fuentes con desembolso EFECTIVO en el año 0. El
+  // motor emite FINANCIACION_ANO0 cuando hay brecha; aquí se documenta la
+  // conciliación sin brecha y el supuesto de pago del impuesto en el mismo
+  // período (devengado ≠ pago verificado).
   {
-    const arranque = conciliarArranque(m);
+    const arranque = m.arranque;
     const gastoAnio0 = arranque.gastoCajaAnio0;
-    const finDisp = arranque.financiacionDisponible;
+    const finDisp = arranque.fuentesAnio0;
     const brecha = arranque.brecha;
     if ((arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) && brecha >= -0.05) {
       hallazgos.push({
         nivel: 'observacion_calidad',
         codigo: 'DESEMBOLSO_INICIAL_CONCILIADO',
-        mensaje: `Conciliación del desembolso inicial: inversión total ${pres.k(inv)} + salidas de caja explícitas del año 0 ${pres.k(gastoAnio0)} (nómina de montaje ${pres.k(arranque.nominaMontaje)} + interés pagado ${pres.k(arranque.interesPagado)} + impuesto ${pres.k(arranque.impuestoPagado)} − ingresos del año 0 ${pres.k(arranque.ingresosAnio0)}) = necesidad total ${pres.k(arranque.necesidadTotal)} ${pres.corto}, frente a fuentes declaradas por ${pres.k(finDisp)} ${pres.corto} (brecha ${pres.k(brecha)}). El capital de trabajo ya está dentro de la inversión total y no se duplica. Los desembolsos del año 0 y del año 1 conservan el mismo significado en las tablas de aportaciones, fuentes y flujos.`,
+        mensaje: `Conciliación del desembolso inicial: inversión total ${pres.k(inv)} + salidas de caja explícitas del año 0 ${pres.k(gastoAnio0)} (nómina de montaje ${pres.k(arranque.nominaMontaje)} + interés pagado ${pres.k(arranque.interesPagado)} + impuesto devengado ${pres.k(arranque.impuestoPagado)} − ingresos del año 0 ${pres.k(arranque.ingresosAnio0)}) = necesidad total ${pres.k(arranque.necesidadTotal)} ${pres.corto}, frente a fuentes con desembolso efectivo en el año 0 por ${pres.k(finDisp)} ${pres.corto} (brecha temporal ${pres.k(brecha)}; brecha según el total nominal comprometido ${pres.k(arranque.brechaNominal)}). El capital de trabajo ya está dentro de la inversión total y no se duplica. Los desembolsos del año 0 y del año 1 conservan el mismo significado en las tablas de aportaciones, fuentes y flujos.`,
         partida: 'conciliación del arranque',
-        consecuencia: 'Sin brecha: la conciliación queda documentada en el informe.',
+        consecuencia: 'Sin brecha temporal: la conciliación queda documentada en el informe.',
         correccion: 'Mantenga la conciliación al cambiar cualquier fuente o gasto del año 0.',
+        afectaConclusiones: false,
+      });
+    }
+    // Supuesto documentado (R2 §2): impuesto devengado vs pagado.
+    if (m.years.some((t) => (m.valores['impuesto_utilidades_k']?.[t] ?? 0) > 0.005)) {
+      hallazgos.push({
+        nivel: 'observacion_calidad',
+        codigo: 'SUPUESTO_IMPUESTO_MISMO_PERIODO',
+        mensaje: 'El impuesto sobre utilidades del modelo es un DEVENGADO contable (regla editable): el modelo simplificado SUPONE que se paga dentro del mismo período, sin calendario tributario. Ese supuesto se distingue expresamente de un pago verificado: con un calendario de pagos real (fracciones, diferimientos, pago al año siguiente) la tesorería proyectada y la necesidad de caja del arranque cambiarían.',
+        partida: 'impuesto_utilidades_k',
+        consecuencia: 'La tesorería proyectada descansa en un supuesto de pago simultáneo, no en un calendario tributario verificado.',
+        correccion: 'Documente la regla de pago tributaria aplicable (fuente y fecha) o modele el calendario de pagos si difiere del mismo período.',
+        afectaConclusiones: false,
+      });
+    }
+    // Clasificación del escudo fiscal (R2 §3): documentada y visible.
+    {
+      const info = m.indicadores.escudoFiscalInfo;
+      if (info.clase !== 'sin_regla') {
+        hallazgos.push({
+          nivel: 'observacion_calidad',
+          codigo: 'ESCUDO_FISCAL_CLASE',
+          mensaje: `Escudo fiscal — clasificación de la regla de impuestos activa: ${info.clase.replace(/_/g, ' ')}. ${info.detalle}${info.confiable ? '' : ` ATENCIÓN: en el/los año(s) ${info.noCalculableAnios.join(', ')} la regla no pudo reevaluarse en el escenario contrafactual y el escudo se tomó como CERO: los flujos quedan marcados como NO confiables (ver hallazgo ESCUDO_FISCAL_NO_CALCULABLE).`}`,
+          partida: 'escudo fiscal',
+          consecuencia: info.confiable ? 'Clasificación documentada: la valoración de los flujos conoce qué reevalúa y qué no.' : 'La valoración de los flujos está marcada como no confiable mientras la regla no pueda reevaluarse.',
+          correccion: 'Mantenga la regla de impuestos reevaluable (sin dependencias circulares ni errores de dominio con la base hipotética).',
+          afectaConclusiones: false,
+        });
+      }
+    }
+    // Cobertura temporal (R2 §1): documentación cuando no hay déficit (con
+    // déficit, el motor emite FINANCIACION_ANO0 / DEFICIT_CAJA_PROYECTADA).
+    if (m.cobertura.deficitCaja.length === 0 && (m.valores['inversion_total_k']?.[0] ?? 0) > 0) {
+      const aport0 = m.cobertura.aportacionesPorAnio[0] ?? 0;
+      hallazgos.push({
+        nivel: 'observacion_calidad',
+        codigo: 'COBERTURA_TEMPORAL_CONCILIADA',
+        mensaje: `Cobertura temporal de la financiación conciliada por período: las fuentes con desembolso en el año 0 (${pres.k(m.arranque.fuentesAnio0)} ${pres.corto}: aportaciones ${pres.k(aport0)}${m.cobertura.anioDesembolsoCredito === 0 ? ` + crédito desembolsado en el año 0` : ''}) cubren la necesidad del arranque, y la tesorería proyectada (con flujos operativos y dividendos) no es negativa en ningún año del horizonte. El calendario completo — fuentes y necesidades por período — se publica en la tabla «Cobertura temporal de la financiación» del apartado 4.7.`,
+        partida: 'cobertura temporal',
+        consecuencia: 'Sin déficits temporales bajo los supuestos vigentes (las «otras fuentes» se suponen disponibles en el año 0).',
+        correccion: 'Revisar al cambiar el calendario de aportaciones, el año de desembolso del crédito o cualquier gasto del arranque.',
         afectaConclusiones: false,
       });
     }
@@ -462,7 +506,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
   const advertencias = hallazgos.filter((h) => h.nivel === 'advertencia_importante');
   const pend = hallazgos.filter((h) => h.nivel === 'informacion_pendiente');
   const calidadTodas = hallazgos.filter((h) => h.nivel === 'observacion_calidad');
-  const calidad = calidadTodas.filter((h) => h.codigo !== 'ANALISIS_REVISAR' && h.codigo !== 'DESEMBOLSO_INICIAL_CONCILIADO');
+  const calidad = calidadTodas.filter((h) => h.codigo !== 'ANALISIS_REVISAR' && h.codigo !== 'DESEMBOLSO_INICIAL_CONCILIADO' && h.codigo !== 'COBERTURA_TEMPORAL_CONCILIADA' && h.codigo !== 'SUPUESTO_IMPUESTO_MISMO_PERIODO' && h.codigo !== 'ESCUDO_FISCAL_CLASE');
 
   const conCero = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const dim = (
@@ -487,8 +531,9 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
       errores.length ? `${errores.length} error(es) de cálculo: ${[...new Set(errores.map((e) => e.codigo))].join(', ')}.` : 'Las reglas evalúan sin errores, la deuda reconcilia saldo a saldo, la depreciación no excede las bases y FCFF/FCFE cumplen la identidad algebraica.'
     );
 
-  // 2) Coherencia financiera y contable (incluye la operativa y la del arranque)
-  const codigosFinancieros = ['FINANCIACION_INSUFICIENTE', 'FINANCIACION_ANO0', 'FLUJO_REGLA_MOTOR', 'PARTICIPACION_INCOHERENTE', 'NO_RECUPERACION', 'HORIZONTE_CORTO', 'CAPACIDAD'];
+  // 2) Coherencia financiera y contable (incluye la operativa, la del arranque
+  //    y la TEMPORAL de la financiación — R2 §1–§3)
+  const codigosFinancieros = ['FINANCIACION_INSUFICIENTE', 'FINANCIACION_ANO0', 'DEFICIT_CAJA_PROYECTADA', 'SALIDA_CAJA_ANIO0_NO_INVENTARIADA', 'ESCUDO_FISCAL_NO_CALCULABLE', 'FLUJO_REGLA_MOTOR', 'PARTICIPACION_INCOHERENTE', 'NO_RECUPERACION', 'HORIZONTE_CORTO', 'CAPACIDAD'];
   const dimCoherencia = dim(
     'coherencia_financiera_contable',
     'Coherencia financiera y contable',
@@ -497,7 +542,7 @@ export function diagnosticar(p: PlanexProject, m: ComputedModel, pres: Presentac
       : advertencias.some((a) => ['FINANCIACION_EXCESO', 'CT_RECUPERACION'].includes(a.codigo))
         ? 'aceptable'
         : 'ok',
-    `Inversión ${pres.k(conCero(inv))} ${pres.corto} vs financiación disponible ${pres.k(conCero(finDisp))} ${pres.corto} (conciliación del desembolso inicial incluida en el informe); recuperación simple del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : fmtAnios(recPa)}; del capital aportado ${recSa === null ? 'no recuperado en el horizonte' : fmtAnios(recSa)}; capacidad ${m.servicios.some((s) => s.capacidadesExcedidas.length > 0) ? 'con demanda no atendible en el escenario activo' : 'verificada contra los recursos operativos'}.`
+    `Inversión ${pres.k(conCero(inv))} ${pres.corto} vs financiación comprometida ${pres.k(conCero(finDisp))} ${pres.corto} (conciliación total) y fuentes con desembolso en el año 0 ${pres.k(conCero(m.arranque.fuentesAnio0))} ${pres.corto} (conciliación temporal, incluida en el informe); recuperación simple del proyecto ${recPa === null ? 'no alcanzada en el horizonte' : fmtAnios(recPa)}; del capital aportado ${recSa === null ? 'no recuperado en el horizonte' : fmtAnios(recSa)}; capacidad ${m.servicios.some((s) => s.capacidadesExcedidas.length > 0) ? 'con demanda no atendible en el escenario activo' : 'verificada contra los recursos operativos'}.`
   );
 
   // 3) Evidencia y trazabilidad de los supuestos: un supuesto ficticio NO

@@ -437,6 +437,67 @@ export function SeccionFinanciero({ modelo }: { modelo: ComputedModel }) {
 
       <PanelAnalisis titulo="Análisis de inversión y financiación" clave="inversion_financiacion" modelo={modelo} />
 
+      {/* --- Cobertura temporal (R2 §1): comprometido vs disponible por período --- */}
+      <Card>
+        <CardHeader className="py-3">
+          <CardTitle className="text-sm font-medium">Cobertura temporal de la financiación (kUSD)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ['Fuentes comprometidas (todo el proyecto)', val('financiacion_disponible_k', 0), 'aportaciones + otras fuentes + crédito (conciliación total)'],
+              ['Disponibles con desembolso en el año 0', modelo.arranque.fuentesAnio0, 'aportaciones del año 0 + otras fuentes + crédito desembolsado en el año 0'],
+              ['Necesidad total del arranque', modelo.arranque.necesidadTotal, 'inversión total + salidas de caja netas del año 0 (inventario)'],
+              ['Brecha temporal del año 0', modelo.arranque.brecha, 'fuentes del año 0 − necesidad total (nominal: ' + fmtK(modelo.arranque.brechaNominal) + ')'],
+            ].map(([et, v, f]) => (
+              <div key={String(et)} className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">{et}</div>
+                <CeldaCalculada valor={fmtK(Number(v))} formula={String(f)} alPulsar={setSeccionConfig} />
+              </div>
+            ))}
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Período</TableHead>
+                <TableHead className="text-right">Aportaciones</TableHead>
+                <TableHead className="text-right">Otras fuentes</TableHead>
+                <TableHead className="text-right">Crédito</TableHead>
+                <TableHead className="text-right">Necesidades</TableHead>
+                <TableHead className="text-right">Cobertura acum.</TableHead>
+                <TableHead className="text-right">Caja proyectada</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {modelo.cobertura.porAnio.map((f) => (
+                <TableRow key={f.anio} className={f.cajaProyectada < -0.05 ? 'bg-destructive/10' : undefined}>
+                  <TableCell>{f.anio === 0 ? 'Año 0 (montaje)' : `Año ${f.anio}`}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.aportaciones)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.otrasFuentes)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.credito)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.necesidades)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.saldoCobertura)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtK(f.cajaProyectada)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {modelo.cobertura.deficitCaja.length > 0 ? (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              DÉFICIT TEMPORAL de tesorería:{' '}
+              {modelo.cobertura.deficitCaja
+                .map((d) => `año ${d.anio}: faltan ${fmtK(d.monto)} kUSD${d.cubiertoEn !== null ? ` (cubiertas desde el año ${d.cubiertoEn})` : ''}`)
+                .join('; ')}
+              . {modelo.arranque.brechaNominal >= -0.05 ? 'La financiación total cuadra: el problema es de CALENDARIO, no de cuantía.' : 'Además, la financiación total no cubre la necesidad: problema de cuantía y calendario.'}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-300/60 bg-emerald-50 dark:bg-emerald-950/40 p-3 text-sm text-emerald-900 dark:text-emerald-200">
+              Sin déficits temporales: la tesorería proyectada no es negativa en ningún año (las «otras fuentes» se suponen disponibles en el año 0: el parámetro no declara fecha).
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* --- Calendario de deuda --- */}
       <Card>
         <CardHeader className="py-3">

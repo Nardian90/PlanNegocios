@@ -547,7 +547,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'financiacion_disponible_k',
       'Financiación disponible',
-      'Aportaciones + otras fuentes disponibles + crédito externo.',
+      'Fuentes COMPROMETIDAS para todo el proyecto: aportaciones + otras fuentes + crédito externo (conciliación TOTAL con la inversión). No equivale a disponibilidad del año 0: la cobertura TEMPORAL por período — qué fuente entra en qué año y si cubre la necesidad cuando se produce — se controla en la tabla «Cobertura temporal de la financiación» (4.7) y en la conciliación del arranque.',
       'proyecto',
       'Inversión y financiación',
       'kUSD',
@@ -739,7 +739,7 @@ export function reglasPorDefecto(): Regla[] {
     r(
       'impuesto_utilidades_k',
       'Impuesto sobre utilidades (regla demostrativa)',
-      'REGLA DEMOSTRATIVA EDITABLE: base de cálculo = utilidad antes de impuestos; tasa parametrizada (35 % inicial, supuesto de demostración, no tasa legal); resultados negativos tributan cero. Puede cambiar la base o la expresión.',
+      'REGLA DEMOSTRATIVA EDITABLE: base de cálculo = utilidad antes de impuestos; tasa parametrizada (35 % inicial, supuesto de demostración, no tasa legal); resultados negativos tributan cero. Puede cambiar la base o la expresión. El valor es un DEVENGADO contable: el modelo simplificado SUPONE su pago dentro del mismo período (supuesto documentado, no un pago verificado; no existe calendario tributario).',
       'anio',
       'Resultados',
       'kUSD',
