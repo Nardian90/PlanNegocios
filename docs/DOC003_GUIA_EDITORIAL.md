@@ -149,10 +149,14 @@ estable, sin fabricar páginas adicionales.
 ## 9. Excepciones de densidad admitidas (auditoría §4.4)
 
 Pueden quedar por debajo del 35 % de ocupación del cuerpo, con razón
-verificable: la **portada**, el **índice**, las páginas de **bloque apaisado**
-aislado (la tabla ancha y su contexto) y la **cola final del documento**.
-Cualquier otra página por debajo del umbral es un defecto de paginación y debe
-revisarse. La auditoría automatizada vive en `DiagnosticoComposicion` y en
+COMPROBABLE contra el diagnóstico: la **portada**, el **índice**, el **cierre
+documental** (última página), una **tabla horizontal sustancial** que vive en
+la página (≥ 5 filas o ≥ 6 columnas), una **continuación multipágina** de tabla
+y una página con **figura** propia. La orientación APAISADA NO justifica por
+sí sola: una página apaisada con contenido mínimo queda SEÑALADA por el
+control de calidad (`violacionesDensidad`). Cualquier otra página por debajo
+del umbral es un defecto de paginación y debe revisarse. La auditoría
+automatizada vive en `DiagnosticoComposicion`, `excepcionesOcupacionBaja` y
 `tests/planex/doc003.test.ts`.
 
 ---
@@ -204,3 +208,56 @@ sobrante de anchura reparte aire primero a las columnas de TEXTO.
 
 - Toda línea de la portada se ajusta al ancho útil (la nota de generación
   se envuelve en varias líneas; jamás desborda el folio).
+
+---
+
+# Adenda DOC-003-R2 — Casos límite del compositor y cierre de densidad
+
+## Tablas: salida explícita cuando nada basta (dos columnas)
+
+La cadena de ajuste de R1 conserva sus pasos 1–4 y añade la salida final:
+
+1. Reducción de fuente hasta el suelo (≥ 8,5 pt vertical / ≥ 7 pt apaisada).
+2. Compresión SOLO de columnas de texto hacia su suelo — PARCIAL: si la
+   holgura no alcanza, todas quedan en su mínimo exacto (nunca por debajo;
+   antes el paso era «todo o nada» y el residuo sin techo podía dejar columnas
+   en cero o negativas).
+3. Orientación apaisada por CONTENIDO.
+4. División en bloques lógicos (nCols > 2).
+5. **HALLAZGO documentado**: una tabla de DOS columnas (o una parte indivisible)
+   que ni apaisada cabe se encaja al ancho útil con SUELOS DUROS (ninguna
+   columna < 7 mm, jamás anchos ≤ 0, jamás desborde): las piezas más anchas
+   que el folio se envuelven de forma VISIBLE y el diagnóstico registra
+   `ajuste: «hallazgo»` con el exceso medido en pt. Nunca se recortan cifras
+   en silencio.
+
+El diagnóstico expone `anchosSuelosPt` (los mínimos de TODAS las columnas) y
+`hallazgo` (exceso + suelos respetados) para que la auditoría pueda verificar
+ambos. La tolerancia frente a la suma de anchos es 0,05 mm (polvo de coma
+flotante): sin ella, una tabla que encaja exacto activaría división sin
+motivo editorial.
+
+## Densidad: la apaisada no exime por sí sola
+
+Véase §9 (actualizado). El caso sintético de una página apaisada con una tabla
+mínima (2 columnas × 3 filas) queda SEÑALADO por `violacionesDensidad`; la
+misma página con una tabla sustancial (≥ 5 filas o ≥ 6 columnas) declara su
+motivo. Ninguna excepción general puede esconder defectos en proyectos
+futuros.
+
+## Página de flujos: la figura acompaña a su tabla
+
+- Una FIGURA puede absorberse en el bloque apaisado de la tabla que interpreta
+  si su altura REAL (título + chart + leyenda + unidades + nota) cabe en lo
+  que resta, REDIMENSIONANDO el chart a lo disponible con suelo de legibilidad
+  de 32 mm. Usa EXACTAMENTE las mismas series que la tabla (fcffAcumulado /
+  fcfeAcumulado del mismo modelo) y no introduce texto de relleno ni márgenes
+  artificiales.
+- Si no cabe ni al mínimo, la figura se compone en vertical a tamaño completo
+  (76 mm) como siempre.
+
+## Cuerpo del documento
+
+- Si el PRIMER elemento del documento es una tabla que exige apaisado, el
+  cuerpo abre DIRECTAMENTE en apaisado (antes quedaba una página vertical
+  vacía de transición).

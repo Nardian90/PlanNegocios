@@ -348,3 +348,154 @@ x=14 mm < 18,6 mm respectivamente), como exige la misión.
   por contenido se comparte, pero Word no reproduce la división en bloques
   de columnas (envuelve celdas), y no se considera defecto.
 
+---
+
+# PLANEX-DOC-003-R2 — Casos límite del compositor y cierre de densidad
+
+## R2.0 Estado real de partida (verificado, no asumido)
+
+- `main` = `3e3dad3` (merge del PR #9, R1, 26/10/2026 03:49 UTC). El CI de main
+  pasó y el despliegue de GitHub Pages desde main se completó con éxito
+  (run 40265950253) — sin intervención de esta misión y sin revertir nada.
+- Baseline medido sobre ese main exacto: **CUP 32 páginas / USD 30**; la página
+  apaisada de flujos (Tabla 16, pág. 15 CUP) quedaba al **54,9 %** con la
+  Figura 3 exiliada a una página vertical propia (96–99 %) — cierre R1 medido
+  51,7 % por su propio informe; se usa aquí el valor del main fusionado.
+- Auditados `medirAnchosTabla`, `requiereApaisada`, `tabla` y
+  `dividirTablaEnBloques` (`src/lib/planex/io/pdf.ts`).
+
+## R2.1 Causa raíz de cada caso límite (medida antes de corregir)
+
+| Caso límite | Defecto real en el código R1 | Evidencia |
+|---|---|---|
+| Dos columnas, cifra más ancha que el folio | El paso 2 era «todo o nada» (`holguraTotal >= exceso`): si la holgura no alcanzaba NO comprimía nada; el «redondeo residual» posterior repartía CUALQUIER exceso entre las columnas de texto SIN TECHO → anchos cero o negativos | Lectura del bloque 729–734 original; reproducido con una cifra de 16 grupos (≈ 240 caracteres) |
+| Dos columnas NUMÉRICAS | Con `textos = 0` el residuo no lo absorbía nadie → la tabla se dibujaba MÁS ANCHA QUE EL FOLIO (desborde silencioso) | Mismo bloque: `if (textos > 0) …` sin rama alternativa |
+| Identificadores extremadamente largos | `splitTextToSize` de jsPDF NO pierde contenido (verificado: recomposición idéntica), pero el PARSER de auditoría solo leía el PRIMER `Tj` de cada bloque BT: las líneas de continuación (`T*`) eran invisibles para las pruebas | Volcado del flujo de contenido: `…(línea1) Tj T* (línea2) Tj`; `sindicado` presente en el PDF crudo pero ausente de los runs |
+| Documento cuyo primer elemento es tabla apaisada | `componer()` preabría SIEMPRE una página vertical para el cuerpo; el grupo apaisado abría después su propia página → **página vertical VACÍA** intermedia | Caso sintético de densidad: pág. 2 con `ocup=0,000` y `elementos=[]` |
+| Ocupación baja «justificada» por apaisado | La regla §4.4 aceptaba `orientacion === 'apaisada'` como excusa automática sin motivo editorial comprobable | `tests/planex/doc003.test.ts` línea original: `pag.orientacion === 'apaisada'; // bloque apaisado con tabla ancha` |
+| Menos matemático (U+2212) en cifras | `PATRON_NUMERICO` no lo admitía (defensa en profundidad: `asegurarTexto` ya lo sanea a «-») | Expresión regular original `^[-–—(]*` |
+
+## R2.2 Correcciones (con referencias de archivo)
+
+`src/lib/planex/io/pdf.ts`:
+
+1. **`comprimirColumnasTexto()`** (nuevo): compresión PARCIAL de solo texto,
+   proporcional a la holgura de cada columna, clavada en los mínimos — nunca
+   por debajo. Sustituye al «todo o nada».
+2. **`encajarAlAnchoConSuelos()`** (nuevo): salida EXPLÍCITA para tablas de dos
+   columnas (o partes indivisibles) que ni apaisadas caben: encaje proporcional
+   con **suelos duros** (`SUELO_DURO_COL = 7 mm` — ningún ancho ≤ 0), suma
+   clavada al ancho útil (jamás desborde) y **hallazgo documentado** en el
+   diagnóstico (`ajuste: 'hallazgo'`, `hallazgo.excesoPt`,
+   `hallazgo.suelosRespetados`).
+3. **`tabla()`** reordenada a la regla de la misión: fuente al suelo → SOLO
+   texto hacia su suelo → orientación (por contenido, al abrir el grupo) →
+   división (nCols > 2) → **hallazgo trazable**. El reparto sin techo del
+   residuo queda ELIMINADO; el sobrante positivo reparte aire como en R1.
+4. **`TOL_AJUSTE = 0,05 mm`** en todas las comparaciones de suma frente al
+   ancho útil (y en `requiereApaisada`): sin ella, una tabla que encaja EXACTO
+   queda «0 + 1e−13» por encima y activaba división/hallazgo sin motivo
+   (detectado al ver las Tablas 20 y 30 del caso real partirse sin necesidad).
+5. **Diagnóstico extendido**: `anchosSuelosPt` (suelos de TODAS las columnas),
+   `paginaInicio`/`paginaFin`/`filas` (trazabilidad de densidad) y `hallazgo`.
+6. **`PATRON_NUMERICO`** admite el menos matemático U+2212.
+7. **Figuras absorbibles en apaisado**: `altoFigura()` (altura REAL: título +
+   chart + leyenda + unidades + nota), `figura(f, altoChart?)` y el bucle de
+   absorción de `seccion()` redimensionan el chart a lo que queda con suelo de
+   legibilidad de 32 mm — misión §3, sin tocar el motor financiero.
+8. **`abreCuerpoApaisado()`**: si el primer elemento del documento es tabla
+   apaisada, el cuerpo abre directamente en apaisado (adiós a la página
+   vertical vacía).
+9. **`excepcionesOcupacionBaja()`/`violacionesDensidad()`** exportadas: motivos
+   comprobables (portada, índice, cierre, tabla sustancial ≥ 5 filas o
+   ≥ 6 columnas, continuación multipágina, figura); **la apaisada NO exime
+   por sí sola**.
+
+`tests/planex/util_pdf_posiciones.ts`: el parser recorre TODOS los operadores
+de texto de cada bloque BT en orden (`Td/TD/T*/Tm/Tj`) siguiendo la matriz de
+línea del PDF — las celdas multilínea de autoTable y sus continuaciones ya no
+son invisibles para la auditoría.
+
+`docs/DOC003_GUIA_EDITORIAL.md`: §9 endurecido + adenda R2.
+
+## R2.3 Decisión documentada sobre la página de flujos (misión §3)
+
+Alternativas evaluadas con renders comparables (100 dpi, misma clínica CUP):
+
+| Alternativa | Ocupación pág. | Juicio |
+|---|---|---|
+| (a) Solo más espaciado vertical de la tabla (1,8 → 2,3 mm) | ~58 % | Rechazada: ganancia marginal (+3 pp), roza los suelos tipográficos del estilo y no aporta interpretación nueva |
+| (b) Tabla + figura de flujo acumulado REDIMENSIONADA | **98,8 %** | **Elegida**: la Figura 3 usa EXACTAMENTE las mismas series que la tabla (fcffAcumulado/fcfeAcumulado del mismo modelo), cabe redimensionada a ~32 mm de chart (suelo de legibilidad) y conserva ejes rotulados, leyenda y cruces de cero legibles (VLM: etiquetas claras, espacio inferior 12–15 %) |
+| (c) Mantener la composición R1 | 54,9 % | Descartada: dejaba ~45 % de aire con la figura exiliada a página propia |
+
+En USD (sin páginas apaisadas) la misma decisión no toca nada: la figura se
+compone a tamaño completo (76 mm) en vertical. Sin texto de relleno, sin
+márgenes artificiales, motor financiero intacto.
+
+## R2.4 Resultado medido (antes → después)
+
+| Métrica | Antes (main 3e3dad3) | Después (R2) |
+|---|---|---|
+| Páginas CUP / USD | 32 / 30 | **31 / 30** (la figura de flujos ya no ocupa página propia) |
+| Página apaisada de flujos (CUP) | 54,9 % + figura exiliada | **98,8 %** (tabla + lectura + figura de la misma serie) |
+| Tabla de 2 columnas con cifra más ancha que el folio | columna de texto con ancho ≤ 0 o desborde del folio | encaje con suelos duros, `hallazgo` medido (exceso real 380,8 pt en el caso sintético de 16 grupos), anchos ≥ 7 mm, sin desborde, cifra íntegra envuelta de forma visible |
+| Tabla de 2 columnas numéricas | desborde silencioso del folio | anchos positivos y finitos, ajuste trazable |
+| Identificadores de 128 caracteres | invisible para las pruebas (parser perdía continuaciones) | presentes e íntegros en los runs del parser corregido |
+| Documento que abre con tabla apaisada | página vertical VACÍA intermedia | cuerpo abre directamente en apaisado, 0 páginas sin contenido |
+| Regla de densidad | apaisada = excusa automática | excusas comprobables; caso sintético de apaisada mínima SEÑALADO; clínica CUP/USD con 0 violaciones |
+| Suite completa | 393 pruebas | **404** (11 nuevas: 5 de casos límite, 3 de densidad, 3 de la página de flujos) |
+
+## R2.5 Pruebas nuevas (documento renderizado + diagnóstico del compositor)
+
+- §1 casos límite: dos columnas con cifra ancha (apaisada por contenido, suelos
+  respetados, suma ≤ ancho útil, cifra íntegra); cifra más ancha que el folio
+  (`hallazgo`, anchos ≥ 7 mm, sin desborde, contenido íntegro); dos columnas
+  numéricas (anchos positivos/finitos); identificadores extremos (partidos de
+  forma visible, sin pérdida); negativos/paréntesis/U+2212/unidades
+  heterogéneas (alineación por contenido, signo contado en la anchura).
+- §2 densidad: apaisada sintética mínima SEÑALADA (`violacionesDensidad`);
+  motivos exactos (tabla sustancial excusa, sin tabla no; continuación
+  multipágina excusa); regresión clínica 0 violaciones en CUP y USD.
+- §3 flujos: figura en la MISMA página que la tabla (CUP), ocupación ≥ 70 %,
+  series compartidas, ejes rotulados, sin desbordes; USD figura íntegra en
+  vertical.
+- **La prueba de la apaisada sintética FALLA con la regla anterior** (la
+  excusa automática la aceptaba), como exige la misión.
+
+## R2.6 Verificación ejecutada realmente
+
+- `bun test tests/planex/` → **404/404 pruebas** (84 075 comprobaciones).
+- `tsc --noEmit` → 0 errores. `eslint .` → 0 problemas.
+- `bun run build` (estático) → OK.
+- Exportaciones: PDF CUP (31 págs.) + USD (30), DOCX ambos, XLSX ambos —
+  cifras canónicas intactas (719.075,4 kCUP / 967,8 kUSD / 1.099.640,0 kCUP;
+  recuperaciones 3,46–3,22 años; motor sin tocar).
+- Renderizado de TODAS las páginas (55 dpi, 61 imágenes) — ninguna con peso
+  anómalo; inspección visual asistida (VLM) de las páginas 12 (análisis +
+  filete), 13 (proyección apaisada de 12 columnas), 15 (flujos con figura) y
+  18 (canales + análisis): sin colisiones, sin cortes, cifras alineadas,
+  filete respetado.
+- Evidencias: `docs/capturas/doc003-r2-antes-p15-flujos-55pct-espacio.png`,
+  `doc003-r2-antes-p16-figura-vertical-propia.png`,
+  `doc003-r2-despues-p15-flujos-con-figura-99pct.png`,
+  `doc003-r2-usd-p15-figura-vertical-integra.png`.
+
+## R2.7 Limitaciones pendientes
+
+- El «hallazgo» envuelve la pieza más ancha que el folio por caracteres
+  (VISIBLE y medido en el diagnóstico), pero no elige una alternativa de
+  presentación por sí mismo (p. ej. notación científica): requiere decisión
+  editorial del caso real, que no existe en la clínica de demostración.
+- El compositor no es «universalmente robusto» por pasar la clínica: los casos
+  límite están cubiertos por pruebas sintéticas específicas; una tabla real con
+  celdas de 240 caracteres seguiría siendo un hallazgo que el usuario debe
+  revisar.
+- La figura absorbida queda a ~32 mm de chart (suelo de legibilidad): si un
+  proyecto con más años redujera aún más el espacio, la figura volvería a su
+  página vertical propia — comportamiento correcto, no defecto.
+- El parser de auditoría sigue asumiendo WinAnsi sin compresión en los flujos
+  (cierto para jsPDF con `compress: false`, como configura el compositor).
+- DOCX: la decisión de la página de flujos es específica del compositor PDF;
+  en Word la figura sigue en su flujo propio (paginación distinta por diseño,
+  contenidos idénticos).
+

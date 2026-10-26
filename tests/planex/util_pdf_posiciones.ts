@@ -104,25 +104,61 @@ export function parsearPDF(buf: Buffer): PDFParseado {
     const [, , anchoPt, altoPt] = info.mediaBox;
     paginas.push({ numero: idx + 1, anchoPt, altoPt, apaisada: anchoPt > altoPt });
     const stream = info.contents.map((c) => objetos.get(c)?.stream ?? '').join('\n');
-    // --- texto: cada BT…ET es una llamada text() ---
+    // --- texto: cada BT…ET es una llamada text() — R2: un MISMO BT puede
+    // dibujar VARIAS líneas (Td inicial + T* por línea, como hacen las
+    // celdas multilínea de autoTable y las notas); se recorren TODOS los
+    // operadores EN ORDEN siguiendo la matriz de línea del PDF (Td/TD/T*/Tm),
+    // en vez de quedarse con el primer Tj del bloque. ---
     const reBT = /BT([\s\S]*?)ET/g;
     let bt: RegExpExecArray | null;
     while ((bt = reBT.exec(stream))) {
       const bloque = bt[1];
       const fT = bloque.match(/\/(F\d+)\s+([\d.]+)\s+Tf/);
-      const td = bloque.match(/(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+Td/);
-      const tj = bloque.match(/\(((?:\\.|[^\\)])*)\)\s*Tj/);
-      if (!fT || !td || !tj) continue;
+      if (!fT) continue;
       const rg = bloque.match(/([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/);
-      runs.push({
-        pagina: idx + 1,
-        x: Number(td[1]) / PT,
-        y: (altoPt - Number(td[2])) / PT,
-        size: Number(fT[2]),
-        texto: decodificar(tj[1]),
-        color: rg ? [Number(rg[1]), Number(rg[2]), Number(rg[3])] : [0, 0, 0],
-        fuente: fT[1],
-      });
+      const color: [number, number, number] = rg ? [Number(rg[1]), Number(rg[2]), Number(rg[3])] : [0, 0, 0];
+      // Semántica PDF: (lx,ly) = inicio de línea (matriz Tlm); (x,y) = pluma.
+      // Td/TD mueven (lx,ly) en RELATIVO y llevan la pluma; T* baja un TL;
+      // Tm fija la matriz en absoluto; cada Tj se dibuja en la pluma actual.
+      let lx = 0;
+      let ly = 0;
+      let x = 0;
+      let y = 0;
+      let TL = 0;
+      const reStmt =
+        /(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(Td|TD)|(-?[\d.eE+-]+)\s+TL|T\*|(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+Tm|\(((?:\\.|[^\\)])*)\)\s*Tj/g;
+      let st: RegExpExecArray | null;
+      while ((st = reStmt.exec(bloque))) {
+        if (st[3] === 'Td' || st[3] === 'TD') {
+          lx += Number(st[1]);
+          ly += Number(st[2]);
+          if (st[3] === 'TD') TL = -Number(st[2]);
+          x = lx;
+          y = ly;
+        } else if (st[4] !== undefined) {
+          TL = Number(st[4]);
+        } else if (st[0] === 'T*') {
+          ly -= TL;
+          x = lx;
+          y = ly;
+        } else if (st[5] !== undefined) {
+          // Tm: matriz absoluta — la posición de línea es (e, f) = grupos 9, 10.
+          lx = Number(st[9]);
+          ly = Number(st[10]);
+          x = lx;
+          y = ly;
+        } else if (st[11] !== undefined) {
+          runs.push({
+            pagina: idx + 1,
+            x: x / PT,
+            y: (altoPt - y) / PT,
+            size: Number(fT[2]),
+            texto: decodificar(st[11]),
+            color,
+            fuente: fT[1],
+          });
+        }
+      }
     }
     // --- segmentos trazados: color RG → grosor w → path m/l S ---
     const reLinea =
