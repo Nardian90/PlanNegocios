@@ -56,7 +56,7 @@ const TAM_TITULO_TABLA = 9.5;
 const TAM_NOTA_TABLA = 7.2;
 const TAM_TABLA_NORMAL = 8.5; // objetivo en vertical
 const TAM_TABLA_MINIMA = 7.5; // mínimo aceptable en vertical
-const TAM_TABLA_APaisada = 8; // objetivo apaisado
+const TAM_TABLA_APaisada = 8.5; // objetivo apaisado (R1 §5: más generoso, era 8)
 const TAM_TABLA_APaisADA_MIN = 7; // mínimo aceptable apaisado (§5.2)
 const TAM_ANALISIS = 8;
 const TAM_AVISO = 7.5;
@@ -146,15 +146,15 @@ function medirAnchosTabla(
   return { anchos, minimos };
 }
 
-/** ¿La tabla exige página APAISADA? (§4.2/§5.2) Criterio compartido por PDF y
- *  DOCX: solo si, marcada como ancha, NO cabe en vertical aplicando TODO el
- *  repertorio de ajuste (autoajuste de fuente + último recurso de comprimir
- *  solo columnas de texto). El apaisado es una decisión de CONTENIDO, no de
- *  conteo de columnas: las cifras jamás se comprimen (una proyección con 11
- *  años en CUP no cabe y va a apaisado); una tabla de texto envuelve y queda
- *  en vertical, donde se lee mejor. */
+/** ¿La tabla exige página APAISADA? (§4.2/§5.2) Criterio de CONTENIDO
+ *  compartido por PDF y DOCX (DOC-003-R1 §4): si, agotado TODO el repertorio
+ *  de ajuste en vertical (autoajuste de fuente + compresión de las columnas
+ *  de TEXTO hacia su suelo), la tabla sigue sin caber, va a apaisado — sea o
+ *  no «ancha» por declaración. Las cifras jamás se comprimen (una proyección
+ *  con 11 años en CUP no cabe y va a apaisado); una tabla de texto envuelve
+ *  y queda en vertical, donde se lee mejor. El campo `ancha` queda como
+ *  pista de autoría sin valor operativo. */
 export function requiereApaisada(t: TablaDoc, medir: MedidorAncho, anchoRetrato: number, sizeMinimo: number): boolean {
-  if (!t.ancha) return false;
   const head = t.encabezados.map((c) => T(c));
   const body = t.filas.map((f) => f.map((c) => T(c ?? '')));
   const numericas = columnasNumericas(head, body);
@@ -190,6 +190,7 @@ export interface LineaCompuesta {
   pagina: number;
   y: number;
   x1: number; // borde derecho real de la última palabra dibujada (pt)
+  x0: number; // borde izquierdo real de la línea (pt) — DOC-003-R1 §3
   ultima: boolean; // ¿última línea de su párrafo?
 }
 
@@ -214,6 +215,17 @@ export interface DiagnosticoComposicion {
     fuentePt: number;
     apaisada: boolean;
     columnas: { indice: number; alineacion: 'left' | 'right' | 'center'; numerica: boolean }[];
+    /** DOC-003-R1 §4: palanca de ajuste realmente usada para que la tabla
+     *  cupiera — «ninguna» (cabía), «fuente» (reducción tipográfica),
+     *  «texto» (compresión de columnas de TEXTO hacia su suelo) o
+     *  «division-columnas» (partición en bloques lógicos). NUNCA el
+     *  escalado proporcional silencioso de cifras. */
+    ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas';
+    /** Anchos finales de columna realmente dibujados (pt). */
+    anchosColumnasPt: number[];
+    /** Anchos mínimos garantizados de las columnas NUMÉRICAS (pt): su cifra
+     *  más ancha + aire. Una columna numérica nunca queda por debajo. */
+    anchosCifrasPt: number[];
   }[];
 }
 
@@ -378,16 +390,31 @@ class Compositor {
   /** Párrafo narrativo con JUSTIFICACIÓN REAL por reparto de espacio entre
    *  palabras (§3). La última línea queda natural; las intermedias llegan
    *  al margen derecho salvo que el estiramiento exigido supere el tope
-   *  editorial (mejor un leve desalineado que huecos enormes). */
+   *  editorial (mejor un leve desalineado que huecos enormes).
+   *
+   *  DOC-003-R1 §3: admite MARGEN IZQUIERDO y ANCHO ÚTIL propios — el cuerpo
+   *  de un bloque de análisis se compone a la derecha del filete decorativo
+   *  con la MISMA anchura con la que se estima su altura, y el margen se
+   *  conserva al cruzar saltos de página (el texto nunca vuelve al margen
+   *  del folio dentro del mismo párrafo). */
   parrafo(
     texto: string,
-    opts?: { size?: number; italica?: boolean; justificado?: boolean; color?: [number, number, number] }
+    opts?: {
+      size?: number;
+      italica?: boolean;
+      justificado?: boolean;
+      color?: [number, number, number];
+      margenIzq?: number;
+      ancho?: number;
+    }
   ): number {
     const limpio = T(texto);
     if (!limpio) return this.y;
     const size = opts?.size ?? TAM_CUERPO;
     const justificado = opts?.justificado ?? true;
-    const ancho = this.anchoUtil;
+    const margenIzq = opts?.margenIzq ?? 0;
+    const xInicio = M + margenIzq;
+    const ancho = opts?.ancho ?? this.anchoUtil - margenIzq;
     this.doc.setFont('helvetica', opts?.italica ? 'italic' : 'normal');
     this.doc.setFontSize(size);
     this.doc.setTextColor(...(opts?.color ?? TINTA));
@@ -411,19 +438,19 @@ class Compositor {
 
     const paso = interlineado(size);
     this.diag.justificado.parrafos += 1;
-    const margenDerecho = M + ancho;
+    const margenDerecho = xInicio + ancho;
     for (let i = 0; i < lineas.length; i++) {
       const linea = lineas[i];
       const esUltima = i === lineas.length - 1;
       if (this.y + paso * 0.85 > this.cuerpoFin) {
         // El párrafo CRUZA el salto: las líneas siguen justificadas a ambos
-        // lados del corte (§3.2).
+        // lados del corte (§3.2) y CONSERVAN el margen izquierdo propio.
         this.nuevaPagina();
         this.doc.setFont('helvetica', opts?.italica ? 'italic' : 'normal');
         this.doc.setFontSize(size);
         this.doc.setTextColor(...(opts?.color ?? TINTA));
       }
-      let x1 = M;
+      let x1 = xInicio;
       if (justificado && !esUltima && linea.palabras.length > 1) {
         const huecos = linea.palabras.length - 1;
         const espacio = this.doc.getTextWidth(' ');
@@ -431,7 +458,7 @@ class Compositor {
         if (extra <= espacio * 1.9) {
           // Justificada: reparto del sobrante entre palabras.
           const pasoPalabra = espacio + extra;
-          let x = M;
+          let x = xInicio;
           for (const palabra of linea.palabras) {
             this.doc.text(palabra, x, this.y);
             x += this.doc.getTextWidth(palabra) + pasoPalabra;
@@ -439,10 +466,10 @@ class Compositor {
           x1 = x - pasoPalabra;
         } else {
           // Tope editorial: dejaría huecos exagerados → línea a la izquierda.
-          x1 = this.dibujarLineaNatural(linea);
+          x1 = this.dibujarLineaNatural(linea, xInicio);
         }
       } else {
-        x1 = this.dibujarLineaNatural(linea);
+        x1 = this.dibujarLineaNatural(linea, xInicio);
       }
       if (!esUltima) {
         this.diag.justificado.lineasIntermedias += 1;
@@ -450,7 +477,7 @@ class Compositor {
         if (desvio <= 2.2) this.diag.justificado.intermediasJustificadas += 1;
         this.diag.justificado.desvioMaximoPt = Math.max(this.diag.justificado.desvioMaximoPt, desvio);
       }
-      this.diag.lineas.push({ pagina: this.nPagina, y: this.y, x1: x1 * 2.8346, ultima: esUltima });
+      this.diag.lineas.push({ pagina: this.nPagina, y: this.y, x1: x1 * 2.8346, x0: xInicio * 2.8346, ultima: esUltima });
       this.y += paso;
     }
     this.y += 2.4;
@@ -459,9 +486,9 @@ class Compositor {
   }
 
   /** Línea con espaciado natural (última línea y líneas no justificadas). */
-  private dibujarLineaNatural(linea: { palabras: string[]; ancho: number }): number {
+  private dibujarLineaNatural(linea: { palabras: string[]; ancho: number }, xInicio: number = M): number {
     const espacio = this.doc.getTextWidth(' ');
-    let x = M;
+    let x = xInicio;
     for (const palabra of linea.palabras) {
       this.doc.text(palabra, x, this.y);
       x += this.doc.getTextWidth(palabra) + espacio;
@@ -512,30 +539,47 @@ class Compositor {
   }
 
   // ------------------------------------------------------- campos etiquetados
+  // DOC-003-R1 §2 — separación vertical EXPLÍCITA derivada de las métricas
+  // de las fuentes usadas (helvetica): la caja de la etiqueta (9 pt bold) y
+  // la del valor (8,7 pt) NO pueden tocarse.
+  //   · descenso de la etiqueta  : 9 pt × 0,212 ≈ 0,67 mm bajo su línea base
+  //   · ascenso del valor        : 8,7 pt × 0,95 (ascendente/brazos) ≈ 2,93 mm
+  //   · aire visual mínimo        : 0,40 mm
+  //   → separación de líneas base MÍNIMA ≈ 4,0 mm; se usan 4,4 mm.
+  private static readonly CAMPO = {
+    sepEtiquetaValor: 4.4, // línea base etiqueta → línea base valor (mm)
+    huecoItem: 1.5, // aire entre campos consecutivos (mm)
+    sangriaValor: 2, // el valor se sangra bajo su etiqueta (jerarquía)
+  } as const;
+
+  /** Altura exacta (mm) de un campo: etiqueta + valor multilínea + aire.
+   *  Se mide con la MISMA anchura con la que se dibuja el valor. */
+  private altoCampo(valor: string): number {
+    const C = Compositor.CAMPO;
+    return 3 + C.sepEtiquetaValor + this.altoParrafo(valor, 8.7, this.anchoUtil - C.sangriaValor) + C.huecoItem;
+  }
+
   campos(items: { etiqueta: string; valor: string }[]): number {
+    const C = Compositor.CAMPO;
     // El bloque se mantiene ENTERO si no cabe en lo que queda pero sí en una
     // página (§4.3): evita remanentes de 2–3 campos huérfanos antes de un
     // cambio de orientación o de sección.
-    const alturaBloque = items.reduce(
-      (s, item) => s + 5.2 + this.altoParrafo(T(item.valor) || '—', 8.7, ANCHO - 2 * M - 2) + 1.4,
-      2
-    );
+    const alturaBloque = items.reduce((s, item) => s + this.altoCampo(T(item.valor) || '—'), 1.5);
     if (alturaBloque > 14 && this.y + alturaBloque > this.cuerpoFin && alturaBloque <= (this.cuerpoFin - this.cuerpoInicio) * 0.78) {
       this.nuevaPagina();
     }
     for (const item of items) {
       const valor = T(item.valor) || '—';
-      const altoValor = this.altoParrafo(valor, 8.7, this.anchoUtil - 2);
-      if (this.y + 12 + Math.min(altoValor, 9) > this.cuerpoFin) this.nuevaPagina();
+      // El campo (etiqueta + valor) es atómico: si no cabe entero, página nueva.
+      if (this.y + this.altoCampo(valor) > this.cuerpoFin) this.nuevaPagina();
       this.doc.setFont('helvetica', 'bold');
       this.doc.setFontSize(9);
       this.doc.setTextColor(...TITULO);
       this.doc.text(T(`${item.etiqueta}:`), M, this.y + 3);
-      this.y += 5.2;
-      const yAntes = this.y;
-      this.parrafo(valor, { size: 8.7, justificado: false });
-      if (this.y === yAntes) this.y += 2;
-      this.y += 1.4;
+      // El valor arranca en su PROPIA línea base, separación explícita (R1 §2).
+      this.y += 3 + C.sepEtiquetaValor;
+      this.parrafo(valor, { size: 8.7, justificado: false, margenIzq: C.sangriaValor, ancho: this.anchoUtil - C.sangriaValor });
+      this.y += C.huecoItem;
     }
     this.registrarElemento('campos');
     return this.y;
@@ -556,10 +600,13 @@ class Compositor {
   }
 
   /** Tabla corporativa: filetes horizontales selectivos, sin rejilla vertical,
-   *  fuente autoajustada con mínimos, alineación por contenido y resaltes. */
-  tabla(t: TablaDoc): number {
+   *  fuente autoajustada con mínimos, alineación por contenido y resaltes.
+   *  `sizeTope` (uso interno): las PARTES de una tabla dividida heredan el
+   *  techo tipográfico de su tabla original — misma fuente en todas las
+   *  partes (R1 §4). */
+  tabla(t: TablaDoc, sizeTope?: number): number {
     const apaisada = this.orientacion === 'apaisada';
-    const sizeObjetivo = apaisada ? TAM_TABLA_APaisada : TAM_TABLA_NORMAL;
+    const sizeObjetivo = Math.min(apaisada ? TAM_TABLA_APaisada : TAM_TABLA_NORMAL, sizeTope ?? Infinity);
     const sizeMinimo = apaisada ? TAM_TABLA_APaisADA_MIN : TAM_TABLA_MINIMA;
     const anchoUtil = this.anchoUtil;
     const nCols = t.encabezados.length;
@@ -573,40 +620,80 @@ class Compositor {
         declarada === 'izq' ? 'left' : declarada === 'der' ? 'right' : declarada === 'cen' ? 'center' : numericas[i] ? 'right' : 'left';
     }
 
-    // ----- autoajuste de fuente y anchos de columna (§5.2) -----
+    // ----- autoajuste de fuente y anchos de columna (§5.2, R1 §4) -----
+    // Cadena de palancas DOCUMENTADA; el escalado proporcional silencioso
+    // de TODAS las columnas (el «factor» antiguo) queda ELIMINADO: las
+    // cifras, porcentajes, códigos y unidades no se comprimen nunca.
     let size = sizeObjetivo;
+    let ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas' = 'ninguna';
     let { anchos, minimos } = medirAnchosTabla(this.medir, head, body, numericas, size, anchoUtil);
     let suma = anchos.reduce((s, a) => s + a, 0);
-    while (suma > anchoUtil && size > sizeMinimo) {
-      size = Math.max(sizeMinimo, size - 0.25);
-      ({ anchos, minimos } = medirAnchosTabla(this.medir, head, body, numericas, size, anchoUtil));
-      suma = anchos.reduce((s, a) => s + a, 0);
-    }
     if (suma > anchoUtil) {
-      // Último recurso (§5.2): se encogen primero las columnas de TEXTO hacia
-      // su suelo (palabra más larga o parte proporcional), jamás las cifras.
-      let exceso = suma - anchoUtil;
-      const holgura = anchos.map((a, i) => (numericas[i] ? 0 : Math.max(0, a - minimos[i])));
-      const holguraTotal = holgura.reduce((s, h) => s + h, 0);
-      if (holguraTotal >= exceso) {
-        // Reparto proporcional del déficit entre las columnas de texto.
-        for (let i = 0; i < nCols; i++) {
-          const quita = holguraTotal > 0 ? Math.min(holgura[i], (exceso * holgura[i]) / holguraTotal + 0.05) : 0;
-          anchos[i] -= quita;
-        }
-      } else {
-        const factor = anchoUtil / Math.max(1e-6, suma);
-        anchos = anchos.map((a) => a * factor);
+      // 1) Reducir la fuente hasta el suelo permitido.
+      while (suma > anchoUtil && size > sizeMinimo) {
+        size = Math.max(sizeMinimo, size - 0.25);
+        ({ anchos, minimos } = medirAnchosTabla(this.medir, head, body, numericas, size, anchoUtil));
+        suma = anchos.reduce((s, a) => s + a, 0);
+        ajuste = 'fuente';
       }
-    } else {
-      const factor = anchoUtil / Math.max(1e-6, suma); // el sobrante reparte aire
-      anchos = anchos.map((a) => a * factor);
+      if (suma > anchoUtil) {
+        // 2) Comprimir ÚNICAMENTE columnas de TEXTO hacia su suelo.
+        const exceso = suma - anchoUtil;
+        const holgura = anchos.map((a, i) => (numericas[i] ? 0 : Math.max(0, a - minimos[i])));
+        const holguraTotal = holgura.reduce((s, h) => s + h, 0);
+        ajuste = 'texto';
+        if (holguraTotal >= exceso) {
+          for (let i = 0; i < nCols; i++) {
+            const quita = holguraTotal > 0 ? Math.min(holgura[i], (exceso * holgura[i]) / holguraTotal + 0.05) : 0;
+            anchos[i] -= quita;
+          }
+        }
+        // La compresión cambió los anchos: recomputar antes de decidir la
+        // división (la suma previa quedaría obsoleta).
+        suma = anchos.reduce((s, a) => s + a, 0);
+      }
     }
-    // Normalización EXACTA al ancho útil (evita desbordes por redondeo).
-    const sumaFinal = anchos.reduce((s, a) => s + a, 0);
-    if (Math.abs(sumaFinal - anchoUtil) > 0.005 && sumaFinal > 0) {
-      const f = anchoUtil / sumaFinal;
-      anchos = anchos.map((a) => a * f);
+    if (suma > anchoUtil && nCols > 2) {
+      // 3) La orientación ya la decidió el CONTENIDO al abrir el grupo
+      //    (necesitaApaisada, sin puerta de «ancha»); si NI ASÍ cabe:
+      //    4) dividir en bloques lógicos de columnas. Nunca escalar cifras.
+      //    (nCols > 2: una parte de 2 columnas ya no es divisible — evita
+      //    recursión infinita; el exceso residual lo envuelve autoTable.)
+      const partes = this.dividirTablaEnBloques(t);
+      this.diag.tablas.push({
+        numero: t.numero ?? 0,
+        titulo: T(t.titulo ?? ''),
+        fuentePt: size,
+        apaisada,
+        columnas: alineaciones.map((a, i) => ({ indice: i, alineacion: a, numerica: numericas[i] })),
+        ajuste: 'division-columnas',
+        anchosColumnasPt: [],
+        anchosCifrasPt: [],
+      });
+      let y = this.y;
+      for (const parte of partes) y = this.tabla(parte, size);
+      return y;
+    }
+    // El SOBRANTE reparte aire (R1 §4): primero a las columnas de TEXTO
+    // (aire para envolver), y solo si no hay, a todas. Las cifras conservan
+    // su anchura natural + aire lateral; ninguna columna se encoge.
+    {
+      const sumaAhora = anchos.reduce((s, a) => s + a, 0);
+      const sobrante = anchoUtil - sumaAhora;
+      if (sobrante > 0.01) {
+        const textos = anchos.map((a, i) => (numericas[i] ? 0 : a)).reduce((s, a) => s + a, 0);
+        if (textos > 0) {
+          for (let i = 0; i < nCols; i++) if (!numericas[i]) anchos[i] += (sobrante * anchos[i]) / textos;
+        } else {
+          const factor = anchoUtil / Math.max(1e-6, sumaAhora);
+          anchos = anchos.map((a) => a * factor);
+        }
+      } else if (sobrante < -0.01) {
+        // Redondeo residual (≤ 0,05 mm): lo absorben las columnas de texto,
+        // nunca las cifras.
+        const textos = anchos.map((a, i) => (numericas[i] ? 0 : a)).reduce((s, a) => s + a, 0);
+        if (textos > 0) for (let i = 0; i < nCols; i++) if (!numericas[i]) anchos[i] += (sobrante * anchos[i]) / textos;
+      }
     }
 
     // ----- título (en flujo, pegado a la cabecera + primeras filas) -----
@@ -638,7 +725,7 @@ class Compositor {
       styles: {
         font: 'helvetica',
         fontSize: size,
-        cellPadding: { top: 1.25, bottom: 1.25, left: 1.7, right: 1.7 },
+        cellPadding: { top: apaisada ? 1.8 : 1.25, bottom: apaisada ? 1.8 : 1.25, left: 1.7, right: 1.7 },
         overflow: 'linebreak',
         textColor: TINTA,
         lineColor: LINEA_MEDIA,
@@ -715,8 +802,64 @@ class Compositor {
       fuentePt: size,
       apaisada,
       columnas: alineaciones.map((a, i) => ({ indice: i, alineacion: a, numerica: numericas[i] })),
+      ajuste,
+      anchosColumnasPt: anchos.map((a) => a * 2.8346),
+      anchosCifrasPt: minimos.map((m, i) => (numericas[i] ? m * 2.8346 : 0)),
     });
     return this.y;
+  }
+
+  /** Divide una tabla que no cabe NI apaisada con el repertorio completo
+   *  (R1 §4) en bloques lógicos de COLUMNAS: cada bloque repite la columna
+   *  de conceptos y los encabezados, con título «(parte i de n)» y la nota
+   *  del original solo en la última. No se pierde ninguna fila ni columna. */
+  private dividirTablaEnBloques(t: TablaDoc): TablaDoc[] {
+    const nCols = t.encabezados.length;
+    if (nCols < 2) {
+      // Una tabla de una sola columna no se puede partir: se entrega tal
+      //  cual (la fuente ya está en su suelo).
+      return [t];
+    }
+    const head = t.encabezados.map((c) => T(c));
+    const body = t.filas.map((f) => f.map((c) => T(c ?? '')));
+    const numericas = columnasNumericas(head, body);
+    const sizeMinimo = this.orientacion === 'apaisada' ? TAM_TABLA_APaisADA_MIN : TAM_TABLA_MINIMA;
+    const { anchos } = medirAnchosTabla(this.medir, head, body, numericas, sizeMinimo, this.anchoUtil);
+    // Empaquetado voraz de columnas: la columna 0 (conceptos) abre SIEMPRE
+    // cada bloque; el resto entra mientras quepa (una parte tiene ≥ 2
+    // columnas, de modo que la recursión termina).
+    const bloques: number[][] = [];
+    let actual: number[] = [];
+    let suma = 0;
+    for (let c = 0; c < nCols; c++) {
+      if (actual.length >= 2 && suma + anchos[c] > this.anchoUtil) {
+        bloques.push(actual);
+        actual = [0];
+        suma = anchos[0];
+      }
+      actual.push(c);
+      suma += anchos[c];
+    }
+    if (actual.length) bloques.push(actual);
+    return bloques.map((cols, i) => {
+      // Las alineaciones de la parte solo se declaran si TODAS sus columnas
+      // tenían declaración (una hueca haría perder la posición al resto).
+      const alineacionesParte = t.alineaciones ? cols.map((c) => t.alineaciones?.[c]) : undefined;
+      const alineacionesValidas: TablaDoc['alineaciones'] =
+        alineacionesParte && alineacionesParte.every((a): a is NonNullable<TablaDoc['alineaciones']>[number] => a !== undefined)
+          ? alineacionesParte
+          : undefined;
+      return {
+        titulo: `${T(t.titulo ?? '')} (parte ${i + 1} de ${bloques.length})`,
+        encabezados: cols.map((c) => t.encabezados[c]),
+        filas: t.filas.map((f) => cols.map((c) => f[c] ?? '')),
+        alineaciones: alineacionesValidas,
+        resaltar: t.resaltar,
+        nota: i === bloques.length - 1 ? t.nota : undefined,
+        numero: t.numero,
+        ancha: t.ancha,
+      };
+    });
   }
 
   // ------------------------------------------------------- bloques auxiliares
@@ -741,12 +884,16 @@ class Compositor {
 
   analisis(bloque: { titulo: string; texto: string; estado: string }): number {
     const limpio = T(bloque.texto);
-    const altoCuerpo = this.altoParrafo(limpio, TAM_ANALISIS, this.anchoUtil - 6);
+    // DOC-003-R1 §3: el cuerpo vive en su PROPIA columna, a la derecha del
+    // filete, con la MISMA anchura para medir y para dibujar.
+    const SANGRIA_ANALISIS = 5; // columna de texto: M+5 … margen derecho
+    const anchoCuerpo = this.anchoUtil - SANGRIA_ANALISIS;
+    const altoCuerpo = this.altoParrafo(limpio, TAM_ANALISIS, anchoCuerpo);
     const altoBloque = 5 + 3 + altoCuerpo + 4;
     // El bloque se mantiene junto si cabe entero; si no, al menos caben el
     // título, la etiqueta y las primeras líneas (§4.3).
     if (this.y + Math.min(altoBloque, 60) > this.cuerpoFin) this.nuevaPagina();
-    const xTexto = M + 5;
+    const xTexto = M + SANGRIA_ANALISIS;
     const yTitulo = this.y + 4;
     const paginaInicio = this.nPagina;
     this.doc.setFont('helvetica', 'bold');
@@ -758,20 +905,30 @@ class Compositor {
     this.doc.setTextColor(...(bloque.estado === 'desactualizado' ? ROJO : AMBAR));
     this.doc.text(T(etiquetaAnalisis(bloque.estado as never)), xTexto, yTitulo + 3.6);
     this.y = yTitulo + 7.2;
-    this.parrafo(limpio, { size: TAM_ANALISIS, color: TINTA });
+    // Cuerpo JUSTIFICADO en la columna efectiva: nunca vuelve al margen del
+    // folio, ni siquiera al cruzar un salto de página (R1 §3).
+    this.parrafo(limpio, { size: TAM_ANALISIS, color: TINTA, margenIzq: SANGRIA_ANALISIS, ancho: anchoCuerpo });
     // Filete lateral ámbar que abraza título y cuerpo (proporción moderada).
     // Si el cuerpo cruzó un salto de página, el filete acompaña en DOS
-    // segmentos (nunca con coordenadas de la página anterior).
-    this.doc.setDrawColor(...AMBAR_BORDE);
-    this.doc.setLineWidth(0.9);
+    // segmentos (nunca con coordenadas de la página anterior). El color y el
+    // grosor se fijan TRAS cada setPage: el estado gráfico no viaja entre
+    // páginas (R1 §3).
+    const filete = (pagina: number, yDesde: number, yHasta: number) => {
+      this.doc.setPage(pagina);
+      this.doc.setDrawColor(...AMBAR_BORDE);
+      this.doc.setLineWidth(0.9);
+      this.doc.line(M + 1.2, yDesde, M + 1.2, yHasta);
+    };
     if (this.nPagina === paginaInicio) {
-      this.doc.line(M + 1.2, yTitulo - 2.6, M + 1.2, this.y - 3.2);
+      filete(paginaInicio, yTitulo - 2.6, this.y - 3.2);
     } else {
       const paginaFin = this.nPagina;
-      this.doc.setPage(paginaInicio);
-      this.doc.line(M + 1.2, yTitulo - 2.6, M + 1.2, this.cuerpoFin - 1);
+      filete(paginaInicio, yTitulo - 2.6, this.cuerpoFin - 1);
+      // El segmento de continuación abraza la primera línea reanudada (su
+      // línea base queda en cuerpoInicio tras nuevaPagina): mismo aire
+      // superior que el del título (−2,6 mm), sin tocar el encabezado fijo.
+      filete(paginaFin, this.cuerpoInicio - 2.6, this.y - 3.2);
       this.doc.setPage(paginaFin);
-      this.doc.line(M + 1.2, this.cuerpoInicio + 1, M + 1.2, this.y - 3.2);
     }
     this.y += 2.5;
     this.registrarElemento('analisis');
