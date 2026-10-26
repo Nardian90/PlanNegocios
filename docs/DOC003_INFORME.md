@@ -125,7 +125,7 @@ página de baja ocupación sin razón de la lista anterior).
   de utilización de recursos el área de trazado es modesta frente a leyenda
   (limitación heredada del tamaño fijo de figura, ver §6).
 - **Comparación explícita antes/después** (evidencia en
-  `docs/capturas/doc003-antes-*.png` / `doc003-despues-*.png`): rejilla
+  `docs/capturas/doc003-antes-*.png` / `doc003-r1-antes-*.png` (renormalizadas como evidencia «antes» de R1)): rejilla
   completa → filetes horizontales; 6 pt → cuerpos ≥ 7,5 pt con aire; bloques de
   párrafos con bordes derechos rectos medidos.
 - Nota de método: en una pasada el modelo de visión opinó desde miniaturas
@@ -191,7 +191,160 @@ misión.
 - Documentación: `docs/DOC003_GUIA_EDITORIAL.md` (guía adoptada),
   `docs/DOC003_INFORME.md` (este informe).
 - Evidencias: `docs/capturas/doc003-antes-*.png` (línea base, etiquetadas
-  «antes») y `doc003-despues-*.png` (regeneradas de los PDF actuales),
+  «antes»), `doc003-r1-antes-*.png` (el estado DOC-003 fusionado, «antes» de R1) y `doc003-r1-despues-*.png` (regeneradas de los PDF actuales),
   hojas de contacto de los 32+30 páginas.
 - Regresión regenerada: `docs/ejemplos/Ejemplo_Clinica_Plan_de_Negocios.pdf`
   (32 págs.) y `_USD.pdf` (30 págs.), Word CUP/USD y libro Excel.
+
+---
+
+# PLANEX-DOC-003-R1 — Corrección de colisiones tipográficas y cierre editorial
+
+Continuación sobre el estado fusionado del PR #8 (DOC-003). Todas las
+mediciones de este informe provienen de los PDF realmente renderizados
+(posiciones `Td`/`Tj` y trazos `m`/`l S` extraídos de los flujos de contenido,
+verificación por píxel a 600 dpi y revisión visual asistida), no de valores
+internos del compositor.
+
+## R1.1 Estado real de partida (verificado, no asumido)
+
+- **PR #8 fusionado** el 26/10/2026 02:43:34Z por el propietario (el informe
+  de cierre de DOC-003 lo había entregado SIN fusionar; no existe constancia
+  de una autorización explícita más allá del propio merge).
+- **GitHub Pages ACTIVO** (`build_type: workflow`, fuente `main`): el deploy
+  del commit `ca1b658` (post-merge) completó con éxito; el sitio público
+  incluye DOC-003. Esta misión NO revierte, NO fusiona y NO toca el despliegue.
+- Sin PRs abiertos al comenzar. Rama de trabajo: `doc/planex-doc-003-r1-colisiones`
+  desde `main` (`ca1b658`).
+
+## R1.2 Causa raíz de cada colisión (medida antes de corregir)
+
+| # | Defecto | Causa raíz medida |
+|---|---------|-------------------|
+| 1 | Campos 4.1/4.2: etiquetas y valores casi solapados | `campos()` dibujaba la etiqueta con línea base en `y+3` y avanzaba el cursor solo 5,2 mm → separación de líneas base de 2,2 mm; cajas de fuente solapadas 5,9 pt (p. ej. «Elaborado por:» [98,1–110,5] vs valor [104,6–116,6]). Revisión visual: «cramped» |
+| 2 | Texto de análisis invadiendo el filete ámbar | `analisis()` dibujaba título en `x = M+5` pero el cuerpo con `parrafo()` al margen por defecto `M` → el cuerpo nacía 5 mm a la IZQUIERDA del título y cruzaba la banda del filete `[M+0,75, M+1,65]`; medición por píxel: 1 181–1 241 px ámbar dentro de las filas de texto, el filete cortaba la primera letra de CADA línea. La estimación de altura usaba `anchoUtil−6` mientras el render usaba el ancho completo |
+| 3 | Cifras comprimidas silenciosamente (latente) | La rama `factor = anchoUtil/suma` del ajustador de tablas escalaba TODAS las columnas — cifras incluidas — cuando la holgura de las columnas de texto no bastaba. Ninguna tabla de la regresión la activaba (verificado por instrumentación), pero la ruta existía y contradecía la regla editorial |
+| 4 | Página apaisada de flujos al 40,5 % | Tabla 16 + nota terminaban a 88 mm de los 170 mm útiles; la Figura 3 (indivisible) no cabía y marchaba a página vertical propia; ningún elemento acompañaba a la tabla |
+| 5 | (hallazgos nuevos de la auditoría posicional) Nota de la portada desbordando el margen derecho (54,8 mm más allá; llegaba a x=596,8 pt en un folio de 595,3) y título 4.6 huérfano al pie de la pág. 6 | Nota escrita como línea única sin ajuste; `tituloCapitulo` solo reservaba 22 mm de contenido siguiente |
+
+## R1.3 Correcciones (con referencias de archivo)
+
+- **`src/lib/planex/io/pdf.ts`**
+  - `parrafo()` ampliado con `margenIzq`/`ancho` propios: el cuerpo de un
+    análisis se compone en SU columna (M+5 → margen derecho), justificado con
+    la anchura efectiva, y **el margen sobrevive al cruce de página** (el
+    texto nunca vuelve al margen del folio dentro del mismo párrafo).
+  - `campos()` reescrito: constante `CAMPO.sepEtiquetaValor = 4,4 mm`
+    (derivada de las métricas: descenso 9 pt ≈ 0,67 mm + ascenso 8,7 pt
+    ≈ 2,93 mm + aire ≥ 0,4 mm; mínimo ≈ 4,0 mm). `altoCampo()` mide cada
+    campo con la MISMA anchura con la que se dibuja; el campo es atómico;
+    la **división equilibrada** adelanta el corte cuando la cola quedaría
+    con < 35 % de página (páginas de campos casi vacías: eliminadas).
+  - `analisis()` reescrito: título, etiqueta y cuerpo en la columna M+5;
+    la altura se estima con la MISMA anchura del render; el filete se dibuja
+    con un auxiliar que fija color y grosor TRAS cada `setPage` (el estado
+    gráfico no viaja entre páginas); en cruces, el segmento de continuación
+    abraza la primera línea reanudada con el mismo aire (−2,6 mm).
+  - Ajustador de tablas: **eliminada la rama de escalado proporcional
+    silencioso**. Cadena documentada: 1) fuente hasta el suelo → 2) compresión
+    solo de columnas de TEXTO hacia su suelo → 3) orientación apaisada por
+    CONTENIDO (`requiereApaisada` sin puerta de `ancha`; el campo queda como
+    pista de autoría) → 4) **división en bloques lógicos de columnas**
+    (`dividirTablaEnBloques`: columna de conceptos repetida, encabezados y
+    títulos «(parte i de n)», nota en la última parte, fuente heredada).
+    El sobrante reparte aire PRIMERO a las columnas de texto; las cifras
+    conservan siempre su anchura natural + aire lateral.
+  - Absorción en bloques apaisados con **altura real** (`altoElementoAbsorbible`):
+    un elemento liviano se absorbe solo si su altura cabe — sin páginas de
+    desborde; la «lectura de la tabla» de 4.7.1 acompaña a su tabla.
+  - `tituloCapitulo` con arranque digno calculado del PRIMER elemento real
+    de la sección (`altoArranqueSeccion`): títulos huérfanos eliminados.
+  - Tipografía apaisada más generosa: objetivo 8,5 pt (era 8) y relleno
+    vertical 1,8 mm (era 1,25) en tablas apaisadas.
+  - Nota de generación de la portada ajustada al ancho útil (multilínea).
+  - `medirTextoHelvetica()` exportada para que las prueben midan cajas reales.
+- **`src/lib/planex/doc/construir.ts`**: «Lectura de la tabla» en 4.7.1 —
+  interpretación breve y TRAZABLE (mismos valores de las filas: año de cruce,
+  saldos a 0,0, escudo máximo), junto a la tabla y antes de la figura.
+- **`src/lib/planex/io/docx.ts`**: la fuente de tabla sigue la orientación por
+  contenido (`esApaisadaWord`), no la declaración «ancha»; el DOCX hereda el
+  criterio unificado de `requiereApaisada` (sin cambios de contenido).
+
+## R1.4 Resultado medido (antes → después)
+
+| Métrica (PDF CUP, 32 páginas antes y después) | Antes (PR #8) | Después (R1) |
+|---|---|---|
+| Separación de líneas base etiqueta→valor (campos) | 2,2 mm (cajas solapadas 5,9 pt) | 4,4 mm (hueco de tinta mínimo 1,48 mm; típico 2,12 mm, medido a 600 dpi) |
+| Cuerpo de análisis vs. filete ámbar | filete cortando la 1.ª letra de cada línea (1 181–1 241 px ámbar dentro de texto) | cuerpo en M+5; banda del filete libre; 0 palabras con x < 18,6 mm en las 12 bandas |
+| Anchura de estimación vs. render del análisis | `anchoUtil−6` vs. `anchoUtil` | la misma (`anchoUtil−5`) |
+| Desborde máximo del margen derecho | +54,78 mm (nota de portada, fuera del folio) | −0,00 mm (línea justificada al ras) |
+| Títulos de capítulo huérfanos | 1 (4.6 al pie de pág. 6) | 0 |
+| Página apaisada de flujos (Tabla 16) | 40,5 % | 51,7 % (tabla + lectura trazable; la Figura 3 necesita página propia) |
+| Páginas con ocupación < 35 % (CUP, sin portada/índice) | 0 con 1 excepción apaisada al 40,5 % | 0 (la apaisada mínima ahora es 51,7 %; la cola de campos de 4.8 pasó de 26,6 % a 37,2 %) |
+| Página final del USD | 36,6 % (base) → 15,5 % tras el primer reflow de R1 | 41,0 % (división equilibrada) |
+| Palancas de ajuste de tablas (CUP) | factor silencioso latente | 10 tablas «fuente», 6 «texto», 0 «division-columnas», 0 escalado de cifras |
+
+## R1.5 Excepciones de densidad vigentes (con justificación real)
+
+- **Pág. 2 (índice)**: 41,4 % — el índice es lo que hay; no se rellena.
+- **Pág. 15 (apaisada, flujos)**: 51,7 % — tabla 16 + su lectura; la Figura 3
+  (indivisible, ~135 mm) no cabe en los ~70 mm restantes y se compone en
+  página propia (96–99 % de ocupación). El aire restante es consecuencia de
+  legibilidad y orientación, no de descuido.
+- **Pág. 18 (cola de campos de 4.8)**: 37,2 % — cierre vertical de la sección
+  antes del bloque apaisado de la Tabla 18; la división equilibrada garantiza
+  ≥ 35 % de arranque digno.
+- **Pág. 30/32 (final del documento, USD/CUP)**: 41,0 %/70,5 % — cierre del
+  documento con las notas finales y el aviso de demostración.
+
+## R1.6 Pruebas nuevas (sobre posiciones dibujadas, no intenciones)
+
+`tests/planex/doc003.test.ts` pasa de 23 a **42 pruebas**; las 19 nuevas usan
+`tests/planex/util_pdf_posiciones.ts` (parser de los flujos de contenido del
+PDF: cada `Tj` con su posición/tamaño/fuente, cada trazo con su color/grosor):
+
+- §2 campos: separación ≥ 4,0 mm en regresión CUP+USD; etiqueta y valor en la
+  misma página; multilínea sin invadir la etiqueta siguiente; sintéticos con
+  una línea/valores largos/guiones/fechas/vacíos/desbordes; división
+  equilibrada ≥ 35 %.
+- §3 análisis: ninguna palabra invade el filete (regresión + sintético);
+  título y cuerpo comparten columna; el filete abraza al bloque; cruce de
+  página con margen propio y dos segmentos ámbar.
+- §4 cifras: columnas numéricas ≥ su cifra más ancha + aire; ajuste
+  documentado; sintético de 14 columnas sin marca «ancha» → apaisado por
+  contenido; 22 columnas → división con conceptos repetidos, títulos de parte
+  y TODOS los valores presentes.
+- §5 densidad: apaisadas ≥ 40 %; la de flujos ≥ 45 % con su lectura en la
+  MISMA página (y citando valores del modelo).
+- §6 colisiones generales: zona de pie limpia; margen derecho respetado
+  (+0,6 mm) en ambas orientaciones; banda bajo cabecera libre; sin títulos
+  huérfanos; continuidad tras saltos de orientación.
+
+**Las pruebas §2 y §3 fallan con el código anterior** (separación 2,2 mm y
+x=14 mm < 18,6 mm respectivamente), como exige la misión.
+
+## R1.7 Verificación ejecutada realmente
+
+- `bun test tests/planex/` → **393/393 pruebas** (69 471 comprobaciones).
+- `tsc --noEmit` → 0 errores. `eslint .` → 0 problemas.
+- `bun run build` (estático) → OK.
+- Exportación de regresión: PDF CUP (32 págs.) + USD (30), DOCX ambos, XLSX.
+- Cifras canónicas intactas: 719.075,4 kCUP / 967,8 kUSD / 1.099.640,0 kCUP
+  / recuperaciones 3,46–3,22 años (motor sin tocar).
+- Renderizado de TODAS las páginas (110 dpi) + hojas de contacto; revisión
+  visual asistida de las páginas 3, 4, 12, 15, 16, 18 y hojas completas.
+- Medición posicional de colisiones antes/después (tabla R1.4).
+
+## R1.8 Limitaciones pendientes
+
+- La página apaisada de flujos conserva ~48 % de aire tras la lectura; llenarla
+  más exigiría mover la figura (indivisible) o inventar contenido.
+- La división de tablas por columnas repite la columna de conceptos y numera
+  las partes; no fusiona celdas de encabezado agrupadas (p. ej. años bajo
+  «Operativo/Inversión»).
+- El parser de pruebas asume la numeración fija de fuentes de jsPDF
+  (/F1 normal, /F2 negrita) — válida para las fuentes estándar usadas.
+- DOCX: la paginación de Word difiere por diseño; el criterio de orientación
+  por contenido se comparte, pero Word no reproduce la división en bloques
+  de columnas (envuelve celdas), y no se considera defecto.
+

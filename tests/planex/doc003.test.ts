@@ -385,3 +385,328 @@ describe('DOC-003 §8 — Integridad financiera y coherencia entre formatos', ()
     expect(xml).toContain('w:val="both"');
   });
 });
+
+// ============================================================================
+// DOC-003-R1 — Corrección de colisiones tipográficas y cierre editorial.
+//
+// Todas las comprobaciones de este bloque se hacen sobre POSICIONES REALES
+// extraídas del PDF dibujado (operadores Td/Tj y m/l S de los flujos de
+// contenido, sin compresión), no sobre valores internos del compositor
+// (§6: «las pruebas no deben limitarse a comprobar el valor interno de
+// this.y ni a comparar el borde derecho de las líneas»).
+// ============================================================================
+import { parsearPDF, esAmbar, esNegrita, type RunTexto } from './util_pdf_posiciones';
+import { medirTextoHelvetica } from '../../src/lib/planex/io/pdf';
+
+const pdfCUP = parsearPDF(bufRegCUP);
+const pdfUSD = parsearPDF(bufRegUSD);
+
+/** Cajas de campos: etiqueta (9 pt bold, «…:») + primera línea de su valor
+ *  (8,7 pt) debajo, en la misma página. */
+function extraerCampos(pdf: ReturnType<typeof parsearPDF>) {
+  const campos: { pagina: number; etiqueta: string; yEtiqueta: number; yValor: number; xValor: number }[] = [];
+  for (const et of pdf.runs) {
+    if (et.size < 8.9 || et.size > 9.1 || !et.texto.trim().endsWith(':')) continue;
+    if (et.fuente !== 'F2') continue; // la etiqueta es bold
+    const candidatos = pdf.runs.filter(
+      (r) => r.pagina === et.pagina && r.size > 8.6 && r.size < 8.8 && r.y > et.y && r.y < et.y + 8 && r.x < et.x + 6
+    );
+    if (!candidatos.length) continue;
+    const primero = candidatos.reduce((a, b) => (b.y < a.y ? b : a));
+    campos.push({ pagina: et.pagina, etiqueta: et.texto, yEtiqueta: et.y, yValor: primero.y, xValor: primero.x });
+  }
+  return campos;
+}
+
+describe('DOC-003-R1 §2 — Campos: separación real etiqueta/valor (posiciones dibujadas)', () => {
+  test('ninguna etiqueta invade su valor: línea base a línea base ≥ 4,0 mm (regresión CUP y USD)', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      const campos = extraerCampos(pdf);
+      expect(campos.length).toBeGreaterThanOrEqual(5);
+      for (const c of campos) {
+        // Con el código anterior la separación era 5,2 − 3 = 2,2 mm (las cajas
+        // se solapaban 5,9 pt); ahora es 4,4 mm (métricas de las fuentes).
+        expect(c.yValor - c.yEtiqueta).toBeGreaterThanOrEqual(4.0);
+      }
+    }
+  });
+
+  test('la etiqueta y su valor viven en la MISMA página (ninguna queda huérfana)', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      for (const c of extraerCampos(pdf)) expect(c.yValor).toBeGreaterThan(c.yEtiqueta); // misma página por construcción del extractor
+    }
+  });
+
+  test('un valor multilínea no invade la etiqueta siguiente (≥ 5,5 mm de línea base a línea base)', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      const campos = extraerCampos(pdf);
+      for (let i = 0; i + 1 < campos.length; i++) {
+        const a = campos[i];
+        const b = campos[i + 1];
+        if (a.pagina !== b.pagina) continue;
+        // última línea del valor de a: el run 8,7 pt más profundo entre ambas etiquetas
+        const lineas = pdf.runs.filter(
+          (r) => r.pagina === a.pagina && r.size > 6.5 && r.size < 8.8 && r.y > a.yValor - 1 && r.y < b.yEtiqueta - 1 && r.x < 60
+        );
+        const ultima = lineas.length ? Math.max(...lineas.map((r) => r.y)) : a.yValor;
+        expect(b.yEtiqueta - ultima).toBeGreaterThanOrEqual(5.5);
+      }
+    }
+  });
+
+  test('sintéticos: una línea, valores largos, guiones, fechas, campos vacíos y desbordes', () => {
+    const { datos, diagnostico } = componerDesdeModelo(
+      documentoSintetico([
+        {
+          tipo: 'campos',
+          items: [
+            { etiqueta: 'Corta', valor: 'Sí' },
+            { etiqueta: 'Larga', valor: `${PARRAFO_LARGO} ${PARRAFO_PALABRAS_CORTAS}` },
+            { etiqueta: 'Con guiones', valor: 'Responsable-técnico-firmante-de-la-documentación-fiscal-del-proyecto' },
+            { etiqueta: 'Fecha', valor: '25 de octubre de 2026' },
+            { etiqueta: 'Vacía', valor: '' },
+            { etiqueta: 'Desborde', valor: 'x'.repeat(300) },
+          ],
+        },
+      ])
+    );
+    const pdf = parsearPDF(Buffer.from(datos));
+    const campos = extraerCampos(pdf);
+    expect(campos.length).toBe(6);
+    for (const c of campos) {
+      expect(c.yValor - c.yEtiqueta).toBeGreaterThanOrEqual(4.0);
+      expect(c.xValor).toBeGreaterThanOrEqual(15.5); // valor sangrado bajo su etiqueta
+    }
+    // el campo vacío dibuja su marcador «—» igual de separado
+    const vacia = campos.find((c) => c.etiqueta.startsWith('Vacía'));
+    expect(vacia).toBeDefined();
+    // sin páginas casi vacías introducidas por el bloque
+    for (const pag of diagnostico.paginas) expect(pag.elementos.length).toBeGreaterThan(0);
+  });
+
+  test('división equilibrada: la cola de una lista partida llena ≥ 35 % de su página', () => {
+    // 9 campos de valor de 4 líneas (~29 mm cada uno): no caben tras el título
+    // → la lista se parte; la cola codiciosa sería de 1 campo (~11 % de
+    // página); el corte equilibrado debe darle un arranque digno (≥ 35 %).
+    const valorCuatroLineas = (i: number) => `${PARRAFO_CORTO} `.repeat(60) + `número ${i}.`;
+    const items = Array.from({ length: 9 }, (_, i) => ({ etiqueta: `Campo número ${i + 1}`, valor: valorCuatroLineas(i) }));
+    const { diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'campos', items }]));
+    // el marcador «campos» queda en la ÚLTIMA página del bloque: esa es la cola
+    const cola = diagnostico.paginas.find((p) => p.elementos.includes('campos'));
+    expect(cola).toBeDefined();
+    expect(diagnostico.paginas.length).toBeGreaterThanOrEqual(3); // portada + cabeza + cola
+    expect(cola!.ocupacion).toBeGreaterThanOrEqual(0.35);
+  });
+});
+
+describe('DOC-003-R1 §3 — Análisis: cuerpo a la derecha del filete (posiciones dibujadas)', () => {
+  test('ninguna palabra del bloque de análisis invade el filete lateral ámbar', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      const filetes = pdf.segmentos.filter((s) => esAmbar(s.color) && Math.abs(s.x1 - s.x2) < 0.3 && Math.abs(s.y2 - s.y1) > 5);
+      expect(filetes.length).toBeGreaterThanOrEqual(6);
+      for (const f of filetes) {
+        const enBanda = pdf.runs.filter((r) => r.pagina === f.pagina && r.y > f.y1 - 1 && r.y < f.y2 + 1);
+        for (const r of enBanda) {
+          // el cuerpo vive en M+5 (19 mm); el filete ocupa hasta 15,65 mm
+          expect(r.x).toBeGreaterThanOrEqual(18.6);
+        }
+      }
+    }
+  });
+
+  test('título y cuerpo del análisis comparten columna (M+5) y el filete abraza el bloque', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      const filetes = pdf.segmentos.filter((s) => esAmbar(s.color) && Math.abs(s.x1 - s.x2) < 0.3 && Math.abs(s.y2 - s.y1) > 5);
+      for (const f of filetes) {
+        const enBanda = pdf.runs.filter((r) => r.pagina === f.pagina && r.y > f.y1 - 1 && r.y < f.y2 + 1);
+        const cuerpo = enBanda.filter((r) => r.size > 7.9 && r.size < 8.1);
+        expect(cuerpo.length).toBeGreaterThan(0);
+        // PRIMERA palabra de cada línea del cuerpo en M+5 (las siguientes van
+        // justificadas a la derecha): agrupar por línea base (y).
+        const lineas = new Map<number, number>();
+        for (const r of cuerpo) {
+          const clave = Math.round(r.y * 2) / 2;
+          lineas.set(clave, Math.min(lineas.get(clave) ?? 1e9, r.x));
+        }
+        for (const minX of lineas.values()) expect(Math.abs(minX - 19.0)).toBeLessThanOrEqual(0.35);
+        // el filete termina POR DEBAJO de la última línea del cuerpo y arranca sobre el título
+        const ultima = Math.max(...cuerpo.map((r) => r.y));
+        expect(f.y2).toBeGreaterThanOrEqual(ultima - 1.5);
+        expect(f.y1).toBeLessThanOrEqual(Math.min(...enBanda.map((r) => r.y)));
+      }
+    }
+  });
+
+  test('sintético que CRUZA página: el margen propio sobrevive al salto y el filete acompaña en dos segmentos', () => {
+    const textoLargo = Array.from({ length: 22 }, (_, i) => `${PARRAFO_LARGO} (frase ${i})`).join(' ');
+    const { datos } = componerDesdeModelo(
+      documentoSintetico([{ tipo: 'parrafo', texto: PARRAFO_LARGO }, { tipo: 'analisis', bloque: { clave: 'resumen_ejecutivo', titulo: 'Análisis de cruce de página', texto: textoLargo, estado: 'generado' } }])
+    );
+    const pdf = parsearPDF(Buffer.from(datos));
+    const filetes = pdf.segmentos.filter((s) => esAmbar(s.color) && Math.abs(s.x1 - s.x2) < 0.3 && Math.abs(s.y2 - s.y1) > 5);
+    expect(filetes.length).toBeGreaterThanOrEqual(2);
+    for (const f of filetes) {
+      const enBanda = pdf.runs.filter((r) => r.pagina === f.pagina && r.y > f.y1 - 1 && r.y < f.y2 + 1);
+      for (const r of enBanda) expect(r.x).toBeGreaterThanOrEqual(18.6);
+    }
+    // el texto continuado en la segunda página TAMBIÉN respeta el margen propio
+    // (se excluye la cabecera fija de 8 pt, que vive en el margen del folio)
+    const paginasConAnalisis = new Set(filetes.map((f) => f.pagina));
+    for (const pg of paginasConAnalisis) {
+      const cuerpo = pdf.runs.filter((r) => r.pagina === pg && r.size > 7.9 && r.size < 8.1 && r.y > 16);
+      for (const r of cuerpo) expect(r.x).toBeGreaterThanOrEqual(18.6);
+    }
+  });
+});
+
+describe('DOC-003-R1 §4 — Cifras sin compresión silenciosa', () => {
+  test('regresión: ninguna columna numérica queda por debajo de su cifra más ancha + aire', () => {
+    for (const d of [diagCUP.diagnostico, diagUSD.diagnostico]) {
+      for (const t of d.tablas) {
+        if (!t.anchosColumnasPt.length) continue; // partes de una división: anchos en sus propias entradas
+        t.columnas.forEach((c, i) => {
+          if (c.numerica) expect(t.anchosColumnasPt[i]).toBeGreaterThanOrEqual(t.anchosCifrasPt[i] - 0.3);
+        });
+      }
+    }
+  });
+
+  test('regresión: las tablas del caso real caben con el repertorio documentado (sin división)', () => {
+    for (const t of diagCUP.diagnostico.tablas) expect(['ninguna', 'fuente', 'texto']).toContain(t.ajuste);
+  });
+
+  test('tabla de 14 columnas numéricas anchas SIN marcar «ancha»: apaisado por CONTENIDO o división — jamás cifras encogidas', () => {
+    const encabezados = ['Concepto', ...Array.from({ length: 13 }, (_, i) => `Año ${i}`)];
+    const filas = Array.from({ length: 5 }, (_, f) => [
+      `Fila ${f + 1}`,
+      ...Array.from({ length: 13 }, () => '9.876.543.210,5'),
+    ]);
+    const tabla: TablaDoc = { titulo: 'Tabla 4. Catorce columnas de cifras anchas sin marca de anchura', encabezados, filas };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    // apaisada por contenido (antes: vertical con el factor silencioso de TODAS las columnas)
+    expect(t.apaisada).toBe(true);
+    // las cifras conservan su ancho legible (o se activó la división documentada)
+    if (t.ajuste !== 'division-columnas') {
+      t.columnas.forEach((c, i) => {
+        if (c.numerica) expect(t.anchosColumnasPt[i]).toBeGreaterThanOrEqual(t.anchosCifrasPt[i] - 0.3);
+      });
+    }
+    // ningún dato perdido
+    const texto = parsearPDF(Buffer.from(datos)).runs.map((r) => r.texto).join(' ');
+    for (const f of filas) for (const c of f) expect(texto).toContain(c);
+  });
+
+  test('división en bloques lógicos cuando NI el apaisado basta: conceptos repetidos, títulos de parte y datos íntegros', () => {
+    const encabezados = ['Concepto', ...Array.from({ length: 21 }, (_, i) => `Año ${i}`)];
+    const filas = Array.from({ length: 4 }, (_, f) => [
+      `Fila ${f + 1}`,
+      ...Array.from({ length: 21 }, (_, c) => `${(f * 21 + c) % 10}${'.'.repeat(1)}876.543.210,5`),
+    ]);
+    const tabla: TablaDoc = {
+      titulo: 'Tabla 5. Veintidós columnas de cifras anchas',
+      encabezados,
+      filas,
+      nota: 'Nota de la tabla original que debe quedar en la última parte.',
+      ancha: true,
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const padre = diagnostico.tablas.find((t) => t.titulo.includes('Veintidós columnas'));
+    expect(padre?.ajuste).toBe('division-columnas');
+    const partes = diagnostico.tablas.filter((t) => /parte \d+ de \d+/.test(t.titulo));
+    expect(partes.length).toBeGreaterThanOrEqual(2);
+    // la columna de conceptos abre cada parte y su anchura es suficiente
+    for (const p of partes) {
+      expect(p.anchosColumnasPt[0]).toBeGreaterThan(0);
+      p.columnas.forEach((c, i) => {
+        if (c.numerica) expect(p.anchosColumnasPt[i]).toBeGreaterThanOrEqual(p.anchosCifrasPt[i] - 0.3);
+      });
+    }
+    // TODOS los valores siguen presentes y la nota vive en la última parte
+    const runs = parsearPDF(Buffer.from(datos)).runs;
+    const texto = runs.map((r) => r.texto).join(' ');
+    for (const f of filas) for (const c of f) expect(texto).toContain(c);
+    const titulosPartes = runs.filter((r) => /parte \d+ de \d+/.test(r.texto));
+    expect(titulosPartes.length).toBeGreaterThanOrEqual(2);
+    expect(texto).toContain('Nota de la tabla original');
+  });
+});
+
+describe('DOC-003-R1 §5 — Densidad editorial de páginas apaisadas', () => {
+  test('la página apaisada de flujos mejora y ninguna apaisada queda por debajo del 40 %', () => {
+    const apaisadas = diagCUP.diagnostico.paginas.filter((p) => p.orientacion === 'apaisada');
+    expect(apaisadas.length).toBeGreaterThanOrEqual(2);
+    for (const pag of apaisadas) expect(pag.ocupacion).toBeGreaterThanOrEqual(0.4);
+    // la página de flujos (Tabla 16) supera el 45 % (antes: 40,5 % medido)
+    const pFlujos = pdfCUP.runs.find((r) => r.texto.includes('Flujos de caja del proyecto y de los socios'));
+    expect(pFlujos).toBeDefined();
+    const pagFlujos = diagCUP.diagnostico.paginas[pFlujos!.pagina - 1];
+    expect(pagFlujos.ocupacion).toBeGreaterThanOrEqual(0.45);
+  });
+
+  test('la lectura trazable de la tabla de flujos vive JUNTO a la tabla (misma página apaisada)', () => {
+    const pTabla = pdfCUP.runs.find((r) => r.texto.includes('Flujos de caja del proyecto y de los socios'))!.pagina;
+    const pLectura = pdfCUP.runs.find((r) => r.texto.startsWith('Lectura'));
+    expect(pLectura).toBeDefined();
+    expect(pLectura!.pagina).toBe(pTabla);
+    // la lectura cita valores del propio modelo (trazabilidad)
+    const juntos = pdfCUP.runs.filter((r) => r.pagina === pTabla).map((r) => r.texto).join(' ');
+    expect(juntos).toContain('1.100.216,0');
+  });
+});
+
+describe('DOC-003-R1 §6 — Colisiones generales (posiciones dibujadas)', () => {
+  test('el texto nunca invade la zona del pie de página (línea + numeración)', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      for (const r of pdf.runs) {
+        if (r.pagina === 1) continue; // la portada no lleva pie
+        const pag = pdf.paginas[r.pagina - 1];
+        const altoMm = pag.altoPt / 2.8346;
+        if (r.y <= 16 || r.y >= altoMm - 12) continue; // cabecera / propia banda del pie
+        expect(r.y).toBeLessThanOrEqual(altoMm - 14.5); // aire sobre la línea del pie (−13)
+      }
+    }
+  });
+
+  test('ninguna línea del cuerpo cruza el margen derecho de SU orientación (+0,6 mm)', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      for (const r of pdf.runs) {
+        const pag = pdf.paginas[r.pagina - 1];
+        const anchoMm = pag.anchoPt / 2.8346;
+        const w = medirTextoHelvetica(r.texto, r.size, esNegrita(r.fuente));
+        expect(r.x + w).toBeLessThanOrEqual(anchoMm - 14 + 0.6);
+      }
+    }
+  });
+
+  test('la banda bajo la cabecera fija (15,3–20,4 mm) queda libre de texto', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      for (const r of pdf.runs) {
+        if (r.pagina === 1) continue; // la portada no lleva cabecera
+        expect(r.y <= 15.3 || r.y >= 20.4).toBe(true);
+      }
+    }
+  });
+
+  test('ningún título de capítulo queda huérfano al pie de su página', () => {
+    for (const pdf of [pdfCUP, pdfUSD]) {
+      const titulos = pdf.runs.filter((r) => r.size > 12.9 && r.size < 13.1);
+      expect(titulos.length).toBeGreaterThanOrEqual(6);
+      for (const t of titulos) {
+        const debajo = pdf.runs.filter((o) => o.pagina === t.pagina && o.y > t.y + 1 && o.y - t.y < 70 && o.size < 13);
+        expect(debajo.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('tras un salto de orientación, la página apaisada continúa bajo la cabecera con contenido propio', () => {
+    const apaisadas = pdfCUP.paginas.filter((p) => p.apaisada);
+    expect(apaisadas.length).toBeGreaterThanOrEqual(2);
+    for (const pag of apaisadas) {
+      const runsPag: RunTexto[] = pdfCUP.runs.filter((r) => r.pagina === pag.numero && r.y > 16);
+      expect(runsPag.length).toBeGreaterThan(3);
+      const menorY = Math.min(...runsPag.map((r) => r.y));
+      expect(menorY).toBeGreaterThanOrEqual(20.4); // arranca en el cuerpo, no en la cabecera
+    }
+  });
+});

@@ -154,3 +154,53 @@ aislado (la tabla ancha y su contexto) y la **cola final del documento**.
 Cualquier otra página por debajo del umbral es un defecto de paginación y debe
 revisarse. La auditoría automatizada vive en `DiagnosticoComposicion` y en
 `tests/planex/doc003.test.ts`.
+
+---
+
+# Adenda DOC-003-R1 — Reglas de colisión y cierre editorial
+
+## Campos etiquetados (4.1, 4.2, 4.8)
+
+- La etiqueta (9 pt negrita) y su valor (8,7 pt) viven en líneas base
+  SEPARADAS 4,4 mm, derivadas de las métricas de la fuente (descenso +
+  ascenso + aire ≥ 0,4 mm). El valor se sangra 2 mm bajo su etiqueta.
+- Un campo es atómico: nunca se parte entre páginas.
+- Una lista de campos que no cabe se divide EQUILIBRADA: la cola conserva
+  al menos el 35 % de una página (nada de colas de 1–2 campos huérfanos).
+- La altura de cada campo se mide con la misma anchura con la que se dibuja.
+
+## Bloques de análisis y filete decorativo
+
+- Título, etiqueta de estado y cuerpo comparten la columna M+5.
+- El cuerpo NUNCA nace en el margen del folio: vive a la derecha del filete
+  y CONSERVA su margen al cruzar saltos de página.
+- La altura se estima con la MISMA anchura del render (sin anchos falsos).
+- El filete se dibuja con color y grosor fijados tras cada cambio de página;
+  en cruces, abraza la primera línea reanudada con el mismo aire superior.
+
+## Tablas: cadena de ajuste documentada
+
+1. Reducción de fuente hasta el suelo (≥ 8,5 pt vertical / ≥ 7 pt apaisada).
+2. Compresión SOLO de columnas de texto hacia su suelo.
+3. Orientación apaisada por CONTENIDO (la declaración «ancha» es una pista,
+   no una puerta).
+4. División en bloques lógicos de columnas: conceptos repetidos,
+   encabezados y títulos «(parte i de n)», nota en la última parte.
+
+**Prohibido**: el escalado proporcional silencioso de TODAS las columnas
+(las cifras, porcentajes, códigos y unidades no se comprimen nunca). El
+sobrante de anchura reparte aire primero a las columnas de TEXTO.
+
+## Paginación y títulos
+
+- El título de capítulo reserva como «arranque digno» la altura real de su
+  primer contenido (no una constante): nada de títulos huérfanos al pie.
+- La absorción en bloques apaisados usa la ALTURA REAL del elemento liviano;
+  su lectura pertenece junto a la tabla que interpreta.
+- Ningún texto invade: la banda del pie (línea + numeración), la banda bajo
+  la cabecera fija, ni el margen derecho de su orientación.
+
+## Portada
+
+- Toda línea de la portada se ajusta al ancho útil (la nota de generación
+  se envuelve en varias líneas; jamás desborda el folio).
