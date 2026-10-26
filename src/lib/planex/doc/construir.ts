@@ -100,12 +100,15 @@ export function construirDocumentoPlanex(
   };
 
   const secciones: SeccionDoc[] = [];
+  // DOC-003 §4.1: política de paginación por niveles — los capítulos FLUYEN
+  // por defecto; el compositor abre página solo cuando no queda un arranque
+  // digno. paginaNueva queda como anulación editorial explícita.
   const sec = (id: string, titulo: string, elementos: ElementoDoc[], opts?: { enIndice?: boolean; paginaNueva?: boolean }) =>
     secciones.push({
       id,
       titulo,
       enIndice: opts?.enIndice ?? true,
-      paginaNueva: opts?.paginaNueva ?? true,
+      paginaNueva: opts?.paginaNueva ?? false,
       elementos,
     });
   const campos = (items: [string, string][]): ElementoDoc => ({
@@ -163,7 +166,7 @@ export function construirDocumentoPlanex(
       ['Nombre del proyecto', p.titulo.nombreProyecto || '—'],
       ['Denominación de la propuesta', p.titulo.denominacionPropuesta || '—'],
     ]),
-  ], { paginaNueva: true });
+  ]);
 
   // ============================================================ 4.4 Resumen
   sec('4.4', '4.4  Resumen ejecutivo', [
@@ -440,6 +443,8 @@ export function construirDocumentoPlanex(
           ['Capital de trabajo (kUSD)', `${fmtK(param('capital_trabajo_k'))} kUSD`, K(param('capital_trabajo_k'))],
           ['INVERSIÓN TOTAL', `${fmtK(m.indicadores.inversionTotalKUSD)} kUSD`, K(m.indicadores.inversionTotalKUSD)],
         ],
+        resaltar: [4],
+        nota: '«Monto original»: moneda en que se factura cada partida; la columna equivalente convierte con el tipo de cambio parametrizado. No se suman monedas distintas sin convertir.',
       },
     },
     {
@@ -460,6 +465,8 @@ export function construirDocumentoPlanex(
           ['Necesidad de financiación', K(val('necesidad_financiacion_k', 0))],
           ['Diferencia (exceso/insuficiencia)', K(val('diferencia_financiacion_k', 0))],
         ],
+        resaltar: [3, 4, 5],
+        nota: 'Conciliación TOTAL del proyecto (comprometido para todo el horizonte); la dimensión temporal se controla en la tabla siguiente.',
       },
     },
     analisis('inversion_financiacion', 'Análisis de inversión y financiación'),
@@ -561,6 +568,7 @@ export function construirDocumentoPlanex(
   elementos47.push(analisis('deuda_depreciacion', 'Análisis de deuda y depreciación'));
   const headProj: string[] = ['Concepto', 'Unidad', ...years.map((t) => (t === 0 ? 'Año 0' : `Año ${t}`)), 'Total'];
   const filasProj: string[][] = [];
+  const filasProjResaltar = new Set<number>();
   for (const grupo of ESTADO_RESULTADOS) {
     for (const linea of grupo.lineas) {
       const fila: string[] = [linea.etiqueta, ctx.unidadCorta];
@@ -572,6 +580,7 @@ export function construirDocumentoPlanex(
       }
       fila.push(K(total));
       filasProj.push(fila);
+      if (linea.negrita) filasProjResaltar.add(filasProj.length - 1);
     }
   }
   for (const id of ['amortizacion_k', 'saldo_deuda_k', 'dividendos_pagables_k']) {
@@ -589,6 +598,8 @@ export function construirDocumentoPlanex(
       encabezados: headProj,
       filas: filasProj,
       ancha: true,
+      resaltar: [...filasProjResaltar].sort((a, b) => a - b),
+      nota: 'Subtotales y utilidades en negrita con filete superior. Las líneas «(memoria)» no son gastos: documentan flujos de financiación.',
     },
   });
   elementos47.push(analisis('ingresos_costos', 'Análisis de ingresos, costos y utilidades'));
@@ -610,22 +621,31 @@ export function construirDocumentoPlanex(
     },
     {
       tipo: 'tabla',
-      tabla: {
-        titulo: `Flujos de caja del proyecto y de los socios (${ctx.unidadLarga}; con el escudo fiscal del interés después de impuestos)`,
-        encabezados: [`Concepto (${ctx.unidadCorta})`, ...years.map((t) => (t === 0 ? 'Año 0' : `Año ${t}`))],
-        filas: [
+      tabla: (() => {
+        const filas471: string[][] = [
           ['Flujo del PROYECTO (FCFF)', ...years.map((t) => K(m.indicadores.fcff[t] ?? 0))],
           ['Flujo acumulado del proyecto', ...years.map((t) => K(m.indicadores.fcffAcumulado[t] ?? 0))],
           ['Saldo pendiente de recuperar (inversión total)', ...years.map((t) => K(val('saldo_pendiente_proyecto_k', t)))],
-          ...(Object.values(m.indicadores.escudoFiscal).some((v) => v > 0.001)
-            ? [['Escudo fiscal del interés devengado', ...years.map((t) => K(m.indicadores.escudoFiscal[t] ?? 0))] as string[]]
-            : []),
+        ];
+        const resaltar471 = [0];
+        if (Object.values(m.indicadores.escudoFiscal).some((v) => v > 0.001)) {
+          filas471.push(['Escudo fiscal del interés devengado', ...years.map((t) => K(m.indicadores.escudoFiscal[t] ?? 0))]);
+        }
+        resaltar471.push(filas471.length);
+        filas471.push(
           ['Flujo de los SOCIOS (FCFE)', ...years.map((t) => K(m.indicadores.fcfe[t] ?? 0))],
           ['Flujo acumulado de los socios', ...years.map((t) => K(m.indicadores.fcfeAcumulado[t] ?? 0))],
           ['Saldo pendiente de recuperar (capital aportado)', ...years.map((t) => K(val('saldo_pendiente_socios_k', t)))],
-        ],
-        ancha: true,
-      },
+        );
+        return {
+          titulo: `Flujos de caja del proyecto y de los socios (${ctx.unidadLarga}; con el escudo fiscal del interés después de impuestos)`,
+          encabezados: [`Concepto (${ctx.unidadCorta})`, ...years.map((t) => (t === 0 ? 'Año 0' : `Año ${t}`))],
+          filas: filas471,
+          ancha: true,
+          resaltar: resaltar471,
+          nota: 'FCFF y FCFE en negrita: flujos de referencia de los dos indicadores de recuperación. El saldo pendiente no es un flujo: es la inversión pendiente de recuperar.',
+        };
+      })(),
     },
     ...fig('flujos'),
     {
@@ -697,6 +717,7 @@ export function construirDocumentoPlanex(
           encabezados: ['Canal', ...years.filter((t) => t > 0).map((t) => `Año ${t}`), 'Total'],
           filas: [...filasCanal, ['TOTAL', ...years.filter((t) => t > 0).map((t) => K(val('ingresos_servicios_k', t))), K(total / 1000)]],
           ancha: true,
+          resaltar: [filasCanal.length],
         },
       },
       {
@@ -726,6 +747,7 @@ export function construirDocumentoPlanex(
 
   // ============================================================ 4.9 Fuerza
   const filasPer: string[][] = [];
+  let filasPerResaltar: number | undefined;
   const grupos = ['cubano_directivo', 'cubano_otro', 'extranjero_directivo', 'extranjero_otro'] as const;
   const headPer = ['Categoría', 'Etapa', 'Cantidad', 'Salario promedio anual (CUP)'];
   if (moneda === 'USD') headPer.push('Equivalente anual (USD)');
@@ -746,6 +768,7 @@ export function construirDocumentoPlanex(
     const filaTotal = ['TOTAL (operación)', '', String(m.indicadores.totalTrabajadores), salTotal === null ? '—' : fmtCUP(salTotal)];
     if (moneda === 'USD') filaTotal.push(salTotal === null ? '—' : fmtUsd(ctx.cupAUsd(salTotal)));
     filasPer.push(filaTotal);
+    filasPerResaltar = filasPer.length - 1;
   }
   sec('4.9', '4.9  Fuerza de trabajo', [
     { tipo: 'parrafo', texto: `Entidad autorizada a contratar la fuerza de trabajo: ${p.fuerza.entidadContratante || '—'}` },
@@ -755,6 +778,8 @@ export function construirDocumentoPlanex(
         titulo: `Fuerza de trabajo por categoría y etapa de contratación (salarios en CUP conforme a la metodología 4.9${moneda === 'USD' ? '; equivalente en USD documentado' : ''})`,
         encabezados: headPer,
         filas: filasPer,
+        resaltar: filasPerResaltar !== undefined ? [filasPerResaltar] : undefined,
+        nota: 'Los salarios se expresan en CUP (metodología 4.9); en presentación USD se documenta el equivalente sin convertir los importes de origen.',
       },
     },
     analisis('fuerza_trabajo', 'Análisis de la fuerza de trabajo'),
@@ -814,6 +839,7 @@ export function construirDocumentoPlanex(
   // ============================================================ 4.11 Beneficios
   const headBP = ['Partida', ...years.map((t) => (t === 0 ? 'Año 0' : `Año ${t}`)), 'Total'];
   const filasBP: string[][] = [];
+  const filasBPResaltar: number[] = [];
   for (const linea of BENEFICIOS_PAIS) {
     const fila: string[] = [linea.etiqueta + (linea.incluyeAnioCero ? ' [incluye año 0]' : ' [años 1–N]')];
     let total = 0;
@@ -824,6 +850,7 @@ export function construirDocumentoPlanex(
     }
     fila.push(K(total));
     filasBP.push(fila);
+    if (linea.negrita) filasBPResaltar.push(filasBP.length - 1);
   }
   sec('4.11', '4.11  Indicadores de beneficios directos al país', [
     {
@@ -833,6 +860,7 @@ export function construirDocumentoPlanex(
         encabezados: headBP,
         filas: filasBP,
         ancha: true,
+        resaltar: filasBPResaltar,
       },
     },
     {
@@ -895,6 +923,8 @@ export function construirDocumentoPlanex(
           ['Referencia: financiación COMPROMETIDA para todo el proyecto (conciliación total)', K(arranque.financiacionDisponible)],
           ['Referencia: brecha según el total nominal comprometido', K(arranque.brechaNominal)],
         ],
+        resaltar: [6, 7, 8],
+        nota: 'Devengado ≠ pagado: el impuesto del año 0 es una regla contable con supuesto de pago simultáneo (no un pago verificado); el interés capitalizado no es salida de caja. Las partidas se inventarían una a una en la tabla siguiente.',
       },
     });
     elementosDiag.push({
