@@ -248,9 +248,16 @@ describe('DOC-002-R1 §2 — Brecha del arranque desde salidas de caja explícit
     const texto = textoDocumento(docCUP);
     expect(texto).toContain('Nómina de montaje del año 0');
     expect(texto).toContain('Interés PAGADO del año 0');
-    expect(texto).toContain('Impuesto sobre utilidades del año 0');
+    // DOC-002-R2 §2: el impuesto se etiqueta DEVENGADO con el supuesto de
+    // pago en el mismo período explícito (no es un pago verificado).
+    expect(texto).toContain('Impuesto sobre utilidades DEVENGADO del año 0');
+    expect(texto).toContain('pagado en el mismo período');
     expect(texto).toContain('Menos: ingresos explícitos del año 0');
     expect(texto).toContain('Salidas netas de caja del año 0 explícitamente identificadas');
+    // R2 §2: el inventario trazable se publica con estado de pago y tratamiento.
+    expect(texto).toContain('Inventario de partidas de caja del año 0');
+    expect(texto).toContain('Estado de pago');
+    expect(texto).toContain('Tratamiento dentro de la inversión');
     // El control de diagnóstico usa la MISMA conciliación (sin UDI_0).
     const d = diagnosticar(p, m);
     const h = d.hallazgos.find((x) => x.codigo === 'FINANCIACION_ANO0' || x.codigo === 'DESEMBOLSO_INICIAL_CONCILIADO');

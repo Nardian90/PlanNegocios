@@ -464,6 +464,54 @@ export function construirDocumentoPlanex(
     },
     analisis('inversion_financiacion', 'Análisis de inversión y financiación'),
   ];
+  // Cobertura TEMPORAL de la financiación (R2 §1): fuentes comprometidas vs
+  // disponibles por período, necesidades y tesorería proyectada. La
+  // conciliación total (tabla anterior) se conserva; este control añade la
+  // dimensión temporal: cada necesidad debe cubrirse el año en que se produce.
+  {
+    const cob = m.cobertura;
+    elementos47.push({
+      tipo: 'tabla',
+      tabla: {
+        titulo: `Cobertura temporal de la financiación y tesorería proyectada (${ctx.unidadLarga}; fuentes comprometidas para todo el proyecto: ${K(m.arranque.financiacionDisponible)} ${ctx.unidadCorta})`,
+        encabezados: [
+          'Período',
+          'Aportaciones del año',
+          'Otras fuentes',
+          'Crédito (desembolso)',
+          'Fuentes del período',
+          'Necesidades del período',
+          'Cobertura acumulada',
+          'Caja proyectada',
+        ],
+        filas: cob.porAnio.map((f) => [
+          f.anio === 0 ? 'Año 0 (montaje)' : `Año ${f.anio}`,
+          K(f.aportaciones),
+          K(f.otrasFuentes),
+          K(f.credito),
+          K(f.fuentes),
+          K(f.necesidades),
+          K(f.saldoCobertura),
+          K(f.cajaProyectada),
+        ]),
+        ancha: true,
+      },
+    });
+    const deficitTxt =
+      cob.deficitCaja.length === 0
+        ? 'Ningún año del horizonte presenta tesorería proyectada negativa: no se detectan déficits temporales.'
+        : cob.deficitCaja
+            .map(
+              (d) =>
+                `año ${d.anio}: faltan ${K(d.monto)} ${ctx.unidadCorta}${d.cubiertoEn !== null ? ` (cubiertas desde el año ${d.cubiertoEn})` : ' (no cubiertas dentro del horizonte)'}`
+            )
+            .join('; ') + '.';
+    elementos47.push({
+      tipo: 'parrafo',
+      pequeno: true,
+      texto: `Dos vistas complementarias: «Cobertura acumulada» = fuentes acumuladas − necesidades acumuladas de inversión y arranque (detecta desembolsos tardíos); «Caja proyectada» = tesorería con los flujos operativos, el servicio de la deuda y los dividendos (aportaciones fechadas + otras fuentes + desembolsos del crédito + FCFE sin el principal − dividendos; en el año 0 ambas vistas coinciden). Las «otras fuentes» no declaran fecha: se suponen disponibles en el año 0 (supuesto documentado). Necesidades: año 0 = inversión total + salidas de caja no capitalizables del arranque; años posteriores = CAPEX de ampliaciones. Déficits de tesorería: ${deficitTxt} El impuesto se toma como devengado pagado en el mismo período (supuesto del modelo simplificado, no un pago verificado).`,
+    });
+  }
   if (p.financiero.deuda.habilitada && param('credito_monto_k') > 0) {
     elementos47.push({
       tipo: 'parrafo',
@@ -823,9 +871,11 @@ export function construirDocumentoPlanex(
     },
   ];
   {
-    // Conciliación del desembolso inicial (DOC-002-R1 §2): partidas de salida
-    // de caja EXPLÍCITAS del año 0, no el resultado contable después de
-    // impuestos. El capital de trabajo ya está dentro de la inversión total.
+    // Conciliación del desembolso inicial (DOC-002-R1 §2, TEMPORAL en R2 §1):
+    // partidas de salida de caja EXPLÍCITAS e INVENTARIADAS del año 0, no el
+    // resultado contable después de impuestos. El capital de trabajo ya está
+    // dentro de la inversión total. La brecha se mide contra las fuentes con
+    // desembolso EFECTIVO en el año 0.
     const arranque = conciliarArranque(m);
     elementosDiag.push({
       tipo: 'tabla',
@@ -836,12 +886,14 @@ export function construirDocumentoPlanex(
           ['Inversión total (incluye el capital de trabajo: no se duplica)', K(arranque.inversionTotal)],
           ['Nómina de montaje del año 0 (regla «costo_laboral_k»: gasto del período, no capitalizable)', K(arranque.nominaMontaje)],
           ['Interés PAGADO del año 0 según el calendario de deuda (lo capitalizado no es salida de caja)', K(arranque.interesPagado)],
-          ['Impuesto sobre utilidades del año 0 (si es positivo)', K(arranque.impuestoPagado)],
+          ['Impuesto sobre utilidades DEVENGADO del año 0 (regla contable; supuesto del modelo simplificado: pagado en el mismo período — no es un pago verificado)', K(arranque.impuestoPagado)],
           ['Menos: ingresos explícitos del año 0', K(-arranque.ingresosAnio0)],
           ['Salidas netas de caja del año 0 explícitamente identificadas', K(arranque.gastoCajaAnio0)],
           ['Necesidad total de arranque (inversión total + salidas netas del año 0)', K(arranque.necesidadTotal)],
-          ['Financiación disponible declarada (aportaciones + otras fuentes + crédito)', K(arranque.financiacionDisponible)],
-          ['Brecha de financiación del arranque', K(arranque.brecha)],
+          ['Fuentes con desembolso EFECTIVO en el año 0 (aportaciones del año 0 + otras fuentes + principal del crédito desembolsado en el año 0)', K(arranque.fuentesAnio0)],
+          ['BRECHA TEMPORAL del arranque (fuentes del año 0 − necesidad total)', K(arranque.brecha)],
+          ['Referencia: financiación COMPROMETIDA para todo el proyecto (conciliación total)', K(arranque.financiacionDisponible)],
+          ['Referencia: brecha según el total nominal comprometido', K(arranque.brechaNominal)],
         ],
       },
     });
@@ -849,8 +901,32 @@ export function construirDocumentoPlanex(
       tipo: 'parrafo',
       pequeno: true,
       texto:
-        'La brecha del arranque se cuantifica desde partidas de salida de caja del año 0 explícitamente identificadas como no capitalizables y no incluidas en la inversión total (nómina de montaje, interés pagado e impuesto del año 0, menos los ingresos explícitos del año 0); NO se deduce del resultado contable después de impuestos del año 0, que puede contener pérdidas no monetarias (depreciación), intereses devengados capitalizados (no pagados) u otros efectos que no representan caja.',
+        'La brecha del arranque se cuantifica desde partidas de salida de caja del año 0 explícitamente identificadas e inventariadas como no capitalizables y no incluidas en la inversión total; NO se deduce del resultado contable después de impuestos del año 0, que puede contener pérdidas no monetarias (depreciación), intereses devengados capitalizados (no pagados) u otros efectos que no representan caja. La brecha TEMPORAL se mide contra las fuentes con desembolso efectivo en el año 0: unas aportaciones o un crédito que entran en años posteriores no pueden financiar las necesidades del arranque, aunque la conciliación total del horizonte cuadre.',
     });
+    // Inventario trazable de partidas de caja del año 0 (R2 §2): cada salida
+    // no capitalizable con su estado de pago y tratamiento; el barrido expone
+    // partidas no cubiertas en lugar de presumir una enumeración universal.
+    elementosDiag.push({
+      tipo: 'tabla',
+      tabla: {
+        titulo: `Inventario de partidas de caja del año 0 (${ctx.unidadLarga}; período = año 0 de montaje; mecanismo trazable con barrido de reglas de gasto)`,
+        encabezados: ['Partida', `Monto (${ctx.unidadCorta})`, '¿Computa en la necesidad?', 'Estado de pago', 'Tratamiento dentro de la inversión'],
+        filas: arranque.partidas.map((x) => [
+          x.etiqueta,
+          K(x.monto),
+          x.computa ? 'SÍ' : 'no',
+          x.estadoPago,
+          x.tratamiento,
+        ]),
+        ancha: true,
+      },
+    });
+    if (arranque.noInventariadas.length) {
+      elementosDiag.push({
+        tipo: 'aviso',
+        texto: `El barrido del estado de resultados del año 0 detectó gasto(s) en partida(s) NO cubierta(s) por el inventario (${arranque.noInventariadas.map((x) => `«${x.id}» (${K(x.monto)} ${ctx.unidadCorta})`).join(', ')}): el modelo las señala y exige declarar su tratamiento; no las ignora en silencio ni las deduce de una magnitud contable agregada.`,
+      });
+    }
   }
   if (hallazgos.length) {
     elementosDiag.push({

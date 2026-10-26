@@ -181,7 +181,10 @@ describe('DOC-002 §4.2 — Conciliación del desembolso inicial', () => {
     const texto = textoDocumento(doc);
     expect(texto).toContain('Conciliación del desembolso inicial');
     expect(texto).toContain('Necesidad total de arranque');
-    expect(texto).toContain('Brecha de financiación del arranque');
+    // DOC-002-R2 §1: la brecha es ahora TEMPORAL (fuentes con desembolso
+    // efectivo en el año 0), con la nominal como referencia.
+    expect(texto).toContain('BRECHA TEMPORAL del arranque');
+    expect(texto).toContain('Fuentes con desembolso EFECTIVO en el año 0');
     // Presentación CUP: la brecha aparece como 576,0 kCUP (0,775 kUSD × 743).
     expect(texto).toContain('576,0');
     // DOC-002-R1 §2: la tabla detalla las partidas explícitas del año 0.

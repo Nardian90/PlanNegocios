@@ -294,27 +294,86 @@ function analisisInversionFinanciacion(p: PlanexProject, m: ComputedModel, pres:
       `Calendario de desembolsos de aportaciones (misma convención de años 0/1/2 que las tablas de financiación y flujos): ${porAnio.map((v, i) => `año ${i} (${i === 0 ? 'montaje/arranque — financia la inversión total del año 0' : 'operación'}): ${pres.k(v)} ${pres.corto}`).join('; ')}.`
     );
   }
-  // Conciliación del desembolso inicial (DOC-002-R1 §2): salidas de caja
-  // EXPLÍCITAS del año 0 (no el resultado contable después de impuestos).
+  // Cobertura TEMPORAL de la financiación (R2 §1): fuentes comprometidas para
+  // todo el proyecto frente a las efectivamente disponibles en cada período,
+  // año efectivo de desembolso del crédito, fecha de las otras fuentes y
+  // déficits cuando realmente se producen.
+  {
+    const cob = m.cobertura;
+    const dispAnio0 = m.arranque.fuentesAnio0;
+    const tardias = porAnio.slice(1).some((v) => v > 0.005);
+    const partesFuentes = [
+      `aportaciones con vencimiento en el año 0 ${pres.k(cob.aportacionesPorAnio[0] ?? 0)}`,
+      cob.anioDesembolsoCredito !== null
+        ? `principal del crédito desembolsado en el año ${cob.anioDesembolsoCredito} (${pres.k(cob.porAnio[cob.anioDesembolsoCredito]?.credito ?? 0)})`
+        : 'sin crédito desembolsado',
+    ];
+    if (otras > 0.005) {
+      partesFuentes.push(
+        `otras fuentes ${pres.k(otras)} — el parámetro no declara FECHA: se suponen disponibles en el año 0 (supuesto documentado, no un desembolso verificado)`
+      );
+    }
+    frases.push(
+      `Cobertura temporal: las fuentes COMPROMETIDAS para todo el proyecto suman ${pres.k(aport + otras + credito)} ${pres.corto}, pero las disponibles con desembolso efectivo en el año 0 suman ${pres.k(dispAnio0)} ${pres.corto} (${partesFuentes.join('; ')}).${tardias ? ` Las aportaciones de los años 1 y 2 (${pres.k((cob.aportacionesPorAnio[1] ?? 0) + (cob.aportacionesPorAnio[2] ?? 0))} ${pres.corto}) entran DESPUÉS del arranque y no pueden financiar la inversión del año 0.` : ''} El control por período exige que cada necesidad esté cubierta el año en que se produce, no en el agregado del horizonte.`
+    );
+    if (cob.deficitCaja.length === 0) {
+      frases.push(
+        `La tesorería proyectada (aportaciones fechadas + otras fuentes + desembolsos del crédito + flujos operativos − dividendos) no es negativa en ningún año del horizonte: no se detectan déficits temporales.`
+      );
+    } else {
+      const texto = cob.deficitCaja
+        .map(
+          (d) =>
+            `año ${d.anio} (faltan ${pres.k(d.monto)} ${pres.corto}${d.cubiertoEn !== null ? `; cubiertas desde el año ${d.cubiertoEn}` : '; no cubiertas dentro del horizonte'})`
+        )
+        .join('; ');
+      frases.push(
+        `DÉFICIT TEMPORAL de tesorería en: ${texto}. ${m.arranque.brechaNominal >= -0.05 ? 'La financiación total comprometida cubre la necesidad total del horizonte: el problema es de CALENDARIO (los desembolsos llegan después de las necesidades), no de cuantía.' : 'Además, la financiación total comprometida no cubre la necesidad total: el problema es de cuantía Y de calendario.'} Reprograme los desembolsos, amplíe el capital de trabajo o declare el supuesto.`
+      );
+    }
+  }
+  // Conciliación del desembolso inicial (DOC-002-R1 §2, temporal en R2 §1):
+  // salidas de caja EXPLÍCITAS e INVENTARIADAS del año 0 (no el resultado
+  // contable después de impuestos) frente a las fuentes del año 0.
   {
     const arranque = conciliarArranque(m);
     const gastoAnio0 = arranque.gastoCajaAnio0;
     if (arranque.nominaMontaje > 0.005 || arranque.interesPagado > 0.005 || arranque.impuestoPagado > 0.005) {
-      const finT = arranque.financiacionDisponible;
       const necesidad = arranque.necesidadTotal;
       const brecha = arranque.brecha;
       const partes = [
         arranque.nominaMontaje > 0.005 ? `nómina de montaje ${pres.k(arranque.nominaMontaje)}` : '',
         arranque.interesPagado > 0.005 ? `interés pagado del año 0 ${pres.k(arranque.interesPagado)}` : '',
-        arranque.impuestoPagado > 0.005 ? `impuesto del año 0 ${pres.k(arranque.impuestoPagado)}` : '',
+        arranque.impuestoPagado > 0.005 ? `impuesto DEVENGADO del año 0 ${pres.k(arranque.impuestoPagado)} (regla contable; supuesto del modelo simplificado: pagado en el mismo período — no es un pago verificado)` : '',
       ].filter(Boolean);
       const menos = arranque.ingresosAnio0 > 0.005 ? `, menos ingresos explícitos del año 0 por ${pres.k(arranque.ingresosAnio0)}` : '';
       frases.push(
-        `Conciliación del desembolso inicial: la inversión total (${pres.k(inv)} ${pres.corto}) más las salidas de caja del año 0 explícitamente identificadas (${partes.join(' + ')}${menos}: total ${pres.k(Math.max(0, gastoAnio0))} ${pres.corto}; gastos de la fase de montaje del año 0 registrados como gasto del período, no capitalizables y NO incluidos en la inversión total — el capital de trabajo ya está dentro de la inversión total y no se duplica) exigen una necesidad total de arranque de ${pres.k(necesidad)} ${pres.corto}; las fuentes declaradas suman ${pres.k(finT)} ${pres.corto}${brecha < -0.05 ? `, de modo que queda una BRECHA de ${pres.k(Math.abs(brecha))} ${pres.corto} que debe financiarse (mayor capital de trabajo o aporte adicional) o declararse expresamente como supuesto pendiente` : ' y cubren la necesidad total del arranque'}. El gasto del año 0 se cuantifica desde partidas de salida de caja explícitas, no desde el resultado contable después de impuestos. Los desembolsos del año 0 y del año 1 conservan el mismo significado en todas las tablas.`
+        `Conciliación del desembolso inicial: la inversión total (${pres.k(inv)} ${pres.corto}) más las salidas de caja del año 0 explícitamente identificadas (${partes.join(' + ')}${menos}: total ${pres.k(Math.max(0, gastoAnio0))} ${pres.corto}; gastos de la fase de montaje del año 0 registrados como gasto del período, no capitalizables y NO incluidos en la inversión total — el capital de trabajo ya está dentro de la inversión total y no se duplica) exigen una necesidad total de arranque de ${pres.k(necesidad)} ${pres.corto}; las fuentes con desembolso efectivo en el año 0 suman ${pres.k(arranque.fuentesAnio0)} ${pres.corto}${brecha < -0.05 ? `, de modo que queda una BRECHA TEMPORAL de ${pres.k(Math.abs(brecha))} ${pres.corto} que debe financiarse (mayor capital de trabajo, aporte anticipado o crédito con desembolso en el año 0) o declararse expresamente como supuesto pendiente` : ' y cubren la necesidad total del arranque'}${arranque.brechaNominal < -0.05 && brecha < arranque.brechaNominal + 0.05 ? ` (la brecha según el total nominal comprometido es ${pres.k(Math.abs(arranque.brechaNominal))} ${pres.corto}: ni siquiera el agregado del horizonte cubre la necesidad)` : ''}. El gasto del año 0 se cuantifica desde partidas de salida de caja explícitas e inventariadas — nómina de montaje, interés pagado según el calendario de deuda e impuesto devengado con su estado de pago declarado —, no desde el resultado contable después de impuestos. Los desembolsos del año 0 y del año 1 conservan el mismo significado en todas las tablas.`
       );
     }
   }
-  return { texto: lista(frases), huella: huellaDe({ inv, previos, fija, ct, aport, otras, credito, dif, porAnio, mayores: mayores.map((x) => x.id) }) };
+  return {
+    texto: lista(frases),
+    huella: huellaDe({
+      inv,
+      previos,
+      fija,
+      ct,
+      aport,
+      otras,
+      credito,
+      dif,
+      porAnio,
+      mayores: mayores.map((x) => x.id),
+      // R2 §1: la huella incorpora la estructura TEMPORAL (fuentes por año,
+      // déficits y brechas), de modo que un análisis manual quede marcado como
+      // desactualizado si cambia el calendario de desembolsos.
+      fuentesAnio0: m.arranque.fuentesAnio0,
+      brechaAnio0: m.arranque.brecha,
+      deficitCaja: m.cobertura.deficitCaja.map((d) => [d.anio, Math.round(d.monto * 100) / 100, d.cubiertoEn]),
+      anioCredito: m.cobertura.anioDesembolsoCredito,
+    }),
+  };
 }
 
 function analisisIngresosCostos(p: PlanexProject, m: ComputedModel, pres: PresentacionMonetaria): { texto: string; huella: string } {

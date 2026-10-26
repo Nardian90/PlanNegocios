@@ -511,6 +511,158 @@ export interface Recuperacion {
   motivo: string;
 }
 
+// ---------------------------------------------------------------------------
+// Cobertura temporal de la financiación y salidas de caja del año 0
+// (misión PLANEX-DOC-002-R2 §1–§2)
+// ---------------------------------------------------------------------------
+
+/** Partida de caja del año 0 identificada por el mecanismo de inventario.
+ *  Cada salida no capitalizable se declara con su período, estado de pago y
+ *  tratamiento dentro de la inversión: el inventario es TRAZABLE y no presume
+ *  una enumeración universal (el barrido detecta partidas no inventariadas). */
+export type TipoSalidaCajaAnio0 =
+  | 'nomina_montaje' // gasto del período, no capitalizable
+  | 'interes_pagado' // según calendario de deuda (solo caja)
+  | 'interes_devengado_no_pagado' // capitalizado en gracia total: NO es caja
+  | 'impuesto_devengado' // regla contable; pago supuesto, no verificado
+  | 'ingreso_explicito' // reduce la necesidad de caja
+  | 'gasto_no_monetario' // p. ej. depreciación: contable, sin salida de caja
+  | 'gasto_no_inventariado'; // regla de gasto con valor en año 0 sin registro
+
+export interface SalidaCajaAnio0 {
+  /** Identificador estable de la partida (regla o serie de origen). */
+  id: string;
+  /** Etiqueta humana. */
+  etiqueta: string;
+  /** Monto del año 0 (kUSD; ingresos con signo negativo en la necesidad). */
+  monto: number;
+  tipo: TipoSalidaCajaAnio0;
+  /** ¿Computa como salida neta de caja del arranque? */
+  computa: boolean;
+  /** Estado de pago declarado (p. ej. «pagado», «devengado — supuesto: pagado
+   *  en el mismo período», «capitalizado: no es salida de caja»). */
+  estadoPago: string;
+  /** Tratamiento dentro de la inversión (por qué no se capitaliza ni duplica). */
+  tratamiento: string;
+  /** Fuente de trazabilidad (regla, parámetro o calendario de origen). */
+  fuente: string;
+}
+
+/** Conciliación del arranque (DOC-002-R1 §2, revisada por R2 §1: la brecha
+ *  del año 0 se mide contra las fuentes con desembolso EFECTIVO en el año 0,
+ *  no contra el total nominal comprometido para todo el proyecto). */
+export interface ConciliacionArranque {
+  /** Nómina de montaje del año 0 (kUSD; regla costo_laboral_k, año 0). */
+  nominaMontaje: number;
+  /** Interés PAGADO en caja durante el año 0 (kUSD; excluye lo capitalizado). */
+  interesPagado: number;
+  /** Impuesto sobre utilidades DEVENGADO del año 0 (kUSD; ≥ 0). El modelo
+   *  simplificado supone el pago en el mismo período: supuesto documentado,
+   *  no un pago verificado. */
+  impuestoPagado: number;
+  /** Ingresos explícitos del año 0 (kUSD; reducen la necesidad de caja). */
+  ingresosAnio0: number;
+  /** Salidas netas de caja del año 0 explícitamente identificadas (kUSD). */
+  gastoCajaAnio0: number;
+  /** Financiación COMPROMETIDA para todo el proyecto (kUSD; conciliación
+   *  total que se conserva — NO equivale a disponibilidad del año 0). */
+  financiacionDisponible: number;
+  /** Fuentes con desembolso efectivo en el AÑO 0 (kUSD): aportaciones con
+   *  vencimiento en el año 0 + otras fuentes (supuesto: año 0) + desembolso
+   *  del principal del crédito en el año 0 según el calendario. */
+  fuentesAnio0: number;
+  /** Inversión total (kUSD; incluye el capital de trabajo). */
+  inversionTotal: number;
+  /** Necesidad total de arranque = inversión total + gasto de caja del año 0. */
+  necesidadTotal: number;
+  /** Brecha TEMPORAL del año 0 (kUSD; negativa = faltante sin cobertura
+   *  efectiva en el año 0, aunque el total nominal alcance). */
+  brecha: number;
+  /** Brecha según el total NOMINAL comprometido (conciliación total). */
+  brechaNominal: number;
+  /** Inventario trazable de partidas de caja del año 0 (computen o no). */
+  partidas: SalidaCajaAnio0[];
+  /** Reglas de gasto con valor en el año 0 NO cubiertas por el inventario. */
+  noInventariadas: { id: string; etiqueta: string; monto: number }[];
+}
+
+/** Un período del calendario de cobertura temporal de la financiación. */
+export interface CoberturaAnio {
+  anio: number;
+  /** Aportaciones con vencimiento en el año (kUSD; montos[t], t ≤ 2). */
+  aportaciones: number;
+  /** Otras fuentes del año (kUSD; supuesto documentado: año 0). */
+  otrasFuentes: number;
+  /** Desembolso del principal del crédito según el calendario (kUSD). */
+  credito: number;
+  /** Fuentes del período (kUSD). */
+  fuentes: number;
+  /** Fuentes acumuladas a cierre del período (kUSD). */
+  fuentesAcumuladas: number;
+  /** Inversión capitalizable del período (kUSD; año 0: inversión total;
+   *  años posteriores: CAPEX de ampliaciones del escenario activo). */
+  inversionCapitalizable: number;
+  /** Salidas de caja no capitalizables del período (kUSD; año 0: inventario
+   *  neto; años de operación: cubiertas por el flujo operativo, 0 aquí). */
+  salidasNoCapitalizables: number;
+  /** Necesidades del período (kUSD). */
+  necesidades: number;
+  /** Necesidades acumuladas a cierre del período (kUSD). */
+  necesidadesAcumuladas: number;
+  /** Cobertura acumulada de la financiación (Vista A): fuentes acumuladas −
+   *  necesidades acumuladas (kUSD; sin flujos operativos). */
+  saldoCobertura: number;
+  /** Flujo operativo y de servicio de la deuda del período (kUSD): FCFE del
+   *  año sin el desembolso del principal del crédito. */
+  flujoOperativo: number;
+  /** Dividendos pagados del período (kUSD; módulo de dividendos). */
+  dividendos: number;
+  /** Tesorería proyectada acumulada (Vista B): caja = Σ FCFE + Σ aportaciones
+   *  + Σ otras fuentes − Σ dividendos (kUSD). */
+  cajaProyectada: number;
+}
+
+/** Cobertura temporal de la financiación (R2 §1): separa las fuentes
+ *  comprometidas para todo el proyecto de las efectivamente disponibles en
+ *  cada período, proyecta el saldo de caja y detecta déficits temporales. */
+export interface CoberturaFinanciacion {
+  /** Calendario por año (0..N). */
+  porAnio: CoberturaAnio[];
+  /** Aportaciones comprometidas en el año 0 / año 1 / año 2 (kUSD). */
+  aportacionesPorAnio: number[];
+  /** Año efectivo de desembolso del principal del crédito (null si no hay). */
+  anioDesembolsoCredito: number | null;
+  /** ¿Las «otras fuentes» carecen de estructura de fechas? (supuesto: año 0). */
+  otrasFuentesSinFecha: boolean;
+  /** Déficits de tesorería proyectada (años con caja < 0): cada uno con el
+   *  monto del faltante y el año en que la caja vuelve a ser no negativa. */
+  deficitCaja: { anio: number; monto: number; cubiertoEn: number | null }[];
+  /** Déficits de la vista de cobertura (fuentes vs necesidades, sin flujos
+   *  operativos): detecta desembolsos tardíos aunque la operación los cure. */
+  deficitCobertura: { anio: number; monto: number; cubiertoEn: number | null }[];
+}
+
+/** Clasificación de la regla de impuestos a efectos del escudo fiscal
+ *  (R2 §3): el motor distingue si la regla puede reevaluarse en el escenario
+ *  contrafactual y de qué depende, en lugar de asignar silenciosamente cero. */
+export type ClaseEscudoFiscal =
+  | 'sin_regla' // no existe regla de impuesto habilitada
+  | 'sin_deuda' // sin intereses devengados: escudo 0 por definición
+  | 'independiente_de_la_base' // no depende de la base afectada: escudo 0 legítimo
+  | 'base_directa' // grava directamente la utilidad antes de intereses
+  | 'base_indirecta'; // depende de bases intermedias que dependen de la UAI
+
+export interface EscudoFiscalInfo {
+  clase: ClaseEscudoFiscal;
+  /** Explicación humana de la clasificación y sus consecuencias. */
+  detalle: string;
+  /** Años en los que la regla debía poder reevaluarse y falló: el escudo se
+   *  tomó como 0 y los flujos quedan marcados como NO confiables. */
+  noCalculableAnios: number[];
+  /** ¿El escudo calculado es confiable para valorar los flujos? */
+  confiable: boolean;
+}
+
 export interface Indicadores {
   /** Recuperación de la INVERSIÓN TOTAL del proyecto (flujo FCFF). */
   recuperacionProyecto: Recuperacion;
@@ -544,6 +696,8 @@ export interface Indicadores {
    *  atribuible al gasto por intereses, derivada de la regla de impuestos
    *  activa. El FCFF reincorpora el interés DESPUÉS de impuestos. */
   escudoFiscal: Record<number, number>;
+  /** Clasificación y fiabilidad del escudo fiscal (R2 §3). */
+  escudoFiscalInfo: EscudoFiscalInfo;
   /** CAPEX de ampliaciones por año (kUSD). */
   capexAmpliaciones: Record<number, number>;
 }
@@ -564,6 +718,11 @@ export interface ComputedModel {
   dividendos: DividendosAnio[];
   capacidadServicios: Record<string, Record<number, CapacidadServicio>>;
   recursosCalculados: RecursoCalculado[];
+  /** Conciliación del arranque (brecha TEMPORAL del año 0 + inventario de
+   *  partidas de caja del año 0) — DOC-002-R1 §2, revisada por R2 §1–§2. */
+  arranque: ConciliacionArranque;
+  /** Cobertura temporal de la financiación y tesorería proyectada (R2 §1). */
+  cobertura: CoberturaFinanciacion;
 }
 
 export const ADVERTENCIA_DATOS_FICTICIOS =

@@ -640,6 +640,29 @@ export async function exportarXLSX(proyecto: PlanexProject, modelo: ComputedMode
   hFin.texto(17, 1, 'Control de suficiencia:', ST.nota);
   hFin.formula(17, 2, 'OK', `=IF(D15<-0.05,"INSUFICIENTE",IF(D15>0.05,"EXCESO","OK"))`);
   hFin.texto(18, 1, 'Tasa, plazo, gracia, tipo de gracia y método de amortización: hoja Deuda (configuración editable) y hoja Parametros.', ST.nota);
+  // Cobertura temporal de la financiación (R2 §1): valores directos del motor
+  // (mismo cálculo que la tabla 4.7 del informe y el panel de la interfaz);
+  // el control de suficiencia de arriba sigue siendo la conciliación TOTAL.
+  hFin.texto(20, 1, 'Cobertura temporal de la financiación y tesorería proyectada (por período)', ST.titulo);
+  hFin.texto(21, 1, `Fuentes comprometidas para todo el proyecto: ${fmtK(modelo.arranque.financiacionDisponible)} kUSD. Disponibles con desembolso en el año 0: ${fmtK(modelo.arranque.fuentesAnio0)} kUSD. Brecha temporal del año 0: ${fmtK(modelo.arranque.brecha)} kUSD (nominal: ${fmtK(modelo.arranque.brechaNominal)}). Las «otras fuentes» no declaran fecha: se suponen del año 0.`, ST.nota);
+  ['Período', 'Aportaciones del año', 'Otras fuentes', 'Crédito (desembolso)', 'Fuentes del período', 'Necesidades del período', 'Cobertura acumulada', 'Caja proyectada'].forEach((e, i) => hFin.texto(22, 1 + i, e, ST.encabezado));
+  modelo.cobertura.porAnio.forEach((c, i) => {
+    const f = 23 + i;
+    hFin.texto(f, 1, c.anio === 0 ? 'Año 0 (montaje)' : `Año ${c.anio}`);
+    hFin.set(f, 2, { v: c.aportaciones, z: Z.kusd });
+    hFin.set(f, 3, { v: c.otrasFuentes, z: Z.kusd });
+    hFin.set(f, 4, { v: c.credito, z: Z.kusd });
+    hFin.formula(f, 5, c.fuentes, `=SUM(B${f}:D${f})`, Z.kusd);
+    hFin.set(f, 6, { v: c.necesidades, z: Z.kusd });
+    hFin.set(f, 7, { v: c.saldoCobertura, z: Z.kusd });
+    hFin.set(f, 8, { v: c.cajaProyectada, z: Z.kusd });
+  });
+  {
+    const fCtrl = 23 + modelo.cobertura.porAnio.length + 1;
+    hFin.texto(fCtrl, 1, 'Control temporal:', ST.nota);
+    hFin.formula(fCtrl, 2, 'OK', `=IF(MIN(H23:H${22 + modelo.cobertura.porAnio.length})<-0.05,"DÉFICIT TEMPORAL","OK")`);
+    hFin.texto(fCtrl + 1, 1, 'Necesidades: año 0 = inversión total + salidas de caja no capitalizables del arranque (inventario: nómina de montaje + interés pagado + impuesto devengado − ingresos explícitos); años posteriores = CAPEX de ampliaciones. El impuesto se toma como devengado pagado en el mismo período (supuesto del modelo simplificado).', ST.nota);
+  }
 
   // ============================================================== Servicios
   const hSvc = new Hoja();
