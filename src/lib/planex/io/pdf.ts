@@ -77,8 +77,10 @@ const AMBAR_BORDE: [number, number, number] = [217, 119, 6];
 const AMBAR_FONDO: [number, number, number] = [255, 243, 205];
 const ROJO: [number, number, number] = [185, 28, 28];
 
-/** ¿Celda con aspecto numérico/monetario? (alineación por CONTENIDO, §5.3). */
-const PATRON_NUMERICO = /^[-–—(]*[\d.,\s]+[)]?([ ]?(%|kUSD|kCUP|USD|CUP|CUP por USD|años?|meses?|uds?\.?|ptos?\.?)?)?$/;
+/** ¿Celda con aspecto numérico/monetario? (alineación por CONTENIDO, §5.3).
+ *  R2 §1: admite el menos ASCII, los guiones en/em, el MENOS MATEMÁTICO
+ *  (U+2212, que algunos formatores externos producen) y paréntesis. */
+const PATRON_NUMERICO = /^[-–—−(]*[\d.,\s]+[)]?([ ]?(%|kUSD|kCUP|USD|CUP|CUP por USD|años?|meses?|uds?\.?|ptos?\.?)?)?$/;
 
 function esNumerica(texto: string): boolean {
   const t = texto.trim();
@@ -146,14 +148,94 @@ function medirAnchosTabla(
   return { anchos, minimos };
 }
 
+/** R2 §1 — Suelo duro de trazabilidad: NINGUNA columna dibujada puede quedar
+ *  por debajo (ni cero, ni negativa), ni siquiera en el caso patológico de
+ *  una cifra más ancha que el propio folio. */
+const SUELO_DURO_COL = 7; // mm
+
+/** R2 §1 — Tolerancia de la suma de anchos frente al ancho útil: polvo de
+ *  coma flotante al repartir el exceso entre columnas (≈ 0,014 pt — muy
+ *  por debajo de lo visible). Sin esta tolerancia, una tabla que encaja
+ *  EXACTO puede quedar «0 + 1e−13» por encima y activar división/hallazgo
+ *  sin motivo editorial. */
+const TOL_AJUSTE = 0.05; // mm
+
+/** R2 §1 paso 2 — Comprime EXCLUSIVAMENTE las columnas de TEXTO hacia su
+ *  suelo, repartiendo el recorte en proporción a la holgura de cada una.
+ *  PARCIAL por diseño: si la holgura no alcanza para todo el exceso, TODAS
+ *  las columnas de texto quedan exactamente en su mínimo — nunca por
+ *  debajo. Las columnas numéricas no se tocan (sus holguras son 0).
+ *  Sustituye al «todo o nada» anterior y al reparto sin techo del residuo. */
+function comprimirColumnasTexto(anchos: number[], minimos: number[], numericas: boolean[], exceso: number): void {
+  if (exceso <= 0) return;
+  const holgura = anchos.map((a, i) => (numericas[i] ? 0 : Math.max(0, a - minimos[i])));
+  const holguraTotal = holgura.reduce((s, h) => s + h, 0);
+  if (holguraTotal <= 0) return;
+  const recorte = Math.min(exceso, holguraTotal);
+  for (let i = 0; i < anchos.length; i++) anchos[i] -= (recorte * holgura[i]) / holguraTotal;
+}
+
+/** R2 §1 paso 4 — SALIDA EXPLÍCITA Y TRAZABLE para la tabla que NI con la
+ *  fuente en su suelo y el texto en su mínimo cabe (dos columnas
+ *  indivisibles, o una parte de división que sigue excediendo): encaje al
+ *  ancho útil respetando los suelos tipográficos cuando caben y, si ni los
+ *  suelos caben (hallazgo documentado), reparto proporcional con suelo
+ *  duro. Jamás produce anchos ≤ 0, jamás deja la tabla más ancha que el
+ *  folio y jamás recorta cifras en silencio: el exceso queda medido en el
+ *  diagnóstico para que la auditoría pueda señalarlo. */
+function encajarAlAnchoConSuelos(
+  anchos: number[],
+  minimos: number[],
+  anchoUtil: number
+): { anchos: number[]; suelosRespetados: boolean; excesoPt: number } {
+  const sumaEntrada = anchos.reduce((s, a) => s + a, 0);
+  const excesoPt = Math.max(0, sumaEntrada - anchoUtil) * 2.8346;
+  const pisos = minimos.map((m) => Math.max(m, SUELO_DURO_COL));
+  let w = anchos.map((a, i) => Math.max(a, pisos[i]));
+  let suelosRespetados = true;
+  for (let guarda = 0; guarda < 32; guarda++) {
+    const suma = w.reduce((s, x) => s + x, 0);
+    if (suma <= anchoUtil + 0.01) break;
+    const holgura = w.map((x, i) => Math.max(0, x - pisos[i]));
+    const total = holgura.reduce((s, h) => s + h, 0);
+    if (total > 0.01) {
+      // Queda holgura sobre los suelos: recorte proporcional sin cruzarlos
+      // (una columna con holgura 0 —una cifra— no se toca).
+      const recorte = Math.min(suma - anchoUtil, total);
+      w = w.map((x, i) => x - (recorte * holgura[i]) / total);
+      continue;
+    }
+    // NI los suelos caben: HALLAZGO. Reparto proporcional de los suelos con
+    // suelo duro; las piezas más anchas que el folio se envuelven de forma
+    // VISIBLE (sin recorte silencioso de valores) y queda registrado.
+    suelosRespetados = false;
+    const sumaPisos = pisos.reduce((s, p) => s + p, 0);
+    const factor = anchoUtil / sumaPisos;
+    w = pisos.map((p) => Math.max(SUELO_DURO_COL, p * factor));
+    for (let guarda2 = 0; guarda2 < 32; guarda2++) {
+      const s2 = w.reduce((s, x) => s + x, 0);
+      const residuo = anchoUtil - s2;
+      if (Math.abs(residuo) <= 0.02) break;
+      const h2 = w.map((x) => Math.max(0, x - SUELO_DURO_COL));
+      const t2 = h2.reduce((s, h) => s + h, 0);
+      if (t2 <= 0.01) break;
+      const paso = Math.sign(residuo) * Math.min(Math.abs(residuo), t2);
+      w = w.map((x, i) => x + (paso * h2[i]) / t2);
+    }
+    break;
+  }
+  return { anchos: w, suelosRespetados, excesoPt };
+}
+
 /** ¿La tabla exige página APAISADA? (§4.2/§5.2) Criterio de CONTENIDO
- *  compartido por PDF y DOCX (DOC-003-R1 §4): si, agotado TODO el repertorio
- *  de ajuste en vertical (autoajuste de fuente + compresión de las columnas
- *  de TEXTO hacia su suelo), la tabla sigue sin caber, va a apaisado — sea o
- *  no «ancha» por declaración. Las cifras jamás se comprimen (una proyección
- *  con 11 años en CUP no cabe y va a apaisado); una tabla de texto envuelve
- *  y queda en vertical, donde se lee mejor. El campo `ancha` queda como
- *  pista de autoría sin valor operativo. */
+ *  compartido por PDF y DOCX (DOC-003-R1 §4) — mis pasos 1–2 de la regla
+ *  R2 §1: si, agotado TODO el repertorio de ajuste en vertical (autoajuste
+ *  de fuente + compresión de las columnas de TEXTO hacia su suelo), la
+ *  tabla sigue sin caber, va a apaisado — sea o no «ancha» por declaración.
+ *  Las cifras jamás se comprimen (una proyección con 11 años en CUP no cabe
+ *  y va a apaisado); una tabla de texto envuelve y queda en vertical, donde
+ *  se lee mejor. El campo `ancha` queda como pista de autoría sin valor
+ *  operativo. */
 export function requiereApaisada(t: TablaDoc, medir: MedidorAncho, anchoRetrato: number, sizeMinimo: number): boolean {
   const head = t.encabezados.map((c) => T(c));
   const body = t.filas.map((f) => f.map((c) => T(c ?? '')));
@@ -162,13 +244,13 @@ export function requiereApaisada(t: TablaDoc, medir: MedidorAncho, anchoRetrato:
   for (;;) {
     const { anchos, minimos } = medirAnchosTabla(medir, head, body, numericas, size, anchoRetrato);
     const suma = anchos.reduce((s, a) => s + a, 0);
-    if (suma <= anchoRetrato) return false;
+    if (suma <= anchoRetrato + TOL_AJUSTE) return false;
     if (size <= sizeMinimo) {
       // Último recurso: comprimir columnas de texto hacia su suelo.
       const exceso = suma - anchoRetrato;
       const holgura = anchos.map((a, i) => (numericas[i] ? 0 : Math.max(0, a - minimos[i])));
       const holguraTotal = holgura.reduce((s, h) => s + h, 0);
-      return holguraTotal < exceso;
+      return exceso > holguraTotal + TOL_AJUSTE;
     }
     size = Math.max(sizeMinimo, size - 0.25);
   }
@@ -227,15 +309,30 @@ export interface DiagnosticoComposicion {
     columnas: { indice: number; alineacion: 'left' | 'right' | 'center'; numerica: boolean }[];
     /** DOC-003-R1 §4: palanca de ajuste realmente usada para que la tabla
      *  cupiera — «ninguna» (cabía), «fuente» (reducción tipográfica),
-     *  «texto» (compresión de columnas de TEXTO hacia su suelo) o
-     *  «division-columnas» (partición en bloques lógicos). NUNCA el
-     *  escalado proporcional silencioso de cifras. */
-    ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas';
+     *  «texto» (compresión de columnas de TEXTO hacia su suelo),
+     *  «division-columnas» (partición en bloques lógicos) o «hallazgo»
+     *  (R2 §1: salida explícita con suelos duros cuando NI el repertorio
+     *  completo bastó). NUNCA el escalado proporcional silencioso. */
+    ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas' | 'hallazgo';
     /** Anchos finales de columna realmente dibujados (pt). */
     anchosColumnasPt: number[];
     /** Anchos mínimos garantizados de las columnas NUMÉRICAS (pt): su cifra
      *  más ancha + aire. Una columna numérica nunca queda por debajo. */
     anchosCifrasPt: number[];
+    /** R2 §1: suelos tipográficos de TODAS las columnas (pt) — las de texto
+     *  derivan de su palabra más ancha; las numéricas coinciden con
+     *  anchosCifrasPt. Con ajuste distinto de «hallazgo», ninguna columna
+     *  dibujada queda por debajo de su suelo (verificable en pruebas). */
+    anchosSuelosPt: number[];
+    /** R2 §2: trazabilidad de densidad — página donde ARRANCA la tabla
+     *  (con su título), última página que toca y filas de datos dibujadas. */
+    paginaInicio: number;
+    paginaFin: number;
+    filas: number;
+    /** R2 §1: detalle del hallazgo cuando el repertorio completo no bastó:
+     *  exceso medido que no cupo (pt) y si los suelos tipográficos se
+     *  pudieron respetar. Presente SOLO con ajuste = «hallazgo». */
+    hallazgo?: { excesoPt: number; suelosRespetados: boolean };
   }[];
 }
 
@@ -658,45 +755,46 @@ class Compositor {
         declarada === 'izq' ? 'left' : declarada === 'der' ? 'right' : declarada === 'cen' ? 'center' : numericas[i] ? 'right' : 'left';
     }
 
-    // ----- autoajuste de fuente y anchos de columna (§5.2, R1 §4) -----
-    // Cadena de palancas DOCUMENTADA; el escalado proporcional silencioso
-    // de TODAS las columnas (el «factor» antiguo) queda ELIMINADO: las
-    // cifras, porcentajes, códigos y unidades no se comprimen nunca.
+    // ----- autoajuste de fuente y anchos de columna (§5.2, R1 §4, R2 §1) -----
+    // Regla de la misión R2 §1, EN ORDEN: 1) autoajustar la fuente hasta el
+    // suelo permitido; 2) reducir EXCLUSIVAMENTE el ancho de las columnas
+    // de TEXTO, respetando sus mínimos; 3) la orientación la decide el
+    // CONTENIDO al abrir el grupo (necesitaApaisada); 4) si aún no cabe:
+    // división lógica (nCols > 2) o SALIDA EXPLÍCITA Y TRAZABLE con suelos
+    // duros («hallazgo»). El escalado proporcional silencioso de TODAS las
+    // columnas queda ELIMINADO: las cifras no se comprimen jamás, ninguna
+    // columna queda en cero o negativa y ninguna tabla desborda el folio.
     let size = sizeObjetivo;
-    let ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas' = 'ninguna';
+    let ajuste: 'ninguna' | 'fuente' | 'texto' | 'division-columnas' | 'hallazgo' = 'ninguna';
+    let hallazgo: { excesoPt: number; suelosRespetados: boolean } | undefined;
     let { anchos, minimos } = medirAnchosTabla(this.medir, head, body, numericas, size, anchoUtil);
     let suma = anchos.reduce((s, a) => s + a, 0);
-    if (suma > anchoUtil) {
+    if (suma > anchoUtil + TOL_AJUSTE) {
       // 1) Reducir la fuente hasta el suelo permitido.
-      while (suma > anchoUtil && size > sizeMinimo) {
+      while (suma > anchoUtil + TOL_AJUSTE && size > sizeMinimo) {
         size = Math.max(sizeMinimo, size - 0.25);
         ({ anchos, minimos } = medirAnchosTabla(this.medir, head, body, numericas, size, anchoUtil));
         suma = anchos.reduce((s, a) => s + a, 0);
         ajuste = 'fuente';
       }
-      if (suma > anchoUtil) {
-        // 2) Comprimir ÚNICAMENTE columnas de TEXTO hacia su suelo.
-        const exceso = suma - anchoUtil;
-        const holgura = anchos.map((a, i) => (numericas[i] ? 0 : Math.max(0, a - minimos[i])));
-        const holguraTotal = holgura.reduce((s, h) => s + h, 0);
+      if (suma > anchoUtil + TOL_AJUSTE) {
+        // 2) Comprimir ÚNICAMENTE columnas de TEXTO hacia su suelo
+        //    (parcial: si la holgura no alcanza, quedan todas en su mínimo
+        //    exacto; antes este paso era «todo o nada» y el residuo sin techo
+        //    podía dejar columnas en cero o negativas — R2 §1).
+        comprimirColumnasTexto(anchos, minimos, numericas, suma - anchoUtil);
         ajuste = 'texto';
-        if (holguraTotal >= exceso) {
-          for (let i = 0; i < nCols; i++) {
-            const quita = holguraTotal > 0 ? Math.min(holgura[i], (exceso * holgura[i]) / holguraTotal + 0.05) : 0;
-            anchos[i] -= quita;
-          }
-        }
-        // La compresión cambió los anchos: recomputar antes de decidir la
-        // división (la suma previa quedaría obsoleta).
         suma = anchos.reduce((s, a) => s + a, 0);
       }
     }
-    if (suma > anchoUtil && nCols > 2) {
-      // 3) La orientación ya la decidió el CONTENIDO al abrir el grupo
+    const paginaEntrada = this.nPagina; // página donde se INVOCÓ (para la división)
+    if (suma > anchoUtil + TOL_AJUSTE && nCols > 2) {
+      // 4) La orientación ya la decidió el CONTENIDO al abrir el grupo
       //    (necesitaApaisada, sin puerta de «ancha»); si NI ASÍ cabe:
-      //    4) dividir en bloques lógicos de columnas. Nunca escalar cifras.
+      //    división en bloques lógicos de columnas. Las partes heredan el
+      //    techo tipográfico y aplican por sí mismas la salida explícita.
       //    (nCols > 2: una parte de 2 columnas ya no es divisible — evita
-      //    recursión infinita; el exceso residual lo envuelve autoTable.)
+      //    recursión infinita.)
       const partes = this.dividirTablaEnBloques(t);
       this.diag.tablas.push({
         numero: t.numero ?? 0,
@@ -707,14 +805,30 @@ class Compositor {
         ajuste: 'division-columnas',
         anchosColumnasPt: [],
         anchosCifrasPt: [],
+        anchosSuelosPt: [],
+        paginaInicio: paginaEntrada,
+        paginaFin: this.nPagina,
+        filas: t.filas.length,
       });
       let y = this.y;
       for (const parte of partes) y = this.tabla(parte, size);
       return y;
     }
+    if (suma > anchoUtil + TOL_AJUSTE) {
+      // 4-final) SALIDA EXPLÍCITA (dos columnas indivisibles, o una parte
+      //    que ni apaisada cabe): encaje con suelos duros, documentado como
+      //    «hallazgo» en el diagnóstico — visible, medido y trazable.
+      const encaje = encajarAlAnchoConSuelos(anchos, minimos, anchoUtil);
+      anchos = encaje.anchos;
+      ajuste = 'hallazgo';
+      hallazgo = { excesoPt: encaje.excesoPt, suelosRespetados: encaje.suelosRespetados };
+      suma = anchos.reduce((s, a) => s + a, 0);
+    }
     // El SOBRANTE reparte aire (R1 §4): primero a las columnas de TEXTO
     // (aire para envolver), y solo si no hay, a todas. Las cifras conservan
-    // su anchura natural + aire lateral; ninguna columna se encoge.
+    // su anchura natural + aire lateral; ninguna columna se encoge. El
+    // polvo de redondeo negativo (≤ 0,05 mm tras el encaje exacto) queda
+    // tal cual: es invisible y absorberlo forzaría columnas bajo su suelo.
     {
       const sumaAhora = anchos.reduce((s, a) => s + a, 0);
       const sobrante = anchoUtil - sumaAhora;
@@ -726,11 +840,6 @@ class Compositor {
           const factor = anchoUtil / Math.max(1e-6, sumaAhora);
           anchos = anchos.map((a) => a * factor);
         }
-      } else if (sobrante < -0.01) {
-        // Redondeo residual (≤ 0,05 mm): lo absorben las columnas de texto,
-        // nunca las cifras.
-        const textos = anchos.map((a, i) => (numericas[i] ? 0 : a)).reduce((s, a) => s + a, 0);
-        if (textos > 0) for (let i = 0; i < nCols; i++) if (!numericas[i]) anchos[i] += (sobrante * anchos[i]) / textos;
       }
     }
 
@@ -752,6 +861,8 @@ class Compositor {
       columnStyles[i] = { halign: alineaciones[i], cellWidth: anchos[i] };
     }
 
+    // Página de arranque de ESTA tabla (con su título ya dibujado: si el
+    // título saltó de página, arranca donde el título vive — no antes).
     const paginaInicioTabla = this.nPagina;
     const paginasAntes = this.doc.getNumberOfPages();
     autoTable(this.doc, {
@@ -843,6 +954,11 @@ class Compositor {
       ajuste,
       anchosColumnasPt: anchos.map((a) => a * 2.8346),
       anchosCifrasPt: minimos.map((m, i) => (numericas[i] ? m * 2.8346 : 0)),
+      anchosSuelosPt: minimos.map((m) => m * 2.8346),
+      paginaInicio: paginaInicioTabla,
+      paginaFin: this.nPagina,
+      filas: t.filas.length,
+      hallazgo,
     });
     return this.y;
   }
@@ -974,10 +1090,26 @@ class Compositor {
   }
 
   // ------------------------------------------------------- figuras (§9)
-  figura(f: FiguraDoc): number {
+  /** Altura REAL (mm) que ocupará una figura: título + chart + leyenda +
+   *  unidades + nota (R2 §3: la absorción en apaisado decide con la altura
+   *  real, igual que los párrafos en R1 §5 — nunca con un preaviso fijo). */
+  private altoFigura(f: FiguraDoc, altoChart = 76): number {
+    this.doc.setFont('helvetica', 'bold');
+    this.doc.setFontSize(TAM_TITULO_TABLA);
+    const lineasTitulo = this.doc.splitTextToSize(T(f.titulo), this.anchoUtil).length;
+    const notaLineas = this.doc.splitTextToSize(T(`Nota. ${f.nota}`), this.anchoUtil).length;
+    return 4 * lineasTitulo + 2 + altoChart + 6 + f.leyenda.length * 3.6 + 4.5 + notaLineas * 3.4 + 5;
+  }
+
+  /** Dibuja la figura. `altoChart` (uso interno, R2 §3): altura del área
+   *  del gráfico cuando la figura acompaña a su tabla apaisada — el chart se
+   *  REDIMENSIONA a lo que queda de página (nunca por debajo del suelo de
+   *  legibilidad) y usa EXACTAMENTE las mismas series de la tabla que
+   *  interpreta; las escalas se recalculan con la misma cartografía. */
+  figura(f: FiguraDoc, altoChart?: number): number {
     const paginaInicioFigura = this.nPagina;
     const anchoUtil = this.anchoUtil;
-    const altoFig = 76;
+    const altoFig = altoChart ?? 76;
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(TAM_TITULO_TABLA);
     const lineasTitulo = this.doc.splitTextToSize(T(f.titulo), anchoUtil);
@@ -1159,7 +1291,12 @@ class Compositor {
   }
 
   /** Sección con política de paginación por niveles (§4.1) y grupos
-   *  apaisados sin páginas vacías (§4.2). */
+   *  apaisados sin páginas vacías (§4.2). R2 §3: una FIGURA que interpreta
+   *  la tabla apaisada puede acompañarla en su página REDIMENSIONADA al
+   *  espacio que queda, siempre que conserve legibilidad (≥ 32 mm de chart)
+   *  — sin relleno artificial y sin tocar el motor financiero. */
+  private static readonly SUELO_LEGIBILIDAD_FIGURA = 32; // mm de chart
+
   seccion(sec: SeccionDoc, registrar?: Record<string, number>): void {
     const esApaisadaEl = (el: ElementoDoc): el is Extract<ElementoDoc, { tipo: 'tabla' }> =>
       el.tipo === 'tabla' && this.necesitaApaisada(el.tabla);
@@ -1196,6 +1333,19 @@ class Compositor {
         // no liviano, que abre el retorno a vertical solo si hay contenido.
         while (i < sec.elementos.length) {
           const actual = sec.elementos[i];
+          if (actual.tipo === 'figura') {
+            // R2 §3: la figura se absorbe REDIMENSIONADA si conserva
+            // legibilidad; si no cabe ni al mínimo, el grupo termina aquí y
+            // la figura se compone en vertical a tamaño completo.
+            const restante = this.cuerpoFin - this.y;
+            const altoChart = Math.min(76, restante - (this.altoFigura(actual.figura, 0)) - 2);
+            if (altoChart >= Compositor.SUELO_LEGIBILIDAD_FIGURA) {
+              this.figura(actual.figura, altoChart);
+              i++;
+              continue;
+            }
+            break;
+          }
           const esAncha = esApaisadaEl(actual);
           const absorbible = esAncha || (this.esLiviano(actual) && this.y + this.altoElementoAbsorbible(actual) <= this.cuerpoFin);
           if (!absorbible) break;
@@ -1346,13 +1496,24 @@ class Compositor {
     }
   }
 
-  /** Cuerpo completo: portada + índice (opcional) + secciones + pies. */
+  /** Cuerpo completo: portada + índice (opcional) + secciones + pies.
+   *  R2 §2: si el PRIMER elemento del documento es una tabla que exige
+   *  apaisado, el cuerpo abre DIRECTAMENTE en apaisado — la página vertical
+   * preabierta quedaba VACÍA (defecto expuesto por el caso sintético de
+   * densidad). Solo aplica cuando el primer elemento ES la tabla: si la
+   * precede una introducción, esta necesita su página vertical como siempre. */
+  private abreCuerpoApaisado(): boolean {
+    const primera = this.documento.secciones[0];
+    const el = primera?.elementos[0];
+    return !!el && el.tipo === 'tabla' && this.necesitaApaisada(el.tabla);
+  }
+
   componer(opciones?: { paginasSecciones?: Record<string, number>; registrar?: Record<string, number> }): void {
     this.portada();
     if (opciones?.paginasSecciones) {
       this.indice(opciones.paginasSecciones);
-      this.nuevaPagina('retrato'); // el cuerpo abre en página propia, igual que en la pasada 1
-    } else {
+      if (!this.abreCuerpoApaisado()) this.nuevaPagina('retrato'); // el cuerpo abre en página propia, igual que en la pasada 1
+    } else if (!this.abreCuerpoApaisado()) {
       this.nuevaPagina('retrato'); // pasada 1: el cuerpo abre en página 2
     }
     for (const seccion of this.documento.secciones) {
@@ -1384,6 +1545,59 @@ class Compositor {
 export function paginasDeIndice(nEntradas: number): number {
   const porPagina = Math.floor((ALTO - ZONA_PIE - 22 - 18 - 6) / INTER_INDICE);
   return Math.max(1, Math.ceil(nEntradas / Math.max(1, porPagina)));
+}
+
+// ---------------------------------------------------------------------------
+// R2 §2 — Auditoría de densidad editorial con motivos COMPROBABLES
+// ---------------------------------------------------------------------------
+/** Umbral de ocupación baja (fracción de la profundidad del cuerpo). */
+export const UMBRAL_OCUPACION_BAJA = 0.35;
+
+/** Una página con ocupación baja y los motivos editoriales que la justifican. */
+export interface PaginaOcupacionBaja {
+  pagina: number;
+  orientacion: 'retrato' | 'apaisada';
+  ocupacion: number;
+  /** Motivos editoriales COMPROBABLES documentados (vacío = violación). */
+  motivos: string[];
+}
+
+/** Motivos que justifican una ocupación baja (R2 §2): portada, índice, cierre
+ *  documental (última página del documento), tabla horizontal SUSTANCIAL que
+ *  vive en la página, continuación multipágina de una tabla o figura propia.
+ *
+ *  La orientación APAISADA NO justifica por sí sola: una página apaisada con
+ *  contenido mínimo queda SEÑALADA — exige una tabla sustancial (≥ 5 filas
+ *  o ≥ 6 columnas, comprobable en el diagnóstico), una continuación o una
+ *  figura. Una excepción general (p. ej. «toda apaisada vale») escondería
+ *  defectos en proyectos futuros; cada motivo se verifica contra el
+ *  diagnóstico real de composición. */
+export function excepcionesOcupacionBaja(d: DiagnosticoComposicion): PaginaOcupacionBaja[] {
+  const out: PaginaOcupacionBaja[] = [];
+  for (const pag of d.paginas) {
+    if (pag.ocupacion >= UMBRAL_OCUPACION_BAJA) continue;
+    const motivos: string[] = [];
+    if (pag.pagina === 1) motivos.push('portada');
+    if (pag.elementos.includes('indice')) motivos.push('índice');
+    if (pag.pagina === d.paginas.length) motivos.push('cierre documental');
+    const continuacion = d.tablas.some((t) => t.paginaInicio < pag.pagina && pag.pagina <= t.paginaFin);
+    if (continuacion) motivos.push('continuación multipágina');
+    if (pag.orientacion === 'apaisada') {
+      const sustancial = d.tablas.some(
+        (t) => t.paginaInicio === pag.pagina && (t.filas >= 5 || t.columnas.length >= 6)
+      );
+      if (sustancial) motivos.push('tabla horizontal sustancial');
+      if (pag.elementos.includes('figura')) motivos.push('figura');
+    }
+    out.push({ pagina: pag.pagina, orientacion: pag.orientacion, ocupacion: pag.ocupacion, motivos });
+  }
+  return out;
+}
+
+/** Páginas con ocupación baja SIN ningún motivo editorial documentado:
+ *  el control de calidad las señala (R2 §2 — criterio de cierre). */
+export function violacionesDensidad(d: DiagnosticoComposicion): PaginaOcupacionBaja[] {
+  return excepcionesOcupacionBaja(d).filter((p) => p.motivos.length === 0);
 }
 
 // ---------------------------------------------------------------------------

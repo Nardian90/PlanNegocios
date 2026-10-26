@@ -25,7 +25,7 @@
 import { describe, test, expect } from 'bun:test';
 import { computeProject } from '../../src/lib/planex/engine/engine';
 import { crearProyectoClinica } from '../../src/lib/planex/templates/clinica';
-import { exportarPDF, exportarPDFConDiagnostico, componerDesdeModelo } from '../../src/lib/planex/io/pdf';
+import { exportarPDF, exportarPDFConDiagnostico, componerDesdeModelo, violacionesDensidad, excepcionesOcupacionBaja } from '../../src/lib/planex/io/pdf';
 import { exportarDOCX } from '../../src/lib/planex/io/docx';
 import type { DocumentoPlanex, ElementoDoc, TablaDoc } from '../../src/lib/planex/doc/modelo';
 import type { DiagnosticoComposicion } from '../../src/lib/planex/io/pdf';
@@ -189,20 +189,15 @@ describe('DOC-003 §4 — Política de paginación y densidad', () => {
     }
   });
 
-  test('las páginas con ocupación baja tienen razón editorial verificable (§4.4)', () => {
+  test('las páginas con ocupación baja tienen razón editorial verificable (§4.4, R2 §2: apaisada NO exime por sí sola)', () => {
+    // R2 §2 endurece la regla: la orientación apaisada ya NO es un motivo
+    // automático — toda excepción debe ser un motivo comprobable (portada,
+    // índice, cierre, tabla sustancial, continuación o figura).
     for (const d of [diagCUP.diagnostico, diagUSD.diagnostico]) {
-      for (const pag of d.paginas) {
-        if (pag.ocupacion >= 0.35) continue;
-        const razon =
-          pag.pagina === 1 || // portada
-          pag.elementos.includes('indice') || // índice
-          pag.orientacion === 'apaisada'; // bloque apaisado con tabla ancha
-        expect({ pagina: pag.pagina, ocupacion: pag.ocupacion, razon }).toEqual({
-          pagina: pag.pagina,
-          ocupacion: pag.ocupacion,
-          razon: true,
-        });
-      }
+      const violaciones = violacionesDensidad(d);
+      expect(violaciones).toEqual([]);
+      // y las que quedan por debajo del umbral declaran su motivo explícito
+      for (const pag of excepcionesOcupacionBaja(d)) expect(pag.motivos.length).toBeGreaterThan(0);
     }
   });
 
@@ -708,5 +703,289 @@ describe('DOC-003-R1 §6 — Colisiones generales (posiciones dibujadas)', () =>
       const menorY = Math.min(...runsPag.map((r) => r.y));
       expect(menorY).toBeGreaterThanOrEqual(20.4); // arranca en el cuerpo, no en la cabecera
     }
+  });
+});
+
+// ============================================================================
+// DOC-003-R2 — Casos límite del compositor y cierre de densidad editorial.
+//
+// §1: la ruta de exceso de ancho para tablas de DOS columnas (y en general
+//      las que no admiten división) no puede reducir columnas de texto por
+//      debajo de su mínimo ni dejar anchos cero/negativos ni desbordar: la
+//      salida es EXPLÍCITA y trazable («hallazgo» medido en el diagnóstico).
+// §2: la orientación apaisada no justifica ocupación baja por sí sola; el
+//      control de calidad señala la página apaisada con contenido mínimo.
+// §3: la página de flujos decide con renders comparables: tabla + figura de
+//      flujo acumulado REDIMENSIONADA (misma serie) si cabe y conserva
+//      legibilidad.
+// Todas las comprobaciones son sobre el DOCUMENTO RENDERIZADO (posiciones
+// dibujadas de los Tj) y el diagnóstico real del compositor.
+// ============================================================================
+
+/** Cifra con agrupación es-ES de `rep` grupos de 15 dígitos. */
+const cifraGigante = (rep: number): string =>
+  `${Array.from({ length: rep }, () => '123.456.789.012.345').join('.')},67`;
+
+/** Ningún run dibujado cruza el margen derecho de SU orientación (+0,6 mm). */
+function sinDesbordes(pdf: ReturnType<typeof parsearPDF>): void {
+  for (const r of pdf.runs) {
+    const pag = pdf.paginas[r.pagina - 1];
+    const anchoMm = pag.anchoPt / 2.8346;
+    const w = medirTextoHelvetica(r.texto, r.size, esNegrita(r.fuente));
+    expect(r.x + w).toBeLessThanOrEqual(anchoMm - 14 + 0.6);
+  }
+}
+
+describe('DOC-003-R2 §1 — Casos límite del ajuste de tablas (dos columnas)', () => {
+  test('dos columnas (concepto + cifra excepcionalmente ancha): apaisada por contenido, sin suelos rotos ni desborde', () => {
+    // La cifra (~150 caracteres) no cabe en vertical NI comprimiendo el
+    // concepto hasta su suelo, pero SÍ en apaisado: ajuste documentado,
+    // columnas positivas y por encima de sus suelos.
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-1. Concepto con cifra excepcionalmente ancha',
+      encabezados: ['Concepto', 'Importe'],
+      filas: [
+        ['Inversión total acumulada del período', cifraGigante(9)],
+        ['Aporte del socio extranjero', cifraGigante(9)],
+        ['Aporte del socio nacional', cifraGigante(9)],
+      ],
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    expect(t.apaisada).toBe(true); // el CONTENIDO la manda a apaisado
+    expect(t.ajuste).not.toBe('hallazgo'); // cabe apaisada con el repertorio
+    // ancho efectivo de cada columna: positivo, ≥ su suelo y sin valores negativos
+    for (let i = 0; i < t.anchosColumnasPt.length; i++) {
+      expect(t.anchosColumnasPt[i]).toBeGreaterThan(0);
+      expect(t.anchosColumnasPt[i]).toBeGreaterThanOrEqual(t.anchosSuelosPt[i] - 0.3);
+    }
+    // la suma no excede el ancho útil apaisado (269 mm) y los datos están íntegros
+    const sumaPt = t.anchosColumnasPt.reduce((s, a) => s + a, 0);
+    expect(sumaPt).toBeLessThanOrEqual(269 * 2.8346 + 2);
+    const pdf = parsearPDF(Buffer.from(datos));
+    sinDesbordes(pdf);
+    const texto = pdf.runs.map((r) => r.texto).join('');
+    for (const f of tabla.filas) expect(texto).toContain(f[1]); // cifra íntegra, sin puntos suspensivos
+  });
+
+  test('dos columnas con cifra MÁS ANCHA QUE EL FOLIO: salida explícita «hallazgo», sin anchos ≤ 0 y sin desborde', () => {
+    // Ni apaisada cabe: la salida es trazable — encaje con suelos duros y
+    // hallazgo medido. Antes de R2 este caso dejaba la columna de texto en
+    // ancho cero/negativo (reparto sin techo del residuo) o desbordaba.
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-2. Cifra más ancha que el propio folio apaisado',
+      encabezados: ['Concepto', 'Importe'],
+      filas: [
+        ['Cifra patológica de entrada externa', cifraGigante(16)],
+        ['Segunda fila igual de patológica', cifraGigante(16)],
+      ],
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    expect(t.ajuste).toBe('hallazgo');
+    expect(t.hallazgo).toBeDefined();
+    expect(t.hallazgo!.excesoPt).toBeGreaterThan(0);
+    expect(t.hallazgo!.suelosRespetados).toBe(false); // ni los suelos cabían
+    // ninguna columna en cero o negativa: suelo duro ≥ 7 mm (19,84 pt)
+    for (const a of t.anchosColumnasPt) {
+      expect(a).toBeGreaterThanOrEqual(19.8);
+      expect(Number.isFinite(a)).toBe(true);
+    }
+    // y la tabla NO desborda el folio: la suma queda clavada al ancho útil
+    const sumaPt = t.anchosColumnasPt.reduce((s, a) => s + a, 0);
+    expect(sumaPt).toBeLessThanOrEqual(269 * 2.8346 + 2);
+    const pdf = parsearPDF(Buffer.from(datos));
+    sinDesbordes(pdf);
+    // la cifra se envuelve de forma VISIBLE (nada se pierde ni se recorta en silencio)
+    const plano = pdf.runs.map((r) => r.texto).join('').replace(/\s+/g, '');
+    expect(plano).toContain(cifraGigante(16).replace(/\s+/g, ''));
+  });
+
+  test('dos columnas NUMÉRICAS: la columna 0 (etiquetas) nunca queda en cero y las cifras no se comprimen en silencio', () => {
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-3. Dos columnas de cifras anchas sin columna de conceptos',
+      encabezados: ['Saldo inicial', 'Saldo final'],
+      filas: [
+        [cifraGigante(7), cifraGigante(7)],
+        [cifraGigante(7), cifraGigante(7)],
+      ],
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    // ancho efectivo de CADA columna: positivo y finito, sin valores negativos
+    expect(t.anchosColumnasPt.length).toBe(2);
+    for (const a of t.anchosColumnasPt) {
+      expect(a).toBeGreaterThan(0);
+      expect(Number.isFinite(a)).toBe(true);
+    }
+    // el ajuste usado es trazable (ninguna/texto si cabe apaisada; hallazgo si ni cabe)
+    expect(['ninguna', 'fuente', 'texto', 'hallazgo']).toContain(t.ajuste);
+    const pdf = parsearPDF(Buffer.from(datos));
+    sinDesbordes(pdf);
+    const plano = pdf.runs.map((r) => r.texto).join('').replace(/\s+/g, '');
+    expect(plano).toContain(cifraGigante(7).replace(/\s+/g, ''));
+  });
+
+  test('identificadores extremadamente largos: se parten de forma visible, sin anchos rotos ni pérdida de contenido', () => {
+    const ident = 'financiacion_disponible_para_ampliaciones_del_ejercicio_siguiente_tras_devengar_intereses_y_escudos_fiscales_del_credito_sindicado_k';
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-4. Identificadores extremadamente largos',
+      encabezados: ['Identificador del modelo', 'Valor', 'Unidad'],
+      filas: [
+        [ident, '1.234,5', 'kCUP'],
+        [ident.replace('sindicado', 'bilateral'), '987,6', 'kUSD'],
+      ],
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    for (let i = 0; i < t.anchosColumnasPt.length; i++) {
+      expect(t.anchosColumnasPt[i]).toBeGreaterThan(0);
+      if (t.ajuste !== 'hallazgo') expect(t.anchosColumnasPt[i]).toBeGreaterThanOrEqual(t.anchosSuelosPt[i] - 0.3);
+    }
+    const pdf = parsearPDF(Buffer.from(datos));
+    sinDesbordes(pdf);
+    // el identificador está COMPLETO aunque partido por caracteres (trazable)
+    const plano = pdf.runs.map((r) => r.texto).join('').replace(/[\s-]+/g, '');
+    expect(plano).toContain(ident.replace(/[\s-]+/g, ''));
+    expect(plano).toContain(ident.replace('sindicado', 'bilateral').replace(/[\s-]+/g, ''));
+  });
+
+  test('negativos y unidades heterogéneas: alineación por contenido, anchura del signo contada y sin desbordes', () => {
+    const valores = ['-1.234,56', '(2.345,67)', '\u22123.789,01', '45 %', '12 meses', '3 años', '1.234,5 kCUP', '7 uds.'];
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-5. Negativos, paréntesis, menos matemático y unidades heterogéneas',
+      encabezados: ['Concepto', 'Importe', 'Observación'],
+      filas: valores.map((v, i) => [`Partida ${i + 1}`, v, 'Verificación de composición del valor.']),
+    };
+    const { datos, diagnostico } = componerDesdeModelo(documentoSintetico([{ tipo: 'tabla', tabla }]));
+    const t = diagnostico.tablas[0];
+    // TODOS los formatos de negativo y las unidades cuentan como contenido
+    // numérico: la columna se alinea a la derecha por CONTENIDO (§5.3).
+    expect(t.columnas[1].numerica).toBe(true);
+    expect(t.columnas[1].alineacion).toBe('right');
+    expect(t.columnas[2].numerica).toBe(false);
+    expect(t.columnas[2].alineacion).toBe('left');
+    // la anchura de la cifra más ancha (con su signo/unidad) queda garantizada
+    expect(t.anchosColumnasPt[1]).toBeGreaterThanOrEqual(t.anchosCifrasPt[1] - 0.3);
+    const pdf = parsearPDF(Buffer.from(datos));
+    sinDesbordes(pdf);
+    // el menos matemático (U+2212) se saneará a «-» legible y el valor sobrevive entero
+    const texto = pdf.runs.map((r) => r.texto).join(' ');
+    for (const v of ['-1.234,56', '(2.345,67)', '-3.789,01', '45 %', '12 meses', '3 años', '1.234,5 kCUP', '7 uds.']) {
+      expect(texto).toContain(v);
+    }
+  });
+});
+
+describe('DOC-003-R2 §2 — Densidad: la apaisada NO justifica por sí sola', () => {
+  test('caso sintético: página apaisada con contenido mínimo queda SEÑALADA por el control de calidad', () => {
+    // Tabla de 2 columnas × 3 filas con cifras anchas → página apaisada con
+    // ~25 % de ocupación. La regla anterior la aceptaba POR SER APAISADA; la
+    // regla R2 la señala: sin tabla sustancial, sin figura y sin continuación.
+    const tabla: TablaDoc = {
+      titulo: 'Tabla R2-6. Tabla mínima que exige apaisado',
+      encabezados: ['Concepto', 'Importe'],
+      filas: [
+        ['Primero', cifraGigante(9)],
+        ['Segundo', cifraGigante(9)],
+        ['Tercero', cifraGigante(9)],
+      ],
+    };
+    // El párrafo posterior NO es liviano (> 62 mm): obliga al retorno a
+    // vertical, de modo que la página apaisada NO es la última (cierre).
+    const parrafoGrande = Array.from({ length: 16 }, (_, i) => `${PARRAFO_LARGO} (tramo ${i + 1})`).join(' ');
+    const { diagnostico } = componerDesdeModelo(documentoSintetico([
+      { tipo: 'tabla', tabla },
+      { tipo: 'parrafo', texto: parrafoGrande },
+    ]));
+    const apaisadas = diagnostico.paginas.filter((p) => p.orientacion === 'apaisada');
+    expect(apaisadas.length).toBeGreaterThanOrEqual(1);
+    expect(apaisadas[0].ocupacion).toBeLessThan(0.35);
+    const violaciones = violacionesDensidad(diagnostico);
+    expect(violaciones.length).toBeGreaterThanOrEqual(1);
+    expect(violaciones[0].orientacion).toBe('apaisada'); // la señalada es la apaisada
+    expect(violaciones[0].motivos).toEqual([]); // sin motivo editorial documentado
+  });
+
+  test('los motivos documentados son EXACTOS: tabla sustancial o figura excusan; una apaisada vacía no', () => {
+    // Diagnóstico sintético (regla, no render): la misma página apaisada al
+    // 22 % con una tabla de 6 columnas declara «tabla horizontal sustancial»;
+    // sin ella, queda señalada. La excepción es específica, no general.
+    const base = (sustancial: boolean): DiagnosticoComposicion => ({
+      paginas: [
+        { pagina: 1, orientacion: 'retrato', ocupacion: 1, elementos: ['portada'] },
+        { pagina: 2, orientacion: 'apaisada', ocupacion: 0.22, elementos: sustancial ? ['capitulo', 'tabla'] : ['capitulo'] },
+        { pagina: 3, orientacion: 'retrato', ocupacion: 0.9, elementos: ['parrafo'] },
+      ],
+      justificado: { parrafos: 0, lineasIntermedias: 0, intermediasJustificadas: 0, desvioMaximoPt: 0 },
+      lineas: [],
+      tablas: sustancial
+        ? [{
+            numero: 1, titulo: 'T', fuentePt: 7.5, apaisada: true, ajuste: 'ninguna',
+            anchosColumnasPt: [], anchosCifrasPt: [], anchosSuelosPt: [],
+            paginaInicio: 2, paginaFin: 2, filas: 6,
+            columnas: Array.from({ length: 6 }, (_, i) => ({ indice: i, alineacion: 'right' as const, numerica: true })),
+          }]
+        : [],
+    });
+    expect(violacionesDensidad(base(true))).toEqual([]); // tabla sustancial: excusa exacta
+    const sinTabla = violacionesDensidad(base(false));
+    expect(sinTabla.length).toBe(1);
+    expect(sinTabla[0].pagina).toBe(2);
+    // y una continuación multipágina de tabla TAMBIÉN excusa (motivo comprobable)
+    const conContinuacion = base(false);
+    conContinuacion.tablas = [{
+      numero: 1, titulo: 'T', fuentePt: 7.5, apaisada: true, ajuste: 'ninguna',
+      anchosColumnasPt: [], anchosCifrasPt: [], anchosSuelosPt: [],
+      paginaInicio: 1, paginaFin: 2, filas: 40,
+      columnas: Array.from({ length: 3 }, (_, i) => ({ indice: i, alineacion: 'left' as const, numerica: false })),
+    }];
+    expect(violacionesDensidad(conContinuacion)).toEqual([]);
+  });
+
+  test('regresión clínica: ninguna página de CUP/USD queda señalada (excepciones correctas, no generales)', () => {
+    expect(violacionesDensidad(diagCUP.diagnostico)).toEqual([]);
+    expect(violacionesDensidad(diagUSD.diagnostico)).toEqual([]);
+  });
+});
+
+describe('DOC-003-R2 §3 — Página de flujos: decisión documentada con renders comparables', () => {
+  test('CUP: la figura de flujo acumulado (MISMA serie de la tabla) vive JUNTO a la tabla apaisada, redimensionada y legible', () => {
+    const pTabla = pdfCUP.runs.find((r) => r.texto.includes('Flujos de caja del proyecto y de los socios'))!.pagina;
+    const pFigura = pdfCUP.runs.find((r) => r.texto.includes('con cruce de cero'))!.pagina;
+    expect(pFigura).toBe(pTabla); // la figura acompaña a SU tabla (R2 §3)
+    const pag = diagCUP.diagnostico.paginas[pTabla - 1];
+    expect(pag.orientacion).toBe('apaisada');
+    expect(pag.elementos).toContain('figura');
+    // la ocupación mejora de forma medible (antes 0,549; línea base DOC-003: 0,405)
+    expect(pag.ocupacion).toBeGreaterThanOrEqual(0.7);
+    // MISMA serie: las filas «Flujo acumulado…» de la tabla y la leyenda de la
+    // figura (fcffAcumulado/fcfeAcumulado del MISMO modelo) conviven en la página
+    const juntos = pdfCUP.runs.filter((r) => r.pagina === pTabla).map((r) => r.texto).join(' ');
+    expect(juntos).toContain('Flujo acumulado del proyecto');
+    expect(juntos).toContain('Flujo acumulado de los socios');
+    expect(juntos).toContain('Lectura de la tabla');
+  });
+
+  test('CUP: la figura redimensionada conserva legibilidad (etiquetas de ejes y leyenda presentes) y no desborda', () => {
+    const pFigura = pdfCUP.runs.find((r) => r.texto.includes('con cruce de cero'))!.pagina;
+    const runs = pdfCUP.runs.filter((r) => r.pagina === pFigura && r.y > 16);
+    // ejes rotulados: marcas de años y unidades del eje vertical
+    expect(runs.some((r) => r.texto.trim() === 'Año 0')).toBe(true);
+    expect(runs.some((r) => r.texto.includes('Unidades del eje vertical'))).toBe(true);
+    // leyenda con las DOS series y el cero
+    const plano = runs.map((r) => r.texto).join(' ');
+    expect(plano).toContain('FCFF');
+    expect(plano).toContain('FCFE');
+    sinDesbordes(pdfCUP);
+  });
+
+  test('USD (sin páginas apaisadas): la figura de flujos se compone a tamaño completo en vertical', () => {
+    // En USD las cifras compactas no exigen apaisado: la MISMA decisión de
+    // diseño no toca nada — la figura conserva su altura íntegra (76 mm).
+    const pFigura = pdfUSD.runs.find((r) => r.texto.includes('con cruce de cero'))!.pagina;
+    const pag = diagUSD.diagnostico.paginas[pFigura - 1];
+    expect(pag.orientacion).toBe('retrato');
+    expect(pag.elementos).toContain('figura');
   });
 });
