@@ -647,6 +647,14 @@ export function construirDocumentoPlanex(
         };
       })(),
     },
+    // DOC-003-R1 §5: lectura breve y TRAZABLE de la tabla de flujos (mismos
+    // valores ya presentes en las filas; guía la lectura de la página apaisada
+    // sin introducir recálculos), junto a la tabla y antes de la figura.
+    {
+      tipo: 'parrafo',
+      texto: `Lectura de la tabla (mismos valores, sin recálculo): el flujo del proyecto solo es negativo en el año 0 (${K(m.indicadores.fcff[0] ?? 0)}); ${recP.anioCruce === null ? 'el acumulado del proyecto no cruza a positivo dentro del horizonte' : `el acumulado del proyecto cruza de negativo a positivo durante el año ${recP.anioCruce}`} y el saldo pendiente de la inversión total llega a 0,0 en el año ${years.find((t) => (val('saldo_pendiente_proyecto_k', t) ?? 1) === 0) ?? '—'}; el saldo del capital aportado se agota en el año ${years.find((t) => (val('saldo_pendiente_socios_k', t) ?? 1) === 0) ?? '—'}. El escudo fiscal del interés devengado acompaña la vida del crédito y su máximo anual es ${K(Math.max(0, ...years.map((t) => m.indicadores.escudoFiscal[t] ?? 0)))}.`,
+      pequeno: true,
+    },
     ...fig('flujos'),
     {
       tipo: 'parrafo',

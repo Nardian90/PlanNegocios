@@ -185,7 +185,10 @@ function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, anch
 }
 
 function tablaWord(tabla: TablaDoc, ancho: number): Table {
-  const size = tabla.ancha ? 15 : 17; // half-points: 7,5 pt apaisada / 8,5 pt normal (§5.2)
+  // DOC-003-R1 §4: la fuente sigue la decisión de ORIENTACIÓN POR CONTENIDO
+  // (mismo criterio compartido con el PDF), no la declaración «ancha»; una
+  // tabla estrecha absorbida en un grupo apaisado conserva sus 8,5 pt.
+  const size = esApaisadaWord(tabla) ? 15 : 17; // half-points: 7,5 pt apaisada / 8,5 pt normal (§5.2)
   const numericas = columnasNumericasWord(tabla);
   const resaltar = new Set(tabla.resaltar ?? []);
   const children: TableRow[] = [];
