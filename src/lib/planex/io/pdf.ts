@@ -178,6 +178,16 @@ function T(texto: string | null | undefined): string {
   return asegurarTexto(texto);
 }
 
+/** Medición de texto Helvetica (mm) con las MISMAS métricas del compositor.
+ *  Exportada para que las pruebas calculen cajas delimitadoras REALES de los
+ *  Tj extraídos del PDF (DOC-003-R1 §6: colisiones sobre posiciones dibujadas). */
+export function medirTextoHelvetica(texto: string, size: number, negrita: boolean): number {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: false });
+  doc.setFont('helvetica', negrita ? 'bold' : 'normal');
+  doc.setFontSize(size);
+  return doc.getTextWidth(texto);
+}
+
 function hexARgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -499,10 +509,13 @@ class Compositor {
   // ------------------------------------------------------- títulos en flujo
   /** Título de CAPÍTULO como contenido (§4.1): no es un encabezado fijo de
    *  página. Abre página solo si no queda arranque digno; si fluye, lleva
-   *  aire superior mayor. Se mantiene junto a su primer contenido. */
-  tituloCapitulo(titulo: string, forzarPaginaNueva: boolean): number {
+   *  aire superior mayor. Se mantiene junto a su primer contenido
+   *  (DOC-003-R1 §6: el hueco tras el título se calcula con la altura real
+   *  del PRIMER elemento de la sección — un título huérfano al pie de
+   *  página es una colisión editorial). */
+  tituloCapitulo(titulo: string, forzarPaginaNueva: boolean, arranque = 22): number {
     const alto = 14 + 8; // título (hasta 2 líneas) + aire
-    if (forzarPaginaNueva || this.y + alto + 22 > this.cuerpoFin) {
+    if (forzarPaginaNueva || this.y + alto + Math.max(22, arranque) > this.cuerpoFin) {
       this.nuevaPagina('retrato');
     } else if (this.y > this.cuerpoInicio + 2) {
       this.y += 6; // aire de separación cuando fluye a mitad de página
@@ -564,18 +577,43 @@ class Compositor {
     // El bloque se mantiene ENTERO si no cabe en lo que queda pero sí en una
     // página (§4.3): evita remanentes de 2–3 campos huérfanos antes de un
     // cambio de orientación o de sección.
-    const alturaBloque = items.reduce((s, item) => s + this.altoCampo(T(item.valor) || '—'), 1.5);
-    if (alturaBloque > 14 && this.y + alturaBloque > this.cuerpoFin && alturaBloque <= (this.cuerpoFin - this.cuerpoInicio) * 0.78) {
+    const valores = items.map((item) => T(item.valor) || '—');
+    const alturas = valores.map((v) => this.altoCampo(v));
+    const total = alturas.reduce((s, h) => s + h, 0) + 1.5;
+    const restante = this.cuerpoFin - this.y;
+    const cuerpoAlto = this.cuerpoFin - this.cuerpoInicio;
+    /** Índice en el que forzar el salto (división equilibrada); −1 = ninguno. */
+    let corte = -1;
+    if (total > 14 && restante < total && total <= cuerpoAlto * 0.78) {
       this.nuevaPagina();
+    } else if (restante < total) {
+      // DIVISIÓN EQUILIBRADA (R1 §2): la lista se parte por campos atómicos;
+      // si la cola resultante quedara por debajo del 35 % de una página, el
+      // corte se ADELANTA hasta que la cola lleve un arranque digno — la
+      // página anterior simplemente termina un poco antes. Evita páginas
+      // de campos casi vacías antes de un bloque apaisado.
+      corte = 0;
+      let acum = 1.5;
+      while (corte < items.length && acum + alturas[corte] <= restante) {
+        acum += alturas[corte];
+        corte++;
+      }
+      let alturaCola = alturas.slice(corte).reduce((s, h) => s + h, 0);
+      const minimoCola = cuerpoAlto * 0.35;
+      while (corte > 0 && alturaCola < minimoCola) {
+        corte--;
+        alturaCola += alturas[corte];
+      }
     }
-    for (const item of items) {
-      const valor = T(item.valor) || '—';
+    for (let k = 0; k < items.length; k++) {
+      if (k === corte) this.nuevaPagina();
+      const valor = valores[k];
       // El campo (etiqueta + valor) es atómico: si no cabe entero, página nueva.
       if (this.y + this.altoCampo(valor) > this.cuerpoFin) this.nuevaPagina();
       this.doc.setFont('helvetica', 'bold');
       this.doc.setFontSize(9);
       this.doc.setTextColor(...TITULO);
-      this.doc.text(T(`${item.etiqueta}:`), M, this.y + 3);
+      this.doc.text(T(`${items[k].etiqueta}:`), M, this.y + 3);
       // El valor arranca en su PROPIA línea base, separación explícita (R1 §2).
       this.y += 3 + C.sepEtiquetaValor;
       this.parrafo(valor, { size: 8.7, justificado: false, margenIzq: C.sangriaValor, ancho: this.anchoUtil - C.sangriaValor });
@@ -1073,6 +1111,43 @@ class Compositor {
   }
 
   // ------------------------------------------------------- P0-2: secciones
+  /** Altura estimada (mm) de un elemento ABSORBIBLE en apaisado (parrafos,
+   *  análisis, avisos). Figuras, tablas y campos devuelven Infinity: nunca
+   * se absorben (R1 §5: la decisión de absorber usa la altura REAL, no un
+   * preaviso fijo, para no crear páginas de desborde). */
+  private altoElementoAbsorbible(el: ElementoDoc): number {
+    if (el.tipo === 'parrafo') return this.altoParrafo(T(el.texto), el.pequeno ? TAM_NOTA : TAM_CUERPO, this.anchoUtil) + 4;
+    if (el.tipo === 'analisis') return 5 + 3 + this.altoParrafo(T(el.bloque.texto), TAM_ANALISIS, this.anchoUtil - 5) + 4 + 2.5;
+    if (el.tipo === 'aviso') {
+      this.doc.setFont('helvetica', 'normal');
+      this.doc.setFontSize(TAM_AVISO);
+      const lineas = this.doc.splitTextToSize(T(el.texto), this.anchoUtil - 8);
+      return Math.max(14, lineas.length * 3.5 + 7) + 10;
+    }
+    return Infinity;
+  }
+
+  /** Altura de arranque digno del PRIMER elemento de una sección (mm):
+   *  lo que debe caber bajo el título de capítulo para que no quede
+   *  huérfano (R1 §6). */
+  private altoArranqueSeccion(el: ElementoDoc | undefined): number {
+    if (!el) return 22;
+    if (el.tipo === 'campos') {
+      const valores = el.items.map((it) => T(it.valor) || '—');
+      return Math.min(
+        90,
+        valores.reduce((s, v) => s + this.altoCampo(v), 0) + 1.5
+      );
+    }
+    if (el.tipo === 'tabla') return 34; // título de tabla + cabecera + filas
+    if (el.tipo === 'figura') return 80;
+    if (el.tipo === 'analisis') return Math.min(60, 8 + this.altoParrafo(T(el.bloque.texto), TAM_ANALISIS, this.anchoUtil - 5));
+    if (el.tipo === 'aviso') return 24;
+    if (el.tipo === 'parrafo') return Math.min(60, this.altoParrafo(T(el.texto), el.pequeno ? TAM_NOTA : TAM_CUERPO, this.anchoUtil));
+    if (el.tipo === 'subtitulo') return 30;
+    return 22;
+  }
+
   private esLiviano(el: ElementoDoc): boolean {
     if (el.tipo === 'parrafo') {
       const alto = this.altoParrafo(T(el.texto), el.pequeno ? TAM_NOTA : TAM_CUERPO, ANCHO - 2 * M);
@@ -1098,7 +1173,7 @@ class Compositor {
 
     if (!abreConApaisada) {
       this.irARetrato();
-      this.tituloCapitulo(sec.titulo, sec.paginaNueva);
+      this.tituloCapitulo(sec.titulo, sec.paginaNueva, this.altoArranqueSeccion(sec.elementos[0]));
       if (registrar) registrar[sec.titulo] = this.nPagina;
     }
 
@@ -1110,20 +1185,19 @@ class Compositor {
         // esté: NO se añade ninguna página vacía de transición).
         this.nuevaPagina('apaisada');
         if (abreConApaisada && i === primeraApaisada) {
-          this.tituloCapitulo(sec.titulo, false);
+          this.tituloCapitulo(sec.titulo, false, this.altoArranqueSeccion(sec.elementos[0]));
           if (registrar) registrar[sec.titulo] = this.nPagina;
         }
-        // Absorbe tablas apaisadas consecutivas y los bloques livianos
-        // intermedios/ finales que quepan (§4.2/§4.3), sin fragmentar.
+        // Absorbe tablas apaisadas consecutivas y los bloques livianos que
+        // quepan (§4.2/§4.3), sin fragmentar. DOC-003-R1 §5: un liviano se
+        // absorbe solo si su ALTURA REAL cabe en lo que resta — su lectura
+        // pertenece junto a la tabla que lo precede (p. ej., la «lectura de
+        // la tabla» de 4.7.1) — y el grupo termina en el primer elemento
+        // no liviano, que abre el retorno a vertical solo si hay contenido.
         while (i < sec.elementos.length) {
           const actual = sec.elementos[i];
           const esAncha = esApaisadaEl(actual);
-          const despues = sec.elementos.slice(i + 1);
-          const absorbible =
-            esAncha ||
-            (this.esLiviano(actual) &&
-              (despues.some(esApaisadaEl) || despues.every((d) => this.esLiviano(d))) &&
-              this.y + 8 <= this.cuerpoFin);
+          const absorbible = esAncha || (this.esLiviano(actual) && this.y + this.altoElementoAbsorbible(actual) <= this.cuerpoFin);
           if (!absorbible) break;
           this.elemento(actual);
           i++;
@@ -1191,16 +1265,22 @@ class Compositor {
     }
     this.y = y;
     if (p.avisoDemo) this.aviso(p.avisoDemo);
+    // Nota de generación AJUSTADA AL ANCHO ÚTIL (R1 §6: antes era una línea
+    // única que desbordaba el margen derecho e incluso el folio físico).
     this.doc.setFont('helvetica', 'normal');
     this.doc.setFontSize(8);
     this.doc.setTextColor(...GRIS);
-    this.doc.text(
+    const notaGen = this.doc.splitTextToSize(
       T(
         `Generado localmente por PLANEX Cuba el ${new Date().toLocaleString('es-ES')}. Cifras y análisis provienen del modelo de cálculo activo (misma versión para tablas, resumen, conclusiones y exportaciones).`
       ),
-      M,
-      ALTO - 16
+      ANCHO - 2 * M
     );
+    let yNota = ALTO - 16;
+    for (let i = notaGen.length - 1; i >= 0; i--) {
+      this.doc.text(notaGen[i], M, yNota);
+      yNota -= 3.4;
+    }
     this.paginas[0].yFin = Math.max(this.paginas[0].yFin, this.y);
   }
 
