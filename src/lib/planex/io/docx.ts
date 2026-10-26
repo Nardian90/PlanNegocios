@@ -48,6 +48,7 @@ import { construirDocumentoPlanex, OpcionesDocumento } from '../doc/construir';
 import { DocumentoPlanex, ElementoDoc, TablaDoc, etiquetaAnalisis } from '../doc/modelo';
 import { asegurarTexto } from '../doc/texto';
 import { rasterizarPNG } from '../doc/figuras';
+import { requiereApaisada, type MedidorAncho } from './pdf';
 
 /** Texto canónico WinAnni-seguro compartido con el PDF (misión §8: el
  *  contenido de ambos formatos coincide carácter a carácter). */
@@ -74,6 +75,47 @@ function esNumerica(texto: string): boolean {
   return /^[-–—]?[\d.,]+([ ]?%|[ ]?(kUSD|kCUP|USD|CUP|años?))?$/.test(t) || /^[\d.,]+ %$/.test(t);
 }
 
+/** Columnas numéricas por CONTENIDO (≥ 80 % de celdas numéricas): misma regla
+ *  que el PDF (DOC-003 §5.3) — una columna «Estado» o «Fuente» no se alinea a
+ *  la derecha por su posición. */
+function columnasNumericasWord(tabla: TablaDoc): boolean[] {
+  const n = tabla.encabezados.length;
+  const out: boolean[] = [];
+  for (let i = 0; i < n; i++) {
+    const celdas = tabla.filas.map((f) => (f[i] ?? '').trim()).filter((c) => c !== '' && c !== '—');
+    if (i === 0 || !celdas.length) {
+      out[i] = false;
+      continue;
+    }
+    out[i] = celdas.filter((c) => esNumerica(c)).length / celdas.length >= 0.8;
+  }
+  return out;
+}
+
+/** Medición aproximada de Calibri (mm) para el criterio de orientación
+ *  compartido con el PDF (DOC-003 §4.2): misma decisión de contenido, métricas
+ *  del propio formato. Word envuelve automáticamente, así que basta un buen
+ *  umbral, no un ajuste milimétrico. */
+const medirWord: MedidorAncho = (texto, size, negrita) => {
+  let em = 0;
+  for (const ch of texto) {
+    if (ch === ' ' || ch === '.' || ch === ',') em += 0.26;
+    else if (/[0-9]/.test(ch)) em += 0.507;
+    else if (/[iljt|!;:'’]/.test(ch)) em += 0.28;
+    else if (/[A-ZÁÉÍÓÚÑQWMBDKHGNUVR]/.test(ch)) em += 0.62;
+    else em += 0.5;
+  }
+  return em * (size / 2.8346) * (negrita ? 1.05 : 1);
+};
+
+// Ancho útil vertical en mm (márgenes 1440 DXA = 25,4 mm).
+const ANCHO_UTIL_RETRATO_MM = (11906 - 1440 * 2) / 1440 * 25.4;
+
+/** ¿La tabla va a página apaisada? MISMO criterio de contenido que el PDF. */
+function esApaisadaWord(tabla: TablaDoc): boolean {
+  return requiereApaisada(tabla, medirWord, ANCHO_UTIL_RETRATO_MM, 7.5);
+}
+
 /** Reparte el ancho de contenido entre columnas según su contenido. */
 function anchosColumnas(tabla: TablaDoc, ancho: number): number[] {
   const n = tabla.encabezados.length;
@@ -91,16 +133,32 @@ function anchosColumnas(tabla: TablaDoc, ancho: number): number[] {
   return pesos.map((p) => Math.round((ancho * p) / suma));
 }
 
-function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, ancho: number, size: number): TableCell[] {
+function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, ancho: number, size: number, opts?: { numericas?: boolean[]; resaltada?: boolean; ultima?: boolean }): TableCell[] {
+  const numericas = opts?.numericas ?? [];
   return fila.map((celda, i) => {
-    const alinear =
-      esEncabezado || i === 0
-        ? i === 0
-          ? AlignmentType.LEFT
-          : AlignmentType.CENTER
-        : esNumerica(celda)
+    const alinear = esEncabezado
+      ? i === 0
+        ? AlignmentType.LEFT
+        : numericas[i]
+          ? AlignmentType.CENTER
+          : AlignmentType.LEFT
+      : i === 0
+        ? AlignmentType.LEFT
+        : (tabla.alineaciones?.[i] ?? (numericas[i] ? 'der' : 'izq')) === 'der'
           ? AlignmentType.RIGHT
-          : AlignmentType.LEFT;
+          : (tabla.alineaciones?.[i] ?? (numericas[i] ? 'der' : 'izq')) === 'cen'
+            ? AlignmentType.CENTER
+            : AlignmentType.LEFT;
+    // Filetes horizontales selectivos (mismo lenguaje visual que el PDF):
+    // cabecera con cierre superior e inferior; totales con filete superior;
+    // última fila con cierre inferior. SIN rejilla vertical.
+    const bordesCelda =
+      esEncabezado || opts?.resaltada || opts?.ultima
+        ? {
+            top: esEncabezado ? { style: BorderStyle.SINGLE, size: 8, color: '64748B' } : opts?.resaltada ? { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' } : undefined,
+            bottom: opts?.ultima ? { style: BorderStyle.SINGLE, size: 8, color: '64748B' } : esEncabezado ? { style: BorderStyle.SINGLE, size: 4, color: '94A3B8' } : undefined,
+          }
+        : undefined;
     return new TableCell({
       children: [
         new Paragraph({
@@ -108,8 +166,8 @@ function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, anch
           children: [
             new TextRun({
               text: celda === null ? '' : T(celda),
-              bold: esEncabezado,
-              color: esEncabezado ? 'FFFFFF' : TINTA,
+              bold: esEncabezado || opts?.resaltada,
+              color: esEncabezado ? AZUL : TINTA,
               size: esEncabezado ? size : size,
               font: 'Calibri',
             }),
@@ -117,8 +175,9 @@ function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, anch
         }),
       ],
       shading: esEncabezado
-        ? { type: ShadingType.CLEAR, color: 'auto', fill: AZUL }
+        ? { type: ShadingType.CLEAR, color: 'auto', fill: 'EEF2F7' }
         : undefined,
+      borders: bordesCelda,
       margins: { top: 40, bottom: 40, left: 80, right: 80 },
       width: { size: anchosColumnas(tabla, ancho)[i], type: WidthType.DXA },
     });
@@ -126,35 +185,50 @@ function celdasFila(tabla: TablaDoc, fila: string[], esEncabezado: boolean, anch
 }
 
 function tablaWord(tabla: TablaDoc, ancho: number): Table {
-  const size = tabla.ancha ? 13 : 15; // half-points: 6.5pt / 7.5pt
+  const size = tabla.ancha ? 15 : 17; // half-points: 7,5 pt apaisada / 8,5 pt normal (§5.2)
+  const numericas = columnasNumericasWord(tabla);
+  const resaltar = new Set(tabla.resaltar ?? []);
   const children: TableRow[] = [];
   children.push(
     new TableRow({
       tableHeader: true, // encabezado repetido en páginas siguientes
       cantSplit: true,
-      children: celdasFila(tabla, tabla.encabezados, true, ancho, size),
+      children: celdasFila(tabla, tabla.encabezados, true, ancho, size, { numericas }),
     })
   );
-  for (const fila of tabla.filas) {
+  tabla.filas.forEach((fila, idx) => {
     children.push(
       new TableRow({
         cantSplit: true, // no cortar filas entre páginas
-        children: celdasFila(tabla, fila, false, ancho, size),
+        children: celdasFila(tabla, fila, false, ancho, size, {
+          numericas,
+          resaltada: resaltar.has(idx),
+          ultima: idx === tabla.filas.length - 1,
+        }),
       })
     );
-  }
+  });
   return new Table({
     rows: children,
     width: { size: ancho, type: WidthType.DXA },
     columnWidths: anchosColumnas(tabla, ancho),
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
-      bottom: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
-      left: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
-      right: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
-      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
-      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: GRIS_BORDE },
+      top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'auto' },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: 'auto' },
     },
+  });
+}
+
+/** Nota al pie de tabla (APA): fuente/supuesto/lectura, cuando existe. */
+function notaTabla(texto: string): Paragraph {
+  return new Paragraph({
+    style: 'NotaTexto',
+    spacing: { before: 40, after: 160 },
+    children: [new TextRun({ text: T(`Nota. ${texto}`), italics: true, size: 15, color: GRIS_TEXTO, font: 'Calibri' })],
   });
 }
 
@@ -332,6 +406,7 @@ function hijosElementos(elementos: ElementoDoc[], salida: (Paragraph | Table)[])
       case 'tabla':
         if (el.tabla.titulo) salida.push(tituloTabla(el.tabla.titulo, el.tabla.numero));
         salida.push(tablaWord(el.tabla, CONTENT_PORTRAIT));
+        if (el.tabla.nota) salida.push(notaTabla(el.tabla.nota));
         break;
       case 'analisis':
         salida.push(...bloqueAnalisis(el));
@@ -493,11 +568,12 @@ async function construirDOCX(documento: DocumentoPlanex): Promise<Document> {
       })
     );
 
-    // Divide el flujo cuando aparecen tablas anchas consecutivas.
+    // Divide el flujo cuando aparecen tablas anchas consecutivas (mismo
+    // criterio de CONTENIDO que el PDF).
     let i = 0;
     while (i < seccion.elementos.length) {
       const el = seccion.elementos[i];
-      if (el.tipo === 'tabla' && el.tabla.ancha) {
+      if (el.tipo === 'tabla' && esApaisadaWord(el.tabla)) {
         // ¿Ya estamos en un grupo apaisado por otra tabla contigua?
         if (grupos[grupos.length - 1].orientacion !== 'apaisado') {
           grupos.push({ orientacion: 'apaisado', hijos: [] });

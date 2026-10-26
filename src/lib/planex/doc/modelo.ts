@@ -42,6 +42,12 @@ export interface TablaDoc {
   unidad?: string;
   /** Número de tabla asignado por el constructor («Tabla N.» en el título). */
   numero?: number;
+  /** Índices de filas del cuerpo que son SUBTOTALES/TOTALES: el renderizador
+   *  las compone en negrita con filete superior (DOC-003 §5.1). Presentación
+   *  only: el dato ya está en filas; aquí solo se marca el énfasis. */
+  resaltar?: number[];
+  /** Nota al pie de la tabla (fuente/supuesto/lectura), estilo APA. */
+  nota?: string;
 }
 
 // ---------------------------------------------------------------------------
