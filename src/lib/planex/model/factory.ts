@@ -14,6 +14,7 @@ import {
   DeudaConfig,
   EscenarioCapacidad,
   SCHEMA_VERSION,
+  PlantillaOrigen,
 } from '../types';
 import { parametrosPorDefecto, reglasPorDefecto } from '../templates/reglas';
 
@@ -35,7 +36,7 @@ export const DEUDA_BASE: DeudaConfig = {
 };
 
 /** Proyecto base con estructura metodológica completa y motor preconfigurado. */
-export function crearProyectoBase(origen: 'clinica' | 'default' | 'centro' | 'nuevo'): PlanexProject {
+export function crearProyectoBase(origen: PlantillaOrigen): PlanexProject {
   const ahora = ahoraISO();
   return {
     planex: {
@@ -232,7 +233,10 @@ export function normalizarProyecto(entrada: unknown): PlanexProject {
     schemaVersion: String(meta.schemaVersion ?? SCHEMA_VERSION),
     app: 'PLANEX Cuba',
     generado: String(meta.generado ?? ahoraISO()),
-    plantillaOrigen: origenRaw === 'clinica' || origenRaw === 'default' || origenRaw === 'centro' ? origenRaw : 'nuevo',
+    plantillaOrigen:
+      origenRaw === 'clinica' || origenRaw === 'default' || origenRaw === 'centro' || origenRaw === 'holguin'
+        ? origenRaw
+        : 'nuevo',
   };
   p.id = String(o.id ?? nuevoId());
   p.nombre = String(o.nombre ?? 'Plan de negocios sin título');

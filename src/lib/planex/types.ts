@@ -348,11 +348,13 @@ export interface ConclusionesInfo {
 
 export const SCHEMA_VERSION = '2.0.0';
 
+export type PlantillaOrigen = 'clinica' | 'default' | 'centro' | 'holguin' | 'nuevo';
+
 export interface PlanexMeta {
   schemaVersion: string;
   app: string;
   generado: string;
-  plantillaOrigen: 'clinica' | 'default' | 'centro' | 'nuevo';
+  plantillaOrigen: PlantillaOrigen;
 }
 
 export interface Ajustes {

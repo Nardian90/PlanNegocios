@@ -13,7 +13,7 @@ import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, BENEFICIOS_PAIS, ETIQUETAS_GRUPO } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
 import { fmtK, fmtCUP, fmtAnios, mesAnio } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, PanelAnalisis, EnlaceAyuda } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, AvisoDocumental, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { generarAnalisis } from '@/lib/planex/engine/analisis';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { PersonalRow, VehiculoRow, CronogramaRow } from '@/lib/planex/types';
@@ -380,6 +380,7 @@ export function SeccionConclusiones({ modelo }: { modelo: ComputedModel }) {
       <PanelAnalisis titulo="Conclusiones (análisis dinámico del modelo)" clave="conclusiones" modelo={modelo} />
       <Campo etiqueta="Conclusiones del plan de negocios (texto editable del usuario)" valor={p.conclusiones.texto} onChange={(v) => actualizar((x) => void (x.conclusiones.texto = v))} filas={12} />
       {(p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro') && <AdvertenciaDemo />}
+      {p.planex.plantillaOrigen === 'holguin' && <AvisoDocumental />}
     </Seccion>
   );
 }

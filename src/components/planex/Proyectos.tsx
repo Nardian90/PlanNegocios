@@ -40,6 +40,7 @@ import { usePlanex } from '@/lib/planex/store';
 import { crearProyectoClinica } from '@/lib/planex/templates/clinica';
 import { crearProyectoDefault } from '@/lib/planex/templates/default';
 import { crearProyectoCentro } from '@/lib/planex/templates/centro';
+import { crearProyectoHolguin } from '@/lib/planex/templates/holguin';
 import { parsearProyectoJSON } from '@/lib/planex/io/jsonio';
 import { descargarPlan } from '@/lib/supabase/sync';
 import { navegar } from './navegacion';
@@ -144,18 +145,27 @@ export default function Proyectos() {
     };
   }, [workspaceId, refrescar]);
 
-  const crearDesdePlantilla = async (plantilla: 'clinica' | 'default' | 'centro') => {
+  const crearDesdePlantilla = async (plantilla: 'clinica' | 'default' | 'centro' | 'holguin') => {
     if (!workspaceId) return;
     setCreando(true);
     try {
-      const proyecto = plantilla === 'clinica' ? crearProyectoClinica() : plantilla === 'centro' ? crearProyectoCentro() : crearProyectoDefault();
+      const proyecto =
+        plantilla === 'clinica'
+          ? crearProyectoClinica()
+          : plantilla === 'centro'
+            ? crearProyectoCentro()
+            : plantilla === 'holguin'
+              ? crearProyectoHolguin()
+              : crearProyectoDefault();
       const plan = await crearPlanCompartido(
         workspaceId,
         plantilla === 'clinica'
           ? 'Clínica Estomatológica (ejemplo ilustrativo)'
           : plantilla === 'centro'
             ? 'Centro de Diagnóstico Integral (prueba de generalización)'
-            : 'Plan de negocios nuevo',
+            : plantilla === 'holguin'
+              ? 'Centro Estomatológico Internacional Holguín (expediente documental)'
+              : 'Plan de negocios nuevo',
         plantilla,
         proyecto,
       );
@@ -165,7 +175,15 @@ export default function Proyectos() {
       setVerCrear(false);
       navegar(`/editor?plan=${plan.id}`);
     } catch (e) {
-      toast.error('No se pudo crear el plan', { description: (e as Error).message });
+      const msg = (e as Error).message ?? '';
+      if (plantilla === 'holguin' && msg.includes('plans_template_key_check')) {
+        toast.error('La plantilla Holguín requiere aplicar la migración 0005', {
+          description:
+            'Ejecute con las credenciales del propietario: bun run scripts/aplicar-migracion.ts supabase/migrations/0005_template_holguin.sql',
+        });
+      } else {
+        toast.error('No se pudo crear el plan', { description: msg });
+      }
     } finally {
       setCreando(false);
     }
@@ -182,7 +200,14 @@ export default function Proyectos() {
         return;
       }
       const proyecto = res.proyecto;
-      const plantilla = proyecto.planex.plantillaOrigen === 'clinica' ? 'clinica' : proyecto.planex.plantillaOrigen === 'centro' ? 'centro' : 'default';
+      const plantilla =
+        proyecto.planex.plantillaOrigen === 'clinica'
+          ? 'clinica'
+          : proyecto.planex.plantillaOrigen === 'centro'
+            ? 'centro'
+            : proyecto.planex.plantillaOrigen === 'holguin'
+              ? 'holguin'
+              : 'default';
       const plan = await crearPlanCompartido(workspaceId, proyecto.nombre || 'Proyecto importado', plantilla, proyecto);
       toast.success('Proyecto importado como plan compartido', {
         description: res.avisos.join(' ') || 'Reglas y parámetros del archivo conservados.',
@@ -447,6 +472,23 @@ export default function Proyectos() {
                 reglas de fábrica, sin fórmulas de negocio nuevas.
               </p>
               <Badge variant="secondary" className="mt-2 text-[10px]">Ejemplo ilustrativo</Badge>
+            </button>
+            <button
+              className="rounded-xl border p-4 text-left hover:border-primary transition-colors disabled:opacity-50 sm:col-span-2"
+              onClick={() => void crearDesdePlantilla('holguin')}
+              disabled={creando}
+            >
+              <div className="flex items-center gap-2 font-semibold text-sm">
+                <Stethoscope className="size-4 text-primary" /> Centro Estomatológico Internacional Holguín — PROYECTO REAL
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Primer proyecto documental de la aplicación: AEI entre CSMC, S.A. y Leisure Exporting LLC para
+                servicios de estomatología en Holguín. Cada dato cita su fuente del expediente (9 documentos
+                con huella SHA-256); las contradicciones del expediente (tasa 24/120, salarios, depreciación)
+                permanecen visibles y los campos sin evidencia quedan como pendientes. Incluye la sección
+                «Expediente documental» con la matriz de cobertura, las brechas y el informe de diagnóstico.
+              </p>
+              <Badge variant="secondary" className="mt-2 text-[10px]">Expediente real · evaluación preliminar</Badge>
             </button>
             <button
               className="rounded-xl border p-4 text-left hover:border-primary transition-colors disabled:opacity-50"

@@ -65,6 +65,22 @@ export function AdvertenciaDemo({ compacto = false }: { compacto?: boolean }) {
   );
 }
 
+/** Aviso del estado documental del proyecto Holguín (DATA-001): los datos
+ *  son reales y trazables, pero la evaluación es preliminar y las
+ *  contradicciones del expediente permanecen visibles. */
+export function AvisoDocumental({ compacto = false }: { compacto?: boolean }) {
+  return (
+    <div className="rounded-lg border border-sky-300/60 bg-sky-50 dark:bg-sky-950/40 px-4 py-3 text-sky-900 dark:text-sky-200 flex gap-3 items-start">
+      <Info className="size-5 shrink-0 mt-0.5" />
+      <div className="text-xs leading-relaxed">
+        {compacto
+          ? 'PROYECTO DOCUMENTAL EN EVALUACIÓN PRELIMINAR — datos trazables al expediente; contradicciones visibles y pendientes marcados.'
+          : 'PROYECTO DOCUMENTAL EN EVALUACIÓN PRELIMINAR. Los datos proceden del expediente del promotor (fuentes con huella SHA-256) y son trazables campo a campo en la sección «Expediente documental». Las contradicciones del expediente (p. ej., la tasa de cambio 24/120) permanecen visibles y los campos sin evidencia se marcan como pendientes: no se han resuelto en silencio ni se han completado con supuestos no identificados. No constituye una propuesta aprobada ni acredita el cumplimiento de requisitos legales, tributarios, sanitarios o de inversión.'}
+      </div>
+    </div>
+  );
+}
+
 export function Campo({ etiqueta, valor, onChange, placeholder, filas = 3 }: { etiqueta: string; valor: string; onChange: (v: string) => void; placeholder?: string; filas?: number }) {
   return (
     <div className="space-y-1.5">
