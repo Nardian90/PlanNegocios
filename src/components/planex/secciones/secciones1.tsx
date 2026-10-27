@@ -12,7 +12,7 @@ import { FileText, ListOrdered } from 'lucide-react';
 import { usePlanex } from '@/lib/planex/store';
 import { ComputedModel, ETIQUETAS_APORTACION, DECLARACION_RESPONSABILIDAD } from '@/lib/planex/types';
 import { fmtK, fmtAnios, fechaLarga } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, PanelAnalisis, EnlaceAyuda } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, AvisoDocumental, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { AportacionRow } from '@/lib/planex/types';
 
@@ -23,6 +23,7 @@ export function SeccionGeneral({ modelo }: { modelo: ComputedModel }) {
   const actualizar = usePlanex((s) => s.actualizar);
   const setSeccion = usePlanex((s) => s.setSeccion);
   const esDemo = p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro';
+  const esDoc = p.planex.plantillaOrigen === 'holguin';
 
   return (
     <Seccion num="4.1" titulo="Información general" descripcion="Autoría, firma, fecha y declaración de responsabilidad sobre la veracidad de los datos.">
@@ -99,6 +100,7 @@ export function SeccionGeneral({ modelo }: { modelo: ComputedModel }) {
       </Seccion>
 
       {esDemo && <AdvertenciaDemo />}
+      {esDoc && <AvisoDocumental />}
       <p className="text-xs text-muted-foreground flex items-center gap-1.5">
         <FileText className="size-3.5" /> Este plan proviene de la plantilla «{p.planex.plantillaOrigen}». Esquema {p.planex.schemaVersion}.
       </p>
@@ -110,6 +112,7 @@ export function SeccionResumen({ modelo }: { modelo: ComputedModel }) {
   const p = usePlanex((s) => s.proyecto);
   const actualizar = usePlanex((s) => s.actualizar);
   const esDemo = p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro';
+  const esDoc = p.planex.plantillaOrigen === 'holguin';
   const ind = modelo.indicadores;
 
   const kpi = (etiqueta: string, valor: string) => (
@@ -136,6 +139,7 @@ export function SeccionResumen({ modelo }: { modelo: ComputedModel }) {
       <Campo etiqueta="Descripción del negocio y resultados esperados (texto editable del usuario)" valor={p.resumen.introduccion} onChange={(v) => actualizar((x) => void (x.resumen.introduccion = v))} filas={7} />
       <Campo etiqueta="Notas" valor={p.resumen.notas} onChange={(v) => actualizar((x) => void (x.resumen.notas = v))} filas={3} />
       {esDemo && <AdvertenciaDemo />}
+      {esDoc && <AvisoDocumental />}
     </Seccion>
   );
 }

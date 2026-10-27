@@ -6,7 +6,7 @@
 
 export type RolMiembro = 'owner' | 'editor' | 'viewer';
 export type EstadoPlan = 'borrador' | 'en_revision' | 'finalizado';
-export type PlantillaKey = 'clinica' | 'default' | 'centro';
+export type PlantillaKey = 'clinica' | 'default' | 'centro' | 'holguin';
 
 export type PerfilDB = {
   id: string;

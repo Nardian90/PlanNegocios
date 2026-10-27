@@ -109,6 +109,12 @@ export interface MetaDocumento {
   unidadTabla: string;
   /** Texto documental de la tasa aplicada (misión §5.2.10). */
   notaMoneda: string;
+  /** Rótulo del encabezado corriente (DATA-001: permite que un documento
+   *  distinto del plan —p. ej. el informe de brechas— use SU título). Sin
+   *  definir: «PLAN DE NEGOCIOS» (comportamiento previo intacto). */
+  tituloCorriente?: string;
+  /** Marca del pie de página. Sin definir: el pie clásico del plan. */
+  marcaPie?: string;
 }
 
 export interface DocumentoPlanex {

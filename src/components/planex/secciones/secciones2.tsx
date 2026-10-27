@@ -27,7 +27,7 @@ import {
 } from '@/lib/planex/types';
 import { valorLinea } from '@/lib/planex/engine/engine';
 import { fmtK, fmtPct, fmtAnios } from '@/lib/planex/format';
-import { Seccion, Ayuda, AdvertenciaDemo, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, GraficoFlujo, PanelAnalisis, EnlaceAyuda } from '../comunes';
+import { Seccion, Ayuda, AdvertenciaDemo, AvisoDocumental, Campo, CampoTexto, TablaEditor, CeldaCalculada, Columna, NumInput, GraficoFlujo, PanelAnalisis, EnlaceAyuda } from '../comunes';
 import { AYUDAS_METODOLOGICAS } from '@/lib/planex/templates/default';
 import type { ServicioRow, ConsumoRow, InversionRow, RecursoRow } from '@/lib/planex/types';
 
@@ -848,6 +848,7 @@ export function SeccionFinanciero({ modelo }: { modelo: ComputedModel }) {
       )}
 
       {(p.planex.plantillaOrigen === 'clinica' || p.planex.plantillaOrigen === 'centro') && <AdvertenciaDemo compacto />}
+      {p.planex.plantillaOrigen === 'holguin' && <AvisoDocumental compacto />}
       <div className="text-xs text-muted-foreground">
         Los parámetros que alimentan estas proyecciones (tasas, crecimiento, canon, públicos, admin, reserva, recuperación del capital de trabajo…) se editan en «Configuración de cálculos», accesible también desde cualquier celda verde.
       </div>

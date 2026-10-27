@@ -414,14 +414,15 @@ class Compositor {
     if (this.encabezadas.has(actual)) return;
     this.encabezadas.add(actual);
     const { ancho } = this.dims;
+    const rotulo = T(this.documento.meta.tituloCorriente ?? 'PLAN DE NEGOCIOS');
     this.doc.setFont('helvetica', 'bold');
     this.doc.setFontSize(8);
     this.doc.setTextColor(...TITULO);
-    this.doc.text('PLAN DE NEGOCIOS', M, 11);
+    this.doc.text(rotulo, M, 11);
     this.doc.setFont('helvetica', 'normal');
     this.doc.setTextColor(...GRIS);
     const proy = T(this.documento.meta.nombreProyecto);
-    const wMarca = this.doc.getTextDimensions('PLAN DE NEGOCIOS').w;
+    const wMarca = this.doc.getTextDimensions(rotulo).w;
     const disponible = ancho - 2 * M - wMarca - 8;
     const recortado =
       this.doc.getTextWidth(proy) > disponible
@@ -1490,7 +1491,7 @@ class Compositor {
       this.doc.setFont('helvetica', 'normal');
       this.doc.setFontSize(7);
       this.doc.setTextColor(...GRIS);
-      this.doc.text('PLANEX Cuba — Plan de Negocios (GOC-2026-O57)', M, altoPag - 8.5);
+      this.doc.text(T(meta.marcaPie ?? 'PLANEX Cuba — Plan de Negocios (GOC-2026-O57)'), M, altoPag - 8.5);
       this.doc.text(`Página ${i} de ${total}`, anchoPag - M, altoPag - 8.5, { align: 'right' });
       if (meta.esDemo) this.doc.text('EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS', anchoPag / 2, altoPag - 8.5, { align: 'center' });
     }
@@ -1641,6 +1642,19 @@ export function componerDesdeModelo(documento: DocumentoPlanex): { datos: ArrayB
   const comp = new Compositor(documento);
   comp.componer();
   const { doc, diagnostico } = comp.resultado();
+  return { datos: doc.output('arraybuffer'), diagnostico };
+}
+
+/** Composición de un documento canónico con ÍNDICE PAGINADO por doble pasada
+ *  (DATA-001): la misma vía del plan de negocios, para documentos completos
+ *  no generados desde un proyecto (p. ej. el informe de brechas). */
+export function componerDesdeModeloConIndice(documento: DocumentoPlanex): { datos: ArrayBuffer; diagnostico: DiagnosticoComposicion } {
+  const registro: Record<string, number> = {};
+  componerDocumento(documento, undefined, registro);
+  const enIndice = documento.secciones.filter((s) => s.enIndice).length;
+  const paginasIndice = paginasDeIndice(enIndice);
+  const paginasAjustadas = Object.fromEntries(Object.entries(registro).map(([k, v]) => [k, v + paginasIndice]));
+  const { doc, diagnostico } = componerDocumento(documento, paginasAjustadas);
   return { datos: doc.output('arraybuffer'), diagnostico };
 }
 

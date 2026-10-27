@@ -52,7 +52,7 @@ export async function actualizarEstadoPlan(planId: string, estado: PlanRow['stat
 export async function crearPlanCompartido(
   workspaceId: string,
   titulo: string,
-  plantilla: 'clinica' | 'default' | 'centro',
+  plantilla: 'clinica' | 'default' | 'centro' | 'holguin',
   proyecto: PlanexProject,
 ): Promise<PlanRow> {
   const sb = supabase();

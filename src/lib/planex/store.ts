@@ -12,6 +12,7 @@ import { PlanexProject, AportacionRow, ConsumoRow, InversionRow, PersonalRow, Se
 import { crearProyectoClinica } from './templates/clinica';
 import { crearProyectoDefault } from './templates/default';
 import { crearProyectoCentro } from './templates/centro';
+import { crearProyectoHolguin } from './templates/holguin';
 import { normalizarSerie, nuevoId, ahoraISO } from './model/factory';
 import { guardarActual, guardarEnBiblioteca, guardarTema, cargarTema } from './io/persistence';
 
@@ -29,7 +30,7 @@ interface EstadoPlanex {
   objetivoAlerta: string | null;
   /** Aplica un cambio inmutable al proyecto activo. */
   actualizar: (mut: (p: PlanexProject) => void) => void;
-  abrirPlantilla: (tipo: 'clinica' | 'default' | 'centro') => void;
+  abrirPlantilla: (tipo: 'clinica' | 'default' | 'centro' | 'holguin') => void;
   proyectoNuevo: () => void;
   reemplazarProyecto: (p: PlanexProject) => void;
   /** Sustituye el proyecto (p. ej. carga remota o realtime) SIN tocar la
@@ -107,7 +108,14 @@ export const usePlanex = create<EstadoPlanex>((set, get) => ({
 
   abrirPlantilla: (tipo) =>
     set(() => ({
-      proyecto: tipo === 'clinica' ? crearProyectoClinica() : tipo === 'centro' ? crearProyectoCentro() : crearProyectoDefault(),
+      proyecto:
+        tipo === 'clinica'
+          ? crearProyectoClinica()
+          : tipo === 'centro'
+            ? crearProyectoCentro()
+            : tipo === 'holguin'
+              ? crearProyectoHolguin()
+              : crearProyectoDefault(),
       sucio: false,
       guardadoEn: null,
       seccion: 'general',

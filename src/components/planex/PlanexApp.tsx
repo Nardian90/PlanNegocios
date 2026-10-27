@@ -53,6 +53,7 @@ import { SeccionGeneral, SeccionResumen, SeccionNegocio } from './secciones/secc
 import { SeccionTecnico, SeccionFinanciero } from './secciones/secciones2';
 import { SeccionMercado, SeccionFuerza, SeccionInversiones, SeccionBeneficios, SeccionConclusiones } from './secciones/secciones3';
 import { SeccionConfig } from './config';
+import { SeccionExpediente } from './Expediente';
 
 const NAV: { id: string; num: string; titulo: string }[] = [
   { id: 'general', num: '4.1–4.3', titulo: 'Información general e índice' },
@@ -65,6 +66,7 @@ const NAV: { id: string; num: string; titulo: string }[] = [
   { id: 'inversiones', num: '4.10', titulo: 'Inversiones' },
   { id: 'beneficios', num: '4.11', titulo: 'Beneficios al país' },
   { id: 'conclusiones', num: '4.12', titulo: 'Conclusiones' },
+  { id: 'expediente', num: 'ED', titulo: 'Expediente documental' },
   { id: 'config', num: '⚙', titulo: 'Configuración de cálculos' },
 ];
 
@@ -135,7 +137,10 @@ export function PlanexApp() {
   const errores = modelo.issues.filter((i) => i.tipo === 'error');
   const pendientes = modelo.issues.filter((i) => i.tipo === 'pendiente');
   const incidencias = modelo.issues.filter((i) => i.tipo === 'inconsistencia');
-  const idxNav = NAV.findIndex((n) => n.id === seccion);
+  // La sección «Expediente documental» solo existe en el proyecto Holguín
+  // (DATA-001): su contenido es el expediente real del promotor.
+  const navVisible = proyecto.planex.plantillaOrigen === 'holguin' ? NAV : NAV.filter((n) => n.id !== 'expediente');
+  const idxNav = navVisible.findIndex((n) => n.id === seccion);
   const listaConflictos = resumenConflictos();
 
   // ------------------------------------------------------------------ acciones
@@ -485,7 +490,7 @@ export function PlanexApp() {
       <div className="flex-1 flex min-h-0">
         <aside className="hidden lg:block w-60 shrink-0 border-r bg-muted/30">
           <nav className="sticky top-[53px] p-2 space-y-0.5 max-h-[calc(100vh-53px)] overflow-y-auto">
-            {NAV.map((n) => {
+            {navVisible.map((n) => {
               const activo = seccion === n.id;
               const issuesSeccion = modelo.issues.filter((i) => i.seccion === n.id);
               const err = issuesSeccion.some((i) => i.tipo === 'error');
@@ -510,7 +515,7 @@ export function PlanexApp() {
 
         <main className="flex-1 min-w-0 overflow-x-hidden">
           <div className="flex lg:hidden overflow-x-auto border-b px-2 py-1.5 gap-1">
-            {NAV.map((n) => (
+            {navVisible.map((n) => (
               <Button key={n.id} size="sm" variant={seccion === n.id ? 'default' : 'ghost'} className="shrink-0 h-7 text-xs" onClick={() => store.setSeccion(n.id)}>
                 {n.num}
               </Button>
@@ -518,11 +523,11 @@ export function PlanexApp() {
           </div>
           <div className="p-4 md:p-6 max-w-6xl mx-auto">
             <div className="flex items-center justify-between gap-2 mb-4 lg:hidden">
-              <Button variant="outline" size="icon" className="size-8" disabled={idxNav <= 0} onClick={() => idxNav > 0 && store.setSeccion(NAV[idxNav - 1].id)} aria-label="Sección anterior">
+              <Button variant="outline" size="icon" className="size-8" disabled={idxNav <= 0} onClick={() => idxNav > 0 && store.setSeccion(navVisible[idxNav - 1].id)} aria-label="Sección anterior">
                 <ChevronLeft className="size-4" />
               </Button>
-              <span className="text-xs text-muted-foreground">{NAV[idxNav]?.titulo}</span>
-              <Button variant="outline" size="icon" className="size-8" disabled={idxNav >= NAV.length - 1} onClick={() => idxNav < NAV.length - 1 && store.setSeccion(NAV[idxNav + 1].id)} aria-label="Sección siguiente">
+              <span className="text-xs text-muted-foreground">{navVisible[idxNav]?.titulo}</span>
+              <Button variant="outline" size="icon" className="size-8" disabled={idxNav >= navVisible.length - 1} onClick={() => idxNav < navVisible.length - 1 && store.setSeccion(navVisible[idxNav + 1].id)} aria-label="Sección siguiente">
                 <ChevronRight className="size-4" />
               </Button>
             </div>
@@ -537,6 +542,7 @@ export function PlanexApp() {
             {seccion === 'inversiones' && <SeccionInversiones modelo={modelo} />}
             {seccion === 'beneficios' && <SeccionBeneficios modelo={modelo} />}
             {seccion === 'conclusiones' && <SeccionConclusiones modelo={modelo} />}
+            {seccion === 'expediente' && <SeccionExpediente />}
             {seccion === 'config' && <SeccionConfig modelo={modelo} />}
           </div>
         </main>
