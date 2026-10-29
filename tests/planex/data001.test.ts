@@ -507,8 +507,9 @@ describe('DATA-001 §9.11 — protección documental', () => {
     const docs = join(process.cwd(), 'docs', 'expediente-holguin');
     if (existsSync(docs)) {
       for (const f of readdirSync(docs)) {
-        // Entregables generados por la app, no documentos del ZIP:
-        expect(/^(PLANEX_Informe_Brechas|Centro_Holguin)/.test(f)).toBe(true);
+        // Entregables generados por la app, no documentos del ZIP
+        // (DATA-002 añade la serie PLANEX_Consultas_Promotor_*):
+        expect(/^(PLANEX_Informe_Brechas|PLANEX_Consultas_Promotor|Centro_Holguin)/.test(f)).toBe(true);
       }
     }
   });
