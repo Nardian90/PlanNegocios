@@ -33,6 +33,7 @@ import {
 import { FUENTES, RESUMEN_FUENTES, SHA256_ZIP } from '@/lib/planex/data/holguin/fuentes';
 import { REGISTRO } from '@/lib/planex/data/holguin/registro';
 import { exportarInformeBrechasPDF } from '@/lib/planex/io/informe-brechas';
+import { exportarConsultasPDF, exportarConsultasDOCX } from '@/lib/planex/io/consultas';
 
 const pct = (x: number) => `${(x * 100).toFixed(1).replace('.', ',')} %`;
 
@@ -73,15 +74,38 @@ export function SeccionExpediente() {
     }
   };
 
+  const exportarConsultas = async (formato: 'pdf' | 'docx') => {
+    setExportando(true);
+    try {
+      if (formato === 'pdf') await exportarConsultasPDF();
+      else await exportarConsultasDOCX();
+      toast.success(formato === 'pdf' ? 'Consultas al promotor generadas (PDF)' : 'Consultas al promotor generadas (DOCX editable)', {
+        description: 'Supuestos, dudas y pendientes del expediente, compuestos desde el mismo registro de datos.',
+      });
+    } catch (e) {
+      toast.error('No se pudo generar el documento de consultas', { description: (e as Error).message });
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <Seccion
       num="ED"
       titulo="Expediente documental — completitud, fuentes y diagnóstico"
       descripcion="Estado de cobertura de la información del expediente Holguín: qué está respaldado por fuentes, qué contradice a qué y qué falta. Misma fuente de datos que el informe PDF de brechas."
       acciones={
-        <Button size="sm" onClick={() => void exportar()} disabled={exportando}>
-          <FileDown className="size-3.5" /> {exportando ? 'Generando…' : 'Informe PDF de brechas'}
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => void exportar()} disabled={exportando}>
+            <FileDown className="size-3.5" /> {exportando ? 'Generando…' : 'Informe PDF de brechas'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void exportarConsultas('pdf')} disabled={exportando}>
+            <FileDown className="size-3.5" /> Consultas PDF
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void exportarConsultas('docx')} disabled={exportando}>
+            <FileDown className="size-3.5" /> Consultas DOCX
+          </Button>
+        </div>
       }
     >
       {/* ------------------------------------------------ resumen */}

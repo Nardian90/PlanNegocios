@@ -430,7 +430,7 @@ function pieDocumento(documento: DocumentoPlanex): Footer {
       new Paragraph({
         tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_PORTRAIT }],
         children: [
-          new TextRun({ text: 'PLANEX Cuba — Plan de Negocios (GOC-2026-O57)', size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
+          new TextRun({ text: T(documento.meta.marcaPie ?? 'PLANEX Cuba — Plan de Negocios (GOC-2026-O57)'), size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
           new TextRun({ children: ['\tPágina ', PageNumber.CURRENT, ' de ', PageNumber.TOTAL_PAGES], size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
           ...(documento.meta.esDemo
             ? [new TextRun({ text: '   ·   EJEMPLO ILUSTRATIVO CON DATOS FICTICIOS', size: 13, color: AMBAR, font: 'Calibri' })]
@@ -448,7 +448,7 @@ function encabezadoDocumento(documento: DocumentoPlanex): Header {
         tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_PORTRAIT }],
         border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: AZUL, space: 2 } },
         children: [
-          new TextRun({ text: 'PLAN DE NEGOCIOS', bold: true, size: 15, color: AZUL, font: 'Calibri' }),
+          new TextRun({ text: T(documento.meta.tituloCorriente ?? 'PLAN DE NEGOCIOS'), bold: true, size: 15, color: AZUL, font: 'Calibri' }),
           new TextRun({ text: `\t${T(documento.meta.nombreProyecto)}`, size: 13, color: GRIS_TEXTO, font: 'Calibri' }),
         ],
       }),
@@ -465,6 +465,16 @@ function pagina(orientacion: 'retrato' | 'apaisado') {
         ? { orientation: PageOrientation.LANDSCAPE, width: 16838, height: 11906 }
         : { orientation: PageOrientation.PORTRAIT, width: 11906, height: 16838 },
   };
+}
+
+/** Genera el documento Word (.docx) desde un modelo canónico ya construido
+ * (DATA-002: documentos no-plan, p. ej. el de consultas al promotor). */
+export async function exportarDOCXDesdeModelo(
+  documento: DocumentoPlanex
+): Promise<{ datos: Blob; documento: DocumentoPlanex }> {
+  const doc = await construirDOCX(documento);
+  const datos = await Packer.toBlob(doc);
+  return { datos, documento };
 }
 
 /** Genera el documento Word (.docx) desde el modelo canónico. */
